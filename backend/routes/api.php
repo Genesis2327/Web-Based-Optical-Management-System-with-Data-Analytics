@@ -2,7 +2,9 @@
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Schema;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\ForgotPasswordController;
 use App\Http\Controllers\BranchController;
 use App\Http\Controllers\ScheduleController;
 use App\Http\Controllers\AppointmentController;
@@ -18,6 +20,7 @@ use App\Http\Controllers\AnalyticsController;
 use App\Http\Controllers\TransactionController;
 use App\Http\Controllers\ReceiptController;
 use App\Http\Controllers\FeedbackController;
+use App\Http\Controllers\OptometristRotationController;
 use App\Http\Controllers\StaffScheduleController;
 use App\Http\Controllers\RestockRequestController;
 use App\Http\Controllers\ReservationController;
@@ -26,8 +29,10 @@ use App\Http\Controllers\StockTransferController;
 use App\Http\Controllers\EnhancedInventoryController;
 use App\Http\Controllers\RealTimeInventoryController;
 use App\Http\Controllers\CrossBranchInventoryController;
+use App\Http\Controllers\BranchInventoryController;
 use App\Http\Controllers\BranchContactController;
 use App\Http\Controllers\GlassOrderController;
+use App\Http\Controllers\ScheduleChangeRequestController;
 
 /*
 |--------------------------------------------------------------------------
@@ -35,14 +40,25 @@ use App\Http\Controllers\GlassOrderController;
 |--------------------------------------------------------------------------
 */
 
+
 // Test route to verify inventory data
-// Health check endpoint for Railway
+// Health check endpoint for Railway and frontend connectivity check
 Route::get('/health', function() {
+    try {
+        // Quick database connectivity check
+        \DB::connection()->getPdo();
+        $dbStatus = 'connected';
+    } catch (\Exception $e) {
+        $dbStatus = 'disconnected';
+    }
+    
     return response()->json([
-        'status' => 'healthy',
+        'status' => 'ok', // Frontend expects 'ok' status
         'service' => 'Everbright Optical System',
-        'timestamp' => now()->toISOString(),
-        'version' => '1.0.0'
+        'timestamp' => now()->toIso8601String(),
+        'version' => '1.0.0',
+        'database' => config('database.default'),
+        'database_status' => $dbStatus,
     ]);
 });
 
@@ -180,12 +196,261 @@ Route::get('/test-unitop-inventory', function() {
 // Public routes
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login']);
+
+// Password reset routes (public, but rate limited)
+Route::post('/forgot-password/request-otp', [ForgotPasswordController::class, 'requestOTP'])
+    ->middleware('throttle:password-reset');
+Route::post('/forgot-password/verify-otp', [ForgotPasswordController::class, 'verifyOTP']);
+Route::post('/forgot-password/reset', [ForgotPasswordController::class, 'resetPassword']);
+Route::post('/products', [ProductController::class, 'store']); // Temporarily public for testing
+Route::get('/products', [ProductController::class, 'index']); // Temporarily public for testing
+Route::put('/products/{id}', [ProductController::class, 'update']); // Temporarily public for testing - using {id} instead of {product} for better compatibility
+Route::delete('/products/{product}', [ProductController::class, 'destroy']); // Temporarily public for testing
 Route::get('/branches/active', [BranchController::class, 'getActiveBranches']); // Public - for customers
+Route::get('/branches/{branch}', [BranchController::class, 'show']); // Public - for customers (returns basic info without auth)
 Route::get('/optometrists', [OptometristController::class, 'index']); // Public - for scheduling
 Route::get('/appointments/availability', [App\Http\Controllers\AppointmentAvailabilityController::class, 'getAvailability']); // Public - for scheduling
 
+// Optometrist rotation routes (public for customer viewing)
+Route::get('/optometrist-rotations', [OptometristRotationController::class, 'index']);
+Route::get('/optometrist-rotations/availability', [OptometristRotationController::class, 'getAvailability']);
+Route::get('/optometrist-rotations/branch/{branchId}', [OptometristRotationController::class, 'getOptometristsForBranch']);
+
 // Protected routes
+Route::get('/test-branches', function() {
+    return response()->json([
+        'message' => 'Test route working',
+        'branches' => App\Models\Branch::all(),
+        'count' => App\Models\Branch::count()
+    ]);
+});
+
+Route::get('/branches-simple', function() {
+    try {
+        // Check if branches table exists
+        if (!Schema::hasTable('branches')) {
+            \Log::warning('Branches table does not exist');
+            return response()->json([
+                'branches' => [],
+                'total_count' => 0,
+                'message' => 'Branches table does not exist. Please run migrations.'
+            ], 200); // Return 200 with empty array instead of 500
+        }
+        
+        // Check if deleted_at column exists - if not, query without soft deletes
+        $hasDeletedAt = Schema::hasColumn('branches', 'deleted_at');
+        
+        // Get all branches - use withoutGlobalScopes if deleted_at doesn't exist
+        $query = App\Models\Branch::select('id', 'name', 'code', 'address', 'phone', 'email', 'is_active', 'created_at', 'updated_at');
+        
+        if (!$hasDeletedAt) {
+            // If deleted_at doesn't exist, disable soft deletes for this query
+            $query = $query->withoutGlobalScopes();
+        }
+        
+        $branches = $query->get()->map(function ($branch) {
+            return [
+                'id' => $branch->id,
+                'name' => $branch->name,
+                'code' => $branch->code,
+                'address' => $branch->address,
+                'phone' => $branch->phone,
+                'email' => $branch->email,
+                'is_active' => $branch->is_active,
+                'created_at' => $branch->created_at,
+                'updated_at' => $branch->updated_at,
+            ];
+        });
+        
+        return response()->json([
+            'branches' => $branches,
+            'total_count' => $branches->count()
+        ]);
+    } catch (\Exception $e) {
+        \Log::error('Error in branches-simple endpoint: ' . $e->getMessage(), [
+            'trace' => $e->getTraceAsString()
+        ]);
+        
+        // Return 200 with empty array instead of 500 to prevent frontend errors
+        return response()->json([
+            'branches' => [],
+            'total_count' => 0,
+            'error' => 'Failed to fetch branches',
+            'message' => $e->getMessage()
+        ], 200);
+    }
+});
+Route::get('/notifications/unread-count', [NotificationController::class, 'getUnreadCount']);
+Route::get('/branches', [BranchController::class, 'index']); // Temporarily outside auth middleware
+Route::get('/branch-stock-test', function() {
+    return response()->json([
+        'stock' => App\Models\BranchStock::select('id', 'product_id', 'branch_id', 'stock_quantity', 'reserved_quantity', 'price_override', 'status')->get(),
+        'summary' => [
+            'total_products' => App\Models\BranchStock::count(),
+            'in_stock' => App\Models\BranchStock::where('stock_quantity', '>', 0)->count(),
+            'low_stock' => App\Models\BranchStock::where('stock_quantity', '>', 0)->where('stock_quantity', '<', 5)->count(),
+            'out_of_stock' => App\Models\BranchStock::where('stock_quantity', '<=', 0)->count(),
+        ]
+    ]);
+});
+
+// Test route for updating branch stock (bypass auth for testing)
+Route::post('/branch-stock-test', function(Request $request) {
+    try {
+        $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
+            'product_id' => 'required|exists:products,id',
+            'branch_id' => 'required|exists:branches,id',
+            'stock_quantity' => 'required|integer|min:0',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        // Explicitly cast to int to ensure 0 is saved properly
+        $stockQuantity = (int) $request->stock_quantity;
+
+        $branchStock = App\Models\BranchStock::updateOrCreate(
+            ['product_id' => $request->product_id, 'branch_id' => $request->branch_id],
+            ['stock_quantity' => $stockQuantity]
+        );
+
+        // Clear cache to ensure fresh data
+        \Illuminate\Support\Facades\Cache::forget('enhanced_inventory_all');
+        \Illuminate\Support\Facades\Cache::forget('enhanced_inventory_branch_' . $request->branch_id);
+
+        // Refresh to get updated status
+        $branchStock->refresh();
+
+        return response()->json([
+            'message' => 'Branch stock updated successfully',
+            'branch_stock' => $branchStock->fresh(['product', 'branch'])
+        ]);
+    } catch (\Exception $e) {
+        return response()->json([
+            'message' => 'Error updating branch stock',
+            'error' => $e->getMessage()
+        ], 500);
+    }
+});
+
+// Test route for bulk updating branch stock (handles 0 values)
+Route::put('/branch-stock-test', function(Request $request) {
+    try {
+        $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
+            'updates' => 'required|array',
+            'updates.*.id' => 'required|exists:branch_stock,id',
+            'updates.*.stock_quantity' => 'required|integer|min:0',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        \Illuminate\Support\Facades\DB::transaction(function () use ($request) {
+            $branchIds = [];
+            foreach ($request->updates as $update) {
+                $branchStock = App\Models\BranchStock::find($update['id']);
+                if ($branchStock) {
+                    // Explicitly cast to int to ensure 0 is saved properly
+                    $stockQuantity = (int) $update['stock_quantity'];
+                    $branchStock->update(['stock_quantity' => $stockQuantity]);
+                    $branchStock->refresh(); // Ensure status is updated
+                    $branchIds[] = $branchStock->branch_id;
+                }
+            }
+            
+            // Clear cache for all affected branches
+            foreach (array_unique($branchIds) as $branchId) {
+                \Illuminate\Support\Facades\Cache::forget('enhanced_inventory_branch_' . $branchId);
+            }
+            \Illuminate\Support\Facades\Cache::forget('enhanced_inventory_all');
+        });
+
+        return response()->json([
+            'message' => 'Stock updated successfully',
+            'updated_count' => count($request->updates)
+        ]);
+    } catch (\Exception $e) {
+        return response()->json([
+            'message' => 'Error updating stock',
+            'error' => $e->getMessage()
+        ], 500);
+    }
+});
+Route::get('/branches-test', function() {
+    return response()->json([
+        'branches' => App\Models\Branch::select('id', 'name', 'code', 'address', 'phone', 'email', 'is_active', 'created_at', 'updated_at')->get(),
+        'total_count' => App\Models\Branch::count()
+    ]);
+});
+// Public product categories endpoint - customers need to see categories without auth
+Route::get('/product-categories', [App\Http\Controllers\ProductCategoryController::class, 'index']);
+
 Route::middleware('auth:sanctum')->group(function () {
+    // Admin analytics route
+    Route::get('/admin/analytics', [App\Http\Controllers\AnalyticsController::class, 'getAdminAnalytics']);
+    Route::get('/admin/products/analytics', [App\Http\Controllers\AnalyticsController::class, 'getProductAnalytics']);
+    
+    // Admin Central Inventory - Admin only access
+    Route::middleware('admin')->group(function () {
+        Route::get('/admin/central-inventory', [App\Http\Controllers\EnhancedInventoryController::class, 'getCentralInventory']);
+        Route::get('/admin/central-inventory/analytics', [App\Http\Controllers\EnhancedInventoryController::class, 'getCentralInventoryAnalytics']);
+    });
+    
+    // Manufacturer routes
+    Route::get('/manufacturers-directory', [App\Http\Controllers\ManufacturerController::class, 'getDirectory']);
+    
+    // Manufacturer CRUD - Admin only
+    Route::middleware('admin')->group(function () {
+        Route::get('/admin/manufacturers', [App\Http\Controllers\ManufacturerController::class, 'index']);
+        Route::post('/admin/manufacturers', [App\Http\Controllers\ManufacturerController::class, 'store']);
+        Route::put('/admin/manufacturers/{manufacturer}', [App\Http\Controllers\ManufacturerController::class, 'update']);
+        Route::delete('/admin/manufacturers/{manufacturer}', [App\Http\Controllers\ManufacturerController::class, 'destroy']);
+        Route::get('/admin/manufacturers/{manufacturer}', [App\Http\Controllers\ManufacturerController::class, 'show']);
+    });
+    
+    // Test routes
+    Route::get('/test-analytics', function(Request $request) {
+        return response()->json(['message' => 'Analytics test route working', 'user' => $request->user()->email ?? 'No user']);
+    });
+    Route::get('/test-manufacturers', function(Request $request) {
+        try {
+            $manufacturers = App\Models\Manufacturer::all();
+            return response()->json([
+                'message' => 'Manufacturers test route working', 
+                'user' => $request->user()->email ?? 'No user',
+                'manufacturers_count' => $manufacturers->count()
+            ]);
+        } catch (Exception $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    });
+    
+    Route::get('/test-categories', function(Request $request) {
+        try {
+            $categories = App\Models\ProductCategory::all();
+            return response()->json([
+                'message' => 'Categories test route working', 
+                'categories_count' => $categories->count(),
+                'categories' => $categories->map(function ($category) {
+                    return [
+                        'id' => $category->id,
+                        'name' => $category->name,
+                        'slug' => $category->slug,
+                    ];
+                })
+            ]);
+        } catch (Exception $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    });
     // Auth routes
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/user', [AuthController::class, 'user']);
@@ -193,23 +458,27 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/profile', [AuthController::class, 'updateProfile']);
 
     // Branch routes (Admin only)
-    Route::get('/branches', [BranchController::class, 'index']); // Moved inside auth
     Route::post('/branches', [BranchController::class, 'store']);
-    Route::get('/branches/{branch}', [BranchController::class, 'show']);
+    // Note: GET /branches/{branch} is now public (moved outside auth middleware)
     Route::put('/branches/{branch}', [BranchController::class, 'update']);
     Route::delete('/branches/{branch}', [BranchController::class, 'destroy']);
 
+    // Branch Inventory Routes (auto-filters by user's branch for staff)
+    Route::get('/inventory', [BranchInventoryController::class, 'index']);
+    
     // Enhanced Inventory Routes
     Route::get('/inventory/enhanced', [EnhancedInventoryController::class, 'index']);
     Route::post('/enhanced-inventory', [EnhancedInventoryController::class, 'store']);
     Route::put('/enhanced-inventory/{id}', [EnhancedInventoryController::class, 'update']);
     Route::delete('/enhanced-inventory/{id}', [EnhancedInventoryController::class, 'destroy']);
     Route::get('/inventory/branch/{branch}', [EnhancedInventoryController::class, 'getBranchInventory']);
+    Route::get('/enhanced-inventory/branch/{branch}', [EnhancedInventoryController::class, 'getBranchInventory']);
     Route::get('/inventory/low-stock-alerts', [EnhancedInventoryController::class, 'getLowStockAlerts']);
 
     // General analytics routes (accessible by authenticated users)
     Route::get('/analytics/realtime', [AnalyticsController::class, 'getRealTimeAnalytics']);
     Route::get('/analytics/trends', [AnalyticsController::class, 'getAnalyticsTrends']);
+    Route::get('/analytics/branch-performance', [AnalyticsController::class, 'getBranchPerformance']);
     Route::post('/inventory/send-low-stock-alert', [EnhancedInventoryController::class, 'sendLowStockAlert']);
     
     // Realtime stream endpoint for Server-Sent Events
@@ -237,10 +506,12 @@ Route::middleware('auth:sanctum')->group(function () {
     // Branch Stock Routes
     Route::get('/branch-stock', [BranchStockController::class, 'index']);
     Route::post('/branch-stock', [BranchStockController::class, 'store']);
-    Route::put('/branch-stock/{branchStock}', [BranchStockController::class, 'update']);
+    Route::put('/branch-stock', [BranchStockController::class, 'update']);
+    Route::put('/branch-stock/{branchStock}', [BranchStockController::class, 'update'])->where('branchStock', '[0-9]+');
     Route::delete('/branch-stock/{branchStock}', [BranchStockController::class, 'destroy']);
     Route::get('/branch-stock/product/{productId}', [BranchStockController::class, 'getByProduct']);
     Route::get('/branch-stock/branch/{branchId}', [BranchStockController::class, 'getByBranch']);
+    Route::get('/branch-stock/low-stock', [BranchStockController::class, 'getLowStockAlerts']);
     
     // Product stock by branch - specific endpoint for frontend calls
     Route::get('/products/{product}/branches/{branch}/stock', [BranchStockController::class, 'getProductBranchStock']);
@@ -257,17 +528,21 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/inventory/realtime', [RealTimeInventoryController::class, 'getRealTimeInventory']);
     Route::post('/inventory/realtime/update', [RealTimeInventoryController::class, 'updateInventory']);
     Route::get('/inventory/realtime/alerts', [RealTimeInventoryController::class, 'getInventoryAlerts']);
+    
+    // Inventory transaction history
+    Route::get('/inventory/transactions', [BranchInventoryController::class, 'getTransactionHistory']);
+    
+    // Low stock analysis
+    Route::get('/inventory/low-stock-analysis', [BranchInventoryController::class, 'getLowStockAnalysis']);
 
     // Product routes
-    Route::get('/products', [ProductController::class, 'index']);
-    Route::post('/products', [ProductController::class, 'store']);
     Route::get('/products/{product}', [ProductController::class, 'show']);
-    Route::put('/products/{product}', [ProductController::class, 'update']);
-    Route::delete('/products/{product}', [ProductController::class, 'destroy']);
     Route::get('/products/search/{query}', [ProductController::class, 'search']);
+    Route::put('/products/{product}/reorder-images', [ProductController::class, 'reorderImages']);
 
-    // Product categories
-    Route::get('/product-categories', [ProductCategoryController::class, 'index']);
+
+    // Product categories (POST, PUT, DELETE require auth)
+    // GET is handled outside this middleware group to allow public access
     Route::post('/product-categories', [ProductCategoryController::class, 'store']);
     Route::get('/product-categories/{category}', [ProductCategoryController::class, 'show']);
     Route::put('/product-categories/{category}', [ProductCategoryController::class, 'update']);
@@ -289,10 +564,10 @@ Route::middleware('auth:sanctum')->group(function () {
     // Prescription routes
     Route::get('/prescriptions', [PrescriptionController::class, 'index']);
     Route::post('/prescriptions', [PrescriptionController::class, 'store']);
+    Route::get('/prescriptions/patient/{patientId}', [PrescriptionController::class, 'getPatientPrescriptions']);
     Route::get('/prescriptions/{prescription}', [PrescriptionController::class, 'show']);
     Route::put('/prescriptions/{prescription}', [PrescriptionController::class, 'update']);
     Route::delete('/prescriptions/{prescription}', [PrescriptionController::class, 'destroy']);
-    Route::get('/prescriptions/patient/{patientId}', [PrescriptionController::class, 'getByPatient']);
 
     // Notification routes
     Route::get('/notifications', [NotificationController::class, 'index']);
@@ -328,7 +603,21 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/schedules/doctor/{doctorId}', [ScheduleController::class, 'getDoctorSchedule']);
     Route::get('/schedules/weekly', [ScheduleController::class, 'getWeeklySchedule']);
 
+    // Optometrist-specific routes
+    Route::get('/optometrist/patients', [OptometristController::class, 'getPatients']);
+    Route::get('/optometrist/patients/{patientId}', [OptometristController::class, 'getPatient']);
+    Route::get('/optometrist/prescriptions', [OptometristController::class, 'getPrescriptions']);
+    Route::get('/optometrist/appointments/today', [OptometristController::class, 'getTodayAppointments']);
+    Route::get('/optometrist/appointments', [OptometristController::class, 'getTodayAppointments']); // Alias for all appointments
+
+    // Appointment routes
+    Route::get('/appointments/weekly-schedule', [AppointmentController::class, 'getWeeklySchedule']);
+
+    // Schedule change request routes
+    Route::get('/schedule-change-requests/optometrist/{optometristId}', [ScheduleChangeRequestController::class, 'getOptometristRequests']);
+
     Route::get('/patients', [PatientController::class, 'index']);
+    Route::get('/patients/{id}', [PatientController::class, 'show']);
 
     Route::post('/upload/image', [ImageUploadController::class, 'uploadImage']);
     Route::post('/upload/images', [ImageUploadController::class, 'uploadMultiple']);
@@ -353,14 +642,21 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/feedback/{feedback}', [FeedbackController::class, 'show']);
     Route::put('/feedback/{feedback}', [FeedbackController::class, 'update']);
     Route::delete('/feedback/{feedback}', [FeedbackController::class, 'destroy']);
-    Route::get('/customers/{customerId}/feedback', [FeedbackController::class, 'getByCustomer']);
+    Route::get('/customer-feedback/{customerId}', [FeedbackController::class, 'getByCustomer']);
+
+    // Admin-only routes for managing rotations (GET routes are public above)
+    Route::post('/optometrist-rotations', [OptometristRotationController::class, 'store']);
+    Route::delete('/optometrist-rotations/{rotationId}', [OptometristRotationController::class, 'destroy']);
 
     // Staff schedule routes
-    Route::get('/staff-schedules', [StaffScheduleController::class, 'index']);
-    Route::post('/staff-schedules', [StaffScheduleController::class, 'store']);
+    Route::get('/staff-schedules/all', [StaffScheduleController::class, 'getAllStaffSchedules']);
+    Route::get('/staff-schedules/staff-members', [StaffScheduleController::class, 'getStaffMembers']);
+    Route::get('/staff-schedules/branches', [StaffScheduleController::class, 'getBranches']);
+    Route::get('/staff-schedules/staff/{staffId}', [StaffScheduleController::class, 'getStaffSchedule']);
+    Route::post('/staff-schedules', [StaffScheduleController::class, 'createOrUpdateSchedule']);
     Route::get('/staff-schedules/{schedule}', [StaffScheduleController::class, 'show']);
-    Route::put('/staff-schedules/{schedule}', [StaffScheduleController::class, 'update']);
-    Route::delete('/staff-schedules/{schedule}', [StaffScheduleController::class, 'destroy']);
+    Route::put('/staff-schedules/{id}', [StaffScheduleController::class, 'update']); // Using {id} instead of {schedule} for better compatibility
+    Route::delete('/staff-schedules/{id}', [StaffScheduleController::class, 'destroy']); // Using {id} instead of {schedule} for better compatibility
 
     // Restock request routes
     Route::get('/restock-requests', [RestockRequestController::class, 'index']);
@@ -377,6 +673,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/reservations/{reservation}', [ReservationController::class, 'destroy']);
     Route::put('/reservations/{reservation}/approve', [ReservationController::class, 'approve']);
     Route::put('/reservations/{reservation}/reject', [ReservationController::class, 'reject']);
+    Route::put('/reservations/{reservation}/complete', [ReservationController::class, 'completeReservation']);
 
     // Admin user management routes
     Route::post('/admin/users', [AuthController::class, 'createUser']);

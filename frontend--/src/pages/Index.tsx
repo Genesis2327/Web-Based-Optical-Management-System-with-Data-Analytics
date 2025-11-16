@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { Eye, Users, Calendar, BarChart3, ArrowRight, HelpCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import everbrightBg from '@/assets/everbright-bg.png';
+import everbrightBg from '@/assets/everbright-bg.jpg';
 
 const Index = () => {
   const roleCards = [

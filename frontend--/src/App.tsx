@@ -9,6 +9,7 @@ import { setupAxiosInterceptors } from "@/utils/axiosInterceptor";
 import ProtectedRoute from "@/components/auth/ProtectedRoute";
 import Login from "@/components/auth/Login";
 import Register from "@/components/auth/Register";
+import ForgotPassword from "@/components/auth/ForgotPassword";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import CustomerDashboard from "@/components/dashboard/CustomerDashboard";
 import OptometristDashboardGrouped from "@/components/optometrist/OptometristDashboardGrouped";
@@ -71,6 +72,7 @@ import StaffAppointments from "@/features/appointments/components/StaffAppointme
 import OptometristPatientRecords from "@/features/patients/components/OptometristPatientRecords";
 import OptometristPrescriptionManagement from "@/features/prescriptions/components/OptometristPrescriptionManagement";
 import OptometristSchedule from "@/components/schedule/OptometristSchedule";
+import StaffSchedule from "@/components/schedule/StaffSchedule";
 import UserProfile from "@/components/user/UserProfile";
 import AdminUserManagement from "@/components/admin/AdminUserManagement";
 import BranchManagement from "@/components/admin/BranchManagement";
@@ -103,6 +105,7 @@ const App = () => (
             <Route path="/" element={<Index />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/faq" element={<FAQ />} />
 
             {/* Customer Routes */}
@@ -149,6 +152,7 @@ const App = () => (
             }>
               <Route path="dashboard" element={<StaffDashboard />} />
               <Route path="appointments" element={<StaffAppointments />} />
+              <Route path="schedule" element={<StaffSchedule />} />
               {/* Unified Reservations & Transactions Dashboard */}
               <Route path="reservations" element={<UnifiedReservationsDashboard />} />
               {/* Provide appointmentId via URL; wrapper component extracts param */}

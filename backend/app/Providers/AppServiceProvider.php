@@ -79,14 +79,29 @@ class AppServiceProvider extends ServiceProvider
                 });
         });
         
-        // Password reset rate limiting - 3 per hour per email
+        // Password reset rate limiting - 3 per hour per email (or 10 per minute in development)
         RateLimiter::for('password-reset', function (Request $request) {
-            return Limit::perHour(3)
-                ->by($request->input('email'))
-                ->response(function () {
+            $email = $request->input('email');
+            $key = $email ? 'password-reset:' . $email : $request->ip();
+            
+            // More lenient rate limiting in development
+            $isDevelopment = config('app.debug') || config('app.env') === 'local';
+            $limit = $isDevelopment 
+                ? Limit::perMinute(10)  // 10 per minute for testing
+                : Limit::perHour(3);     // 3 per hour for production
+            
+            return $limit
+                ->by($key)
+                ->response(function (Request $request) use ($key, $isDevelopment) {
+                    // Calculate remaining time
+                    $availableIn = RateLimiter::availableIn($key);
+                    
                     return response()->json([
                         'message' => 'Too many password reset attempts. Please try again later.',
-                        'retry_after' => 3600
+                        'retry_after' => $availableIn > 0 ? $availableIn : ($isDevelopment ? 60 : 3600),
+                        'errors' => [
+                            'email' => ['Too many OTP requests. Please wait before requesting a new code.']
+                        ]
                     ], 429);
                 });
         });

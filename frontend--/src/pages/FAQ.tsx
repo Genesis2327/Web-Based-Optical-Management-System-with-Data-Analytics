@@ -4,7 +4,7 @@ import { Eye, HelpCircle, ChevronDown, ChevronUp, ArrowLeft, Mail, Phone, MapPin
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import everbrightBg from '@/assets/everbright-bg.png';
+import everbrightBg from '@/assets/everbright-bg.jpg';
 
 const FAQ = () => {
   const [openItems, setOpenItems] = useState<string[]>([]);
