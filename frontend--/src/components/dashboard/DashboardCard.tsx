@@ -2,6 +2,7 @@ import React from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Info } from 'lucide-react';
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -12,6 +13,7 @@ function cn(...inputs: ClassValue[]) {
 interface DashboardCardProps {
   title: string;
   description?: string;
+  tooltip?: string; // Tooltip text to explain the metric
   value?: string | number;
   icon: LucideIcon;
   trend?: {
@@ -31,6 +33,7 @@ interface DashboardCardProps {
 export const DashboardCard: React.FC<DashboardCardProps> = ({
   title,
   description,
+  tooltip,
   value,
   icon: Icon,
   trend,
@@ -38,15 +41,31 @@ export const DashboardCard: React.FC<DashboardCardProps> = ({
   className,
   gradient
 }) => {
+  const [showTooltip, setShowTooltip] = React.useState(false);
+
   return (
     <Card className={cn(
       'border border-gray-200 shadow-sm',
       className
     )}>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium text-gray-600">
-          {title}
-        </CardTitle>
+        <div className="flex items-center gap-2">
+          <CardTitle className="text-sm font-medium text-gray-600">
+            {title}
+          </CardTitle>
+          {tooltip && (
+            <div className="relative group">
+              <Info className="h-3.5 w-3.5 text-gray-400 cursor-help" 
+                    onMouseEnter={() => setShowTooltip(true)}
+                    onMouseLeave={() => setShowTooltip(false)} />
+              {showTooltip && (
+                <div className="absolute z-50 left-0 top-5 w-64 p-2 text-xs text-white bg-gray-900 rounded-md shadow-lg pointer-events-none">
+                  {tooltip}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
         <Icon className="h-4 w-4 text-gray-400" />
       </CardHeader>
       <CardContent>

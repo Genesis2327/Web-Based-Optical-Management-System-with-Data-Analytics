@@ -18,16 +18,20 @@ class OptometristController extends Controller
     public function index(): JsonResponse
     {
         try {
-            $optometrists = User::where('role', 'optometrist')
+            // Get optometrists - handle both enum and string role values
+            $optometrists = User::where(function($query) {
+                    $query->where('role', 'optometrist')
+                          ->orWhere('role', \App\Enums\UserRole::OPTOMETRIST);
+                })
                 ->where('is_approved', true)
-                ->select('id', 'name', 'email', 'phone')
+                ->select('id', 'name', 'email')
                 ->get()
                 ->map(function ($optometrist) {
                     return [
                         'id' => $optometrist->id,
                         'name' => $optometrist->name,
                         'email' => $optometrist->email,
-                        'phone' => $optometrist->phone,
+                        'phone' => $optometrist->phone ?? null,
                         'specialization' => 'General Optometry', // Default specialization
                     ];
                 });
@@ -38,6 +42,11 @@ class OptometristController extends Controller
             ]);
 
         } catch (\Exception $e) {
+            \Log::error('Failed to fetch optometrists: ' . $e->getMessage(), [
+                'exception' => $e,
+                'trace' => $e->getTraceAsString()
+            ]);
+            
             return response()->json([
                 'error' => 'Failed to fetch optometrists',
                 'message' => $e->getMessage()
@@ -52,7 +61,7 @@ class OptometristController extends Controller
     {
         $optometrist = Auth::user();
         
-        if (!$optometrist || $optometrist->role->value !== 'optometrist') {
+        if (!$optometrist || ($optometrist->role->value ?? (string)$optometrist->role) !== 'optometrist') {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
@@ -100,7 +109,7 @@ class OptometristController extends Controller
     {
         $optometrist = Auth::user();
         
-        if (!$optometrist || $optometrist->role->value !== 'optometrist') {
+        if (!$optometrist || ($optometrist->role->value ?? (string)$optometrist->role) !== 'optometrist') {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
@@ -168,8 +177,12 @@ class OptometristController extends Controller
                 'id' => $patient->id,
                 'name' => $patient->name,
                 'email' => $patient->email,
-                'phone' => $patient->phone,
+                'phone' => $patient->phone ?? 'Not provided',
+                'social_media' => $patient->social_media ?? 'Not provided',
+                'address' => $patient->address ?? 'Not provided',
                 'date_of_birth' => $patient->date_of_birth,
+                'emergency_contact' => $patient->emergency_contact ?? 'Not provided',
+                'emergency_phone' => $patient->emergency_phone ?? 'Not provided',
             ],
             'appointments' => $appointments,
             'prescriptions' => $prescriptions,
@@ -189,7 +202,7 @@ class OptometristController extends Controller
     {
         $optometrist = Auth::user();
         
-        if (!$optometrist || $optometrist->role->value !== 'optometrist') {
+        if (!$optometrist || ($optometrist->role->value ?? (string)$optometrist->role) !== 'optometrist') {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
@@ -236,7 +249,7 @@ class OptometristController extends Controller
     {
         $optometrist = Auth::user();
         
-        if (!$optometrist || $optometrist->role->value !== 'optometrist') {
+        if (!$optometrist || ($optometrist->role->value ?? (string)$optometrist->role) !== 'optometrist') {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 

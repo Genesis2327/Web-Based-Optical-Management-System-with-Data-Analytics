@@ -6,6 +6,7 @@ export interface Product {
   category?: string; // For display purposes
   category_id?: number;
   image_paths: string[]; // array of image file paths
+  image_order?: string[]; // array of image paths in display order
   stock_quantity: number;
   is_active: boolean;
   created_by?: number;
@@ -22,6 +23,7 @@ export interface Product {
   branch_id?: number;
   image_metadata?: any;
   primary_image?: string;
+  secondary_image?: string;
   attributes?: any;
   brand?: string;
   model?: string;
@@ -70,6 +72,8 @@ export interface BranchAvailability {
     id: number;
     name: string;
     code: string;
+    address?: string;
+    phone?: string;
   };
   available_quantity: number;
   stock_quantity: number;

@@ -6,10 +6,17 @@ const jwt = require('jsonwebtoken');
 const app = express();
 const server = http.createServer(app);
 
+// Configure CORS for your frontend (allow network IPs)
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://192.168.100.6:5173', // Network IP
+];
+
 // Configure CORS for your frontend
 const io = new Server(server, {
   cors: {
-    origin: ['http://localhost:5173', 'http://127.0.0.1:5173'],
+    origin: allowedOrigins,
     methods: ['GET', 'POST'],
     credentials: true,
   },
@@ -18,21 +25,43 @@ const io = new Server(server, {
 
 // Middleware to authenticate socket connections
 io.use((socket, next) => {
-  const token = socket.handshake.auth.token;
-  
+  // Accept token from auth payload or Authorization header
+  let token = socket.handshake?.auth?.token || socket.handshake?.headers?.authorization || '';
+
+  // Strip Bearer prefix if present
+  if (typeof token === 'string' && token.toLowerCase().startsWith('bearer ')) {
+    token = token.slice(7).trim();
+  }
+
   if (!token) {
+    if (process.env.SKIP_WS_AUTH === 'true') {
+      // Dev bypass: allow connection without token
+      socket.userId = 'dev-user';
+      socket.userRole = 'guest';
+      socket.userBranchId = null;
+      return next();
+    }
     return next(new Error('Authentication error: No token provided'));
   }
 
+  // Dev bypass flag: skip JWT verification entirely
+  if (process.env.SKIP_WS_AUTH === 'true') {
+    socket.userId = 'dev-user';
+    socket.userRole = 'guest';
+    socket.userBranchId = null;
+    return next();
+  }
+
   try {
-    // Verify JWT token (use your Laravel app key)
-    const decoded = jwt.verify(token, process.env.APP_KEY || 'your-app-key');
-    socket.userId = decoded.sub || decoded.user_id;
-    socket.userRole = decoded.role;
-    socket.userBranchId = decoded.branch_id;
+    // Verify JWT token (prefer JWT_SECRET, fallback to APP_KEY)
+    const secret = process.env.JWT_SECRET || process.env.APP_KEY || 'your-app-key';
+    const decoded = jwt.verify(token, secret);
+    socket.userId = decoded.sub || decoded.user_id || decoded.id || 'unknown';
+    socket.userRole = decoded.role || 'user';
+    socket.userBranchId = decoded.branch_id || null;
     next();
   } catch (err) {
-    next(new Error('Authentication error: Invalid token'));
+    return next(new Error('Authentication error: Invalid token'));
   }
 });
 
@@ -106,11 +135,13 @@ app.get('/connections', (req, res) => {
 });
 
 const PORT = process.env.WEBSOCKET_PORT || 6001;
+const HOST = process.env.WEBSOCKET_HOST || '0.0.0.0'; // Listen on all interfaces for network access
 
-server.listen(PORT, () => {
-  console.log(`WebSocket server running on port ${PORT}`);
+server.listen(PORT, HOST, () => {
+  console.log(`WebSocket server running on ${HOST}:${PORT}`);
   console.log(`Health check: http://localhost:${PORT}/health`);
   console.log(`Connections info: http://localhost:${PORT}/connections`);
+  console.log(`Network access: ws://192.168.100.6:${PORT}`);
 });
 
 // Graceful shutdown

@@ -123,10 +123,6 @@ const OptometristPatientRecords: React.FC = () => {
     <div className="p-6">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold">Patient Records</h1>
-        <Button>
-          <User className="mr-2 h-4 w-4" />
-          Add New Patient
-        </Button>
       </div>
 
       <Card>
@@ -161,7 +157,6 @@ const OptometristPatientRecords: React.FC = () => {
                   <TableHead>Last Visit</TableHead>
                   <TableHead>Prescriptions</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -183,157 +178,6 @@ const OptometristPatientRecords: React.FC = () => {
                       <Badge className={getStatusColor(patient.status)}>
                         {patient.status}
                       </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Dialog>
-                        <DialogTrigger asChild>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => {
-                              setSelectedPatient(patient);
-                              loadPatientDetails(patient.id);
-                            }}
-                          >
-                            <FileText className="h-4 w-4" />
-                          </Button>
-                        </DialogTrigger>
-                        <DialogContent className="max-w-4xl">
-                          <DialogHeader>
-                            <DialogTitle>Patient Details & Prescription History</DialogTitle>
-                            <DialogDescription>
-                              Complete patient information and prescription history
-                            </DialogDescription>
-                          </DialogHeader>
-                          {selectedPatient && patientDetails && (
-                            <div className="space-y-6">
-                              <div>
-                                <h3 className="font-semibold mb-2">Basic Information</h3>
-                                <div className="grid grid-cols-2 gap-4">
-                                  <div>
-                                    <p className="text-sm font-medium">Name</p>
-                                    <p>{patientDetails.patient?.name || 'N/A'}</p>
-                                  </div>
-                                  <div>
-                                    <p className="text-sm font-medium">Email</p>
-                                    <p>{patientDetails.patient?.email || 'N/A'}</p>
-                                  </div>
-                                  <div>
-                                    <p className="text-sm font-medium">Phone</p>
-                                    <p>{patientDetails.patient?.phone || 'N/A'}</p>
-                                  </div>
-                                  <div>
-                                    <p className="text-sm font-medium">Date of Birth</p>
-                                    <p>{patientDetails.patient?.date_of_birth || 'N/A'}</p>
-                                  </div>
-                                </div>
-                              </div>
-
-                              <div>
-                                <h3 className="font-semibold mb-4">Appointment History</h3>
-                                {!patientDetails.appointments || patientDetails.appointments.length === 0 ? (
-                                  <p className="text-gray-500">No appointments found for this patient.</p>
-                                ) : (
-                                  <div className="space-y-2">
-                                    {patientDetails.appointments.map((appointment) => (
-                                      <Card key={appointment.id}>
-                                        <CardContent className="p-3">
-                                          <div className="flex justify-between items-start">
-                                            <div>
-                                              <p className="font-medium">{appointment.type}</p>
-                                              <p className="text-sm text-gray-500">
-                                                {format(new Date(appointment.date), 'MMM d, yyyy')} at {appointment.time}
-                                              </p>
-                                              {appointment.branch && (
-                                                <p className="text-sm text-gray-500">{appointment.branch.name}</p>
-                                              )}
-                                            </div>
-                                            <Badge className={getStatusColor(appointment.status)}>
-                                              {appointment.status}
-                                            </Badge>
-                                          </div>
-                                          {appointment.notes && (
-                                            <p className="text-sm mt-2 text-gray-600">{appointment.notes}</p>
-                                          )}
-                                        </CardContent>
-                                      </Card>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-
-                              <div>
-                                <h3 className="font-semibold mb-4">Prescription History</h3>
-                                {loadingDetails ? (
-                                  <div className="flex items-center justify-center py-4">
-                                    <Loader2 className="h-6 w-6 animate-spin" />
-                                    <span className="ml-2">Loading prescriptions...</span>
-                                  </div>
-                                ) : !patientDetails.prescriptions || patientDetails.prescriptions.length === 0 ? (
-                                  <p className="text-gray-500">No prescriptions found for this patient.</p>
-                                ) : (
-                                  <div className="space-y-3">
-                                    {patientDetails.prescriptions.map((prescription) => (
-                                      <Card key={prescription.id}>
-                                        <CardContent className="p-4">
-                                          <div className="flex justify-between items-start mb-2">
-                                            <div>
-                                              <p className="font-medium">
-                                                {prescription.type?.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                                              </p>
-                                              <p className="text-sm text-gray-500">
-                                                {format(new Date(prescription.issue_date), 'MMM d, yyyy')}
-                                              </p>
-                                            </div>
-                                            <Badge className={getStatusColor(prescription.status)}>
-                                              {prescription.status}
-                                            </Badge>
-                                          </div>
-                                          
-                                          <div className="grid grid-cols-2 gap-4 text-sm">
-                                            <div>
-                                              <h5 className="font-medium">Right Eye (OD)</h5>
-                                              <p>S: {prescription.right_eye?.sphere || 'N/A'}</p>
-                                              <p>C: {prescription.right_eye?.cylinder || 'N/A'}</p>
-                                              <p>A: {prescription.right_eye?.axis || 'N/A'}</p>
-                                              <p>PD: {prescription.right_eye?.pd || 'N/A'}</p>
-                                            </div>
-                                            <div>
-                                              <h5 className="font-medium">Left Eye (OS)</h5>
-                                              <p>S: {prescription.left_eye?.sphere || 'N/A'}</p>
-                                              <p>C: {prescription.left_eye?.cylinder || 'N/A'}</p>
-                                              <p>A: {prescription.left_eye?.axis || 'N/A'}</p>
-                                              <p>PD: {prescription.left_eye?.pd || 'N/A'}</p>
-                                            </div>
-                                          </div>
-
-                                          {prescription.vision_acuity && (
-                                            <div className="mt-2 text-sm">
-                                              <p><strong>Vision Acuity:</strong> {prescription.vision_acuity}</p>
-                                            </div>
-                                          )}
-
-                                          {prescription.additional_notes && (
-                                            <div className="mt-2 text-sm">
-                                              <p><strong>Notes:</strong> {prescription.additional_notes}</p>
-                                            </div>
-                                          )}
-
-                                          {prescription.recommendations && (
-                                            <div className="mt-2 text-sm">
-                                              <p><strong>Recommendations:</strong> {prescription.recommendations}</p>
-                                            </div>
-                                          )}
-                                        </CardContent>
-                                      </Card>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          )}
-                        </DialogContent>
-                      </Dialog>
                     </TableCell>
                   </TableRow>
                 ))}

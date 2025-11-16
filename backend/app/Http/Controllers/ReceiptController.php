@@ -56,10 +56,12 @@ class ReceiptController extends Controller
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
-        return DB::transaction(function () use ($validated) {
+        return DB::transaction(function () use ($validated, $appointment) {
             $receipt = Receipt::updateOrCreate(
                 ['appointment_id' => $validated['appointment_id']],
                 [
+                    'customer_id' => $appointment->patient_id,
+                    'branch_id' => $appointment->branch_id,
                     'sales_type' => $validated['sales_type'],
                     'date' => $validated['date'],
                     'customer_name' => $validated['customer_name'],
@@ -93,23 +95,36 @@ class ReceiptController extends Controller
      */
     public function getByCustomer($customerId)
     {
-        $user = Auth::user();
+        try {
+            $user = Auth::user();
+            
+            if (!$user) {
+                return response()->json(['message' => 'Unauthorized'], 401);
+            }
 
-        // Only customers can access their own receipts, or staff/admin can access any
-        if ($user->role->value === 'customer' && $user->id != $customerId) {
-            return response()->json(['message' => 'Unauthorized'], 403);
-        }
+            // Handle different role formats more robustly
+            $userRole = null;
+            if (is_object($user->role)) {
+                $userRole = $user->role->value ?? (string)$user->role;
+            } else {
+                $userRole = (string)$user->role;
+            }
 
-        if (!in_array($user->role->value, ['customer', 'staff', 'admin', 'optometrist'])) {
-            return response()->json(['message' => 'Unauthorized'], 403);
-        }
+            // Only customers can access their own receipts, or staff/admin can access any
+            if ($userRole === 'customer' && $user->id != $customerId) {
+                return response()->json(['message' => 'Unauthorized'], 403);
+            }
 
-        $receipts = Receipt::with(['appointment.patient', 'appointment.optometrist', 'items'])
-            ->whereHas('appointment', function($query) use ($customerId) {
-                $query->where('patient_id', $customerId);
-            })
-            ->orderBy('created_at', 'desc')
-            ->get();
+            if (!in_array($userRole, ['customer', 'staff', 'admin', 'optometrist'])) {
+                return response()->json(['message' => 'Unauthorized'], 403);
+            }
+
+            $receipts = Receipt::with(['appointment.patient', 'appointment.optometrist', 'items'])
+                ->whereHas('appointment', function($query) use ($customerId) {
+                    $query->where('patient_id', $customerId);
+                })
+                ->orderBy('created_at', 'desc')
+                ->get();
 
         return response()->json([
             'data' => $receipts->map(function($receipt) {
@@ -159,6 +174,17 @@ class ReceiptController extends Controller
                 'total' => $receipts->count(),
             ]
         ]);
+
+        } catch (\Exception $e) {
+            \Log::error('Error in getByCustomer: ' . $e->getMessage());
+            \Log::error('Stack trace: ' . $e->getTraceAsString());
+            
+            return response()->json([
+                'data' => [],
+                'error' => 'An error occurred while fetching receipts',
+                'message' => $e->getMessage()
+            ], 500);
+        }
     }
 
     /**

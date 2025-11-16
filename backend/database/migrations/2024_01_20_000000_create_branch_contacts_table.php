@@ -13,7 +13,7 @@ return new class extends Migration
     {
         Schema::create('branch_contacts', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('branch_id')->constrained('branches')->onDelete('cascade');
+            $table->unsignedBigInteger('branch_id'); // Foreign key will be added later after branches table exists
             $table->string('phone_number')->nullable();
             $table->string('email')->nullable();
             $table->string('facebook_url')->nullable();

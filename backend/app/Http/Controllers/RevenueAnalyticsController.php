@@ -190,14 +190,20 @@ class RevenueAnalyticsController extends Controller
      */
     private function getReservationRevenue($startDate, $endDate, $branchId = null)
     {
-        $query = Reservation::where('status', 'completed')
+        $query = Reservation::with('product')
+            ->whereIn('status', ['approved', 'completed'])
             ->whereBetween('created_at', [$startDate, $endDate]);
 
         if ($branchId) {
             $query->where('branch_id', $branchId);
         }
 
-        return $query->sum('total_price');
+        $reservations = $query->get();
+        
+        // Calculate revenue properly (total_price is a calculated attribute, not a column)
+        return $reservations->sum(function ($reservation) {
+            return $reservation->quantity * ($reservation->product->price ?? 0);
+        });
     }
 
     /**
@@ -262,11 +268,12 @@ class RevenueAnalyticsController extends Controller
         $reservationRevenue = DB::table('reservation_items')
             ->join('reservations', 'reservation_items.reservation_id', '=', 'reservations.id')
             ->join('products', 'reservation_items.product_id', '=', 'products.id')
+            ->leftJoin('product_categories', 'products.category_id', '=', 'product_categories.id')
             ->where('reservations.status', 'completed')
             ->whereBetween('reservations.created_at', [$startDate, $endDate])
             ->where(function($query) {
-                $query->where('products.category', 'LIKE', '%frame%')
-                      ->orWhere('products.category', 'LIKE', '%eyeglass%')
+                $query->where('product_categories.name', 'LIKE', '%frame%')
+                      ->orWhere('product_categories.name', 'LIKE', '%eyeglass%')
                       ->orWhere('products.name', 'LIKE', '%frame%');
             });
 
@@ -301,10 +308,11 @@ class RevenueAnalyticsController extends Controller
         $reservationRevenue = DB::table('reservation_items')
             ->join('reservations', 'reservation_items.reservation_id', '=', 'reservations.id')
             ->join('products', 'reservation_items.product_id', '=', 'products.id')
+            ->leftJoin('product_categories', 'products.category_id', '=', 'product_categories.id')
             ->where('reservations.status', 'completed')
             ->whereBetween('reservations.created_at', [$startDate, $endDate])
             ->where(function($query) {
-                $query->where('products.category', 'LIKE', '%contact%')
+                $query->where('product_categories.name', 'LIKE', '%contact%')
                       ->orWhere('products.name', 'LIKE', '%contact%');
             });
 

@@ -299,7 +299,7 @@ const BranchContactManagement: React.FC = () => {
       // Parallel data loading for better performance
       const [contactsResult, branchesResult] = await Promise.allSettled([
         getAllBranchContacts(),
-        fetch('http://127.0.0.1:8000/api-mysql.php/branches', {
+        fetch('http://127.0.0.1:8000/api/branches-simple', {
           headers: {
             'Authorization': `Bearer ${sessionStorage.getItem('auth_token')}`,
             'Content-Type': 'application/json'

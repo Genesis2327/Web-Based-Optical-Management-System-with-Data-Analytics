@@ -1,5 +1,18 @@
 // Payment processing service for Everbright Optical Clinic
-// This service handles different payment methods including GCash, PayMaya, and card payments
+// 
+// ⚠️ IMPORTANT LIMITATION: MOCK/SIMULATION IMPLEMENTATION ONLY
+// 
+// This service provides a user interface for processing payments through GCash, PayMaya, 
+// and Credit/Debit Card methods. However, this is a SIMULATED/MOCK implementation for 
+// demonstration purposes only. The system does NOT integrate with actual payment gateway 
+// providers (e.g., Stripe, PayPal, GCash API, PayMaya API).
+// 
+// All payment processing methods in this service use mock logic that simulates API 
+// responses but does not process real financial transactions through external payment 
+// processors. Transactions marked as online payments are recorded in the database but 
+// do not involve actual payment processing.
+// 
+// For production use, third-party payment gateway integration would be required.
 
 export interface PaymentRequest {
   amount: number;
@@ -78,11 +91,13 @@ export const PAYMENT_METHODS: PaymentMethodConfig[] = [
   }
 ];
 
+import { API_BASE_URL } from '../config/api';
+
 class PaymentService {
   private baseUrl: string;
 
   constructor() {
-    this.baseUrl = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api';
+    this.baseUrl = API_BASE_URL;
   }
 
   /**

@@ -1,3 +1,11 @@
+/**
+ * POS Interface Component
+ * 
+ * ⚠️ LIMITATION: Online payment options (GCash, PayMaya, Credit/Debit Card) use
+ * mock/simulated processing for demonstration purposes only. These do not integrate
+ * with actual payment gateway providers. Cash payments are functional, but online
+ * payment transactions are recorded in the database without processing real financial transactions.
+ */
 import React, { useState, useEffect } from 'react';
 import { ShoppingCart, CreditCard, Receipt, Search, Plus, Minus, Trash2, Calculator } from 'lucide-react';
 import { toast } from 'sonner';

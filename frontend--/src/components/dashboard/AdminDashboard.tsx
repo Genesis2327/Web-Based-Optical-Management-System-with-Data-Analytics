@@ -140,9 +140,14 @@ const AdminDashboard = () => {
         />
         
         <DashboardCard
-          title="Active Patients"
+          title={selectedBranchId === 'all' ? "Total Unique Patients" : "Patients Served"}
           value={totalPatients}
-          description={selectedBranchId === 'all' ? "Total registered" : `Registered at ${branchData[0]?.name || 'selected branch'}`}
+          description={selectedBranchId === 'all' 
+            ? "Unique patients across all branches (last 30 days)" 
+            : `Unique patients at ${branchData[0]?.name || 'selected branch'} (last 30 days)`}
+          tooltip={selectedBranchId === 'all' 
+            ? "Counts each patient only once across all branches. Branch totals may sum to more than this if patients visit multiple branches."
+            : "Unique patients who visited this branch. A patient visiting multiple branches is counted in each branch."}
           icon={Users}
           action={{
             label: 'User Management',
@@ -250,6 +255,9 @@ const AdminDashboard = () => {
                       <div>
                         <p className="text-slate-600">Patients</p>
                         <p className="font-semibold">{branch.patients}</p>
+                        {branch.patient_visits && branch.patient_visits > branch.patients && (
+                          <p className="text-xs text-slate-500">({branch.patient_visits} visits)</p>
+                        )}
                       </div>
                       <div>
                         <p className="text-slate-600">Appointments</p>

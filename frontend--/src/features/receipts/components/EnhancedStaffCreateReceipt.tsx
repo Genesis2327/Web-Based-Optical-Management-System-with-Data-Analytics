@@ -4,13 +4,15 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { Eye, User, Calendar, FileText, Package, Phone, Mail, MapPin, ShoppingCart } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
+import { Eye, User, Calendar, FileText, Package, Phone, Mail, MapPin, ShoppingCart, Loader2 } from 'lucide-react';
 
 interface Props {
   appointmentId: number;
@@ -66,6 +68,9 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
   customerId 
 }) => {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const isStaff = user?.role === 'staff';
   const [salesType, setSalesType] = useState<'cash' | 'charge'>('cash');
   const [date, setDate] = useState<string>(new Date().toISOString().slice(0,10));
   const [customerName, setCustomerName] = useState<string>(defaultCustomerName);
@@ -144,7 +149,13 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
       if (!customerId) return;
       
       try {
-        const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+        // Get API base URL - normalize to always end with /api
+        const getNormalizedApiUrl = () => {
+          const envUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+          // Remove trailing /api if present, then add it back to ensure consistency
+          return envUrl.replace(/\/api\/?$/, '') + '/api';
+        };
+        const apiBaseUrl = getNormalizedApiUrl();
         const token = sessionStorage.getItem('auth_token');
 
         // Fetch patient details
@@ -157,7 +168,9 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
 
         if (patientResponse.ok) {
           const patientData = await patientResponse.json();
-          setPatientDetails(patientData);
+          // Handle different response formats - PatientController returns { patient: {...} }
+          const patient = patientData?.patient || patientData;
+          setPatientDetails(patient);
         }
 
         // Fetch latest prescription for this patient
@@ -203,7 +216,12 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
       
       try {
         setLoadingReservations(true);
-        const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+        // Get API base URL - normalize to always end with /api
+        const getNormalizedApiUrl = () => {
+          const envUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+          return envUrl.replace(/\/api\/?$/, '') + '/api';
+        };
+        const apiBaseUrl = getNormalizedApiUrl();
         const token = sessionStorage.getItem('auth_token');
 
         console.log(`Loading reservations for customer ID: ${customerId}, Appointment ID: ${appointmentId}`);
@@ -348,9 +366,18 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
       // First create the receipt
       const receiptResponse = await createReceipt(payload as any);
       
-      // Then create glass order with reserved products and prescription data
-      if (customerId && items.length > 1) { // Only create glass order if there are reserved products
-        const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+      // Extract receipt ID from response
+      const receiptId = receiptResponse?.id || receiptResponse?.data?.id || receiptResponse?.receipt?.id;
+      
+      // Then create glass order with reserved products and prescription data (only for admin)
+      // Staff should not create glass orders - they only create receipts
+      if (!isStaff && customerId && items.length > 1) { // Only create glass order if there are reserved products
+        // Get API base URL - normalize to always end with /api
+        const getNormalizedApiUrl = () => {
+          const envUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+          return envUrl.replace(/\/api\/?$/, '') + '/api';
+        };
+        const apiBaseUrl = getNormalizedApiUrl();
         const token = sessionStorage.getItem('auth_token');
         
         // Get reserved products (exclude eye exam)
@@ -360,7 +387,7 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
           appointment_id: appointmentId,
           patient_id: customerId,
           prescription_id: prescription?.id || null,
-          receipt_id: receiptResponse.id || null,
+          receipt_id: receiptId || null,
           reserved_products: reservedProducts.map(item => ({
             description: item.description,
             quantity: item.qty,
@@ -405,17 +432,32 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
             title: 'Receipt & Glass Order saved successfully', 
             description: `Receipt created and glass order ${glassOrderData.data.formatted_number} is ready for manufacturer contact. Complete patient record with reserved products and prescription details has been saved.` 
           });
+          
+          // Navigate back to Reservations & Transactions
+          setTimeout(() => {
+            navigate('/staff/reservations');
+          }, 1500);
         } else {
           toast({ 
             title: 'Receipt saved, Glass Order failed', 
             description: 'Receipt was saved but glass order creation failed. You can create it manually from patient management.' 
           });
+          
+          // Navigate back to Reservations & Transactions even if glass order failed
+          setTimeout(() => {
+            navigate('/staff/reservations');
+          }, 1500);
         }
       } else {
         toast({ 
           title: 'Receipt saved successfully', 
           description: 'Receipt has been saved. No glass order needed as no reserved products were found.' 
         });
+        
+        // Navigate back to Reservations & Transactions
+        setTimeout(() => {
+          navigate('/staff/reservations');
+        }, 1500);
       }
     } catch (e: any) {
       toast({ title: 'Failed to save receipt', description: e.message, variant: 'destructive' });
@@ -447,34 +489,11 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
               <Input value={address} onChange={e => setAddress(e.target.value)} />
             </div>
           </div>
-          
-          {patientDetails && (
-            <div className="bg-blue-50 p-4 rounded-lg">
-              <h4 className="font-medium text-blue-900 mb-2">Additional Patient Details</h4>
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div className="flex items-center space-x-2">
-                  <Mail className="h-4 w-4 text-blue-600" />
-                  <span>{patientDetails.email}</span>
-                </div>
-                {patientDetails.phone && (
-                  <div className="flex items-center space-x-2">
-                    <Phone className="h-4 w-4 text-blue-600" />
-                    <span>{patientDetails.phone}</span>
-                  </div>
-                )}
-                {patientDetails.date_of_birth && (
-                  <div className="flex items-center space-x-2">
-                    <Calendar className="h-4 w-4 text-blue-600" />
-                    <span>DOB: {new Date(patientDetails.date_of_birth).toLocaleDateString()}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
         </CardContent>
       </Card>
 
-      {/* Customer's Chosen Products Card */}
+      {/* Customer's Chosen Products Card - Hidden for staff */}
+      {!isStaff && (
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center space-x-2">
@@ -531,9 +550,10 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
           )}
         </CardContent>
       </Card>
+      )}
 
-      {/* Prescription Information Card */}
-      {prescription && (
+      {/* Prescription Information Card - Hidden for staff */}
+      {!isStaff && prescription && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center space-x-2">
@@ -647,7 +667,8 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
         </Card>
       )}
 
-      {/* Glass Order Specifications Card */}
+      {/* Glass Order Specifications Card - Hidden for staff */}
+      {!isStaff && (
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center space-x-2">
@@ -795,6 +816,7 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
           </div>
         </CardContent>
       </Card>
+      )}
 
       {/* Receipt Details Card */}
       <Card>
@@ -860,7 +882,7 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
 
           <div className="flex justify-end">
             <Button onClick={onSubmit} className="bg-green-600 hover:bg-green-700">
-              Save Receipt & Glass Order
+              {isStaff ? 'Save Receipt' : 'Save Receipt & Glass Order'}
             </Button>
           </div>
         </CardContent>

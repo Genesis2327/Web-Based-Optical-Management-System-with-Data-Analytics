@@ -3,6 +3,8 @@ import { useAuth } from '../../../contexts/AuthContext';
 import { Product } from '../types/product.types';
 import { getProducts, createProduct, updateProduct, deleteProduct } from '../../../services/productApi';
 import { getStorageUrl } from '../../../utils/imageUtils';
+import { ProductCard } from './ProductCard';
+import { StockManagementModal } from './StockManagementModal';
 
 // Branch code → display label mapping
 const BRANCH_LABELS: Record<string, string> = {
@@ -39,6 +41,8 @@ export const ProductGalleryDatabase: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showAvailability, setShowAvailability] = useState<{[productId: number]: boolean}>({});
+  const [showStockModal, setShowStockModal] = useState<boolean>(false);
+  const [selectedProductForStock, setSelectedProductForStock] = useState<Product | null>(null);
 
   // Load products and reservations on mount; poll for near-real-time updates
   useEffect(() => {
@@ -201,6 +205,34 @@ export const ProductGalleryDatabase: React.FC = () => {
   // Handle reservation
   const handleReservation = (productId: number) => {
     setNewReservationProductId(productId);
+  };
+
+  // Handle manage stock
+  const handleManageStock = (product: Product) => {
+    setSelectedProductForStock(product);
+    setShowStockModal(true);
+  };
+
+  // Handle stock save
+  const handleStockSave = async (stockData: any[]) => {
+    if (!selectedProductForStock) return;
+    
+    try {
+      // For now, just show a success message
+      // You can implement actual API call here later
+      console.log('Saving stock for product:', selectedProductForStock.id);
+      console.log('Stock data:', stockData);
+      
+      // Simulate API call
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Close modal
+      setShowStockModal(false);
+      setSelectedProductForStock(null);
+    } catch (error) {
+      console.error('Error saving stock:', error);
+      throw error;
+    }
   };
 
   const confirmReservation = () => {
@@ -434,159 +466,16 @@ export const ProductGalleryDatabase: React.FC = () => {
       {/* Products Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
         {filteredProducts.map(product => (
-          <div key={product.id} className="border rounded p-4 flex flex-col">
-            {product.image_paths && product.image_paths.length > 0 ? (
-              <div className="mb-2">
-                {/* Main Image Display */}
-                <div className="relative">
-                  {(() => {
-                    const src = getStorageUrl(product.image_paths[selectedImageIndices[product.id] || 0]);
-                    return (
-                      <img
-                        src={src}
-                        alt={`${product.name} cover`}
-                        className="w-full aspect-[4/3] object-contain border cursor-pointer rounded bg-gray-50"
-                        onError={(e) => {
-                          (e.currentTarget as HTMLImageElement).replaceWith(Object.assign(document.createElement('div'), {
-                            className: 'w-full aspect-[4/3] bg-gray-200 flex items-center justify-center text-gray-500 rounded',
-                            textContent: 'Image unavailable'
-                          } as any));
-                        }}
-                      />
-                    );
-                  })()}
-                  
-                  {/* Image Navigation Arrows (if multiple images) */}
-                  {product.image_paths.length > 1 && (
-                    <>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const currentIndex = selectedImageIndices[product.id] || 0;
-                          const newIndex = currentIndex > 0 ? currentIndex - 1 : product.image_paths.length - 1;
-                          setSelectedImageIndices(prev => ({ ...prev, [product.id]: newIndex }));
-                        }}
-                        className="absolute left-2 top-1/2 transform -translate-y-1/2 bg-black bg-opacity-50 text-white rounded-full w-8 h-8 flex items-center justify-center hover:bg-opacity-70"
-                      >
-                        ‹
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const currentIndex = selectedImageIndices[product.id] || 0;
-                          const newIndex = currentIndex < product.image_paths.length - 1 ? currentIndex + 1 : 0;
-                          setSelectedImageIndices(prev => ({ ...prev, [product.id]: newIndex }));
-                        }}
-                        className="absolute right-2 top-1/2 transform -translate-y-1/2 bg-black bg-opacity-50 text-white rounded-full w-8 h-8 flex items-center justify-center hover:bg-opacity-70"
-                      >
-                        ›
-                      </button>
-                    </>
-                  )}
-                </div>
-                
-                {/* Image Thumbnails (if multiple images) */}
-                {product.image_paths.length > 1 && (
-                  <div className="flex space-x-1 mt-2 overflow-x-auto">
-                    {product.image_paths.map((imagePath, index) => (
-                      <img
-                        key={index}
-                        src={getStorageUrl(imagePath)}
-                        alt={`${product.name} ${index + 1}`}
-                        className={`w-12 h-12 object-cover rounded border cursor-pointer ${
-                          (selectedImageIndices[product.id] || 0) === index 
-                            ? 'border-blue-500 ring-2 ring-blue-200' 
-                            : 'border-gray-300'
-                        }`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedImageIndices(prev => ({ ...prev, [product.id]: index }));
-                        }}
-                        onError={(e) => {
-                          e.currentTarget.style.display = 'none';
-                        }}
-                      />
-                    ))}
-                  </div>
-                )}
-                
-                {/* Image Count Indicator */}
-                {product.image_paths.length > 1 && (
-                  <div className="text-xs text-gray-500 mt-1 text-center">
-                    {(selectedImageIndices[product.id] || 0) + 1} of {product.image_paths.length}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="mb-2 aspect-[4/3] bg-gray-200 flex items-center justify-center text-gray-500">
-                No Images
-              </div>
-            )}
-            <h3 className="font-semibold text-lg">{product.name}</h3>
-            <p className="text-gray-700 flex-grow">{product.description}</p>
-            <p className="font-bold mt-2">₱{Number(product.price || 0).toFixed(2)}</p>
-            <p className="text-sm text-gray-600 mt-1">
-              Stock: {product.stock_quantity} | Reservations: {getReservationCount(product.id)}
-            </p>
-
-            {/* Branch availability toggle (if data present) */}
-            {Array.isArray((product as any).branch_availability) && (
-              <div className="mt-2">
-                <button
-                  onClick={() => setShowAvailability(prev => ({ ...prev, [product.id]: !prev[product.id] }))}
-                  className="text-sm text-blue-600 hover:text-blue-700"
-                >
-                  {showAvailability[product.id] ? 'Hide availability' : 'Check availability'}
-                </button>
-                {showAvailability[product.id] && (
-                  <div className="mt-2 space-y-1">
-                    {['UNITOP','NEWSTAR','GARNET','BALIBAGO'].map((code) => {
-                      const ba = ((product as any).branch_availability as any[]).find((x: any) => x.branch?.code === code);
-                      const isAvailable = !!ba?.is_available;
-                      const qty = ba?.available_quantity ?? 0;
-                      return (
-                        <div key={code} className="flex justify-between items-center text-sm">
-                          <span className="text-gray-600">{BRANCH_LABELS[code] || code}</span>
-                          <span className={isAvailable ? 'text-green-600 font-semibold' : 'text-red-500 font-semibold'}>
-                            {isAvailable ? `${qty} pcs` : 'Out of Stock'}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {role === 'customer' && product.is_active && (
-              <button
-                onClick={() => handleReservation(product.id)}
-                disabled={product.stock_quantity <= 0}
-                className="mt-2 bg-green-500 text-white px-3 py-1 rounded text-sm hover:bg-green-600 disabled:bg-gray-400"
-              >
-                {product.stock_quantity > 0 ? 'Reserve' : 'Out of Stock'}
-              </button>
-            )}
-
-            {(role === 'admin' || role === 'staff') && (
-              <div className="flex space-x-2 mt-2">
-                <button
-                  onClick={() => startEditing(product)}
-                  className="flex-1 bg-blue-500 text-white px-3 py-1 rounded text-sm hover:bg-blue-600"
-                >
-                  Edit
-                </button>
-                {role === 'admin' && (
-                  <button
-                    onClick={() => deleteProductHandler(product.id)}
-                    className="flex-1 bg-red-500 text-white px-3 py-1 rounded text-sm hover:bg-red-600"
-                  >
-                    Delete
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
+          <ProductCard
+            key={product.id}
+            product={product}
+            onReserve={handleReservation}
+            onEdit={startEditing}
+            onDelete={deleteProductHandler}
+            onManageStock={handleManageStock}
+            userRole={role}
+            reservationCount={getReservationCount(product.id)}
+          />
         ))}
       </div>
 
@@ -597,6 +486,19 @@ export const ProductGalleryDatabase: React.FC = () => {
             <p className="text-sm mt-2">Try adjusting your search terms.</p>
           )}
         </div>
+      )}
+
+      {/* Stock Management Modal */}
+      {selectedProductForStock && (
+        <StockManagementModal
+          isOpen={showStockModal}
+          onClose={() => {
+            setShowStockModal(false);
+            setSelectedProductForStock(null);
+          }}
+          product={selectedProductForStock}
+          onSave={handleStockSave}
+        />
       )}
     </div>
   );

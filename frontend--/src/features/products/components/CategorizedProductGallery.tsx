@@ -285,14 +285,6 @@ const CategorizedProductGallery: React.FC = () => {
                       className="w-full h-48 object-cover group-hover:scale-105 transition-transform duration-300"
                     />
                   )}
-                  <div className="absolute top-2 left-2">
-                    <Badge 
-                      className="text-white"
-                      style={{ backgroundColor: product.category.color }}
-                    >
-                      {product.category.name}
-                    </Badge>
-                  </div>
                   <div className="absolute top-2 right-2">
                     <Button size="sm" variant="secondary" className="opacity-0 group-hover:opacity-100 transition-opacity">
                       <Eye className="w-4 h-4" />

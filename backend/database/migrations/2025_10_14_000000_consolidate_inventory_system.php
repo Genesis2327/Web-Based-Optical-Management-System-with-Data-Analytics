@@ -14,9 +14,8 @@ return new class extends Migration
      */
     public function up(): void
     {
-        // Check database driver for compatibility
-        $driver = DB::connection()->getDriverName();
-        $nowFunction = $driver === 'sqlite' ? "datetime('now')" : "NOW()";
+        // Use MySQL/MariaDB compatible NOW() function
+        $nowFunction = "NOW()";
         
         // Check if products table has branch_id column
         $hasBranchId = Schema::hasColumn('products', 'branch_id');

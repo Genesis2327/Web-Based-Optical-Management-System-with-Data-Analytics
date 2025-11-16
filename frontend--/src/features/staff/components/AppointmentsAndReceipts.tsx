@@ -8,6 +8,7 @@ import { FileText, Calendar, User, Download, Plus, Eye, Receipt as ReceiptIcon }
 import { useNavigate } from 'react-router-dom';
 import { useToast } from '@/hooks/use-toast';
 import { PatientTransactionList } from '@/components/transactions/PatientTransactionList';
+import { getApiUrl, getAuthHeaders } from '@/config/api';
 
 interface Appointment {
   id: number;
@@ -46,12 +47,10 @@ export const AppointmentsAndReceipts: React.FC = () => {
   const loadCompletedAppointments = async () => {
     try {
       setLoading(true);
-      const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
-      const token = sessionStorage.getItem('auth_token');
 
-      const response = await fetch(`${apiBaseUrl}/appointments?status=completed`, {
+      const response = await fetch(`${getApiUrl('/appointments')}?status=completed`, {
         headers: {
-          'Authorization': token ? `Bearer ${token}` : '',
+          ...getAuthHeaders(),
           'Content-Type': 'application/json',
         },
       });
@@ -158,6 +157,9 @@ export const AppointmentsAndReceipts: React.FC = () => {
                           <div>
                             <div className="font-medium">{appointment.patient.name}</div>
                             <div className="text-sm text-gray-600">{appointment.patient.email}</div>
+                            {appointment.patient.phone && (
+                              <div className="text-xs text-gray-500">{appointment.patient.phone}</div>
+                            )}
                           </div>
                         </div>
                       </TableCell>

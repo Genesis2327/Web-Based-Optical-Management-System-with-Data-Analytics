@@ -1,6 +1,5 @@
 import axios from 'axios';
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api';
+import { API_BASE_URL } from '../config/api';
 
 // Include auth token if present (use sessionStorage for consistency)
 axios.interceptors.request.use((config) => {
@@ -200,7 +199,7 @@ class InventoryApiService {
    * Update stock quantity
    */
   async updateStockQuantity(
-    branchStockId: string, 
+    branchStockId: string | number, 
     updateData: StockUpdateRequest
   ): Promise<{
     message: string;
@@ -211,8 +210,28 @@ class InventoryApiService {
       difference: number;
     };
   }> {
-    const response = await axios.put(`${API_BASE_URL}/branch-stock/${branchStockId}`, updateData);
-    return response.data;
+    // Ensure branchStockId is a number (convert string to number)
+    const id = typeof branchStockId === 'string' ? parseInt(branchStockId, 10) : branchStockId;
+    
+    console.log('Calling updateStockQuantity API:', {
+      branchStockId: id,
+      updateData,
+      url: `${API_BASE_URL}/branch-stock/${id}`
+    });
+    
+    try {
+      const response = await axios.put(`${API_BASE_URL}/branch-stock/${id}`, updateData);
+      console.log('Update stock API response:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('Update stock API error:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+        url: `${API_BASE_URL}/branch-stock/${id}`
+      });
+      throw error;
+    }
   }
 
   /**

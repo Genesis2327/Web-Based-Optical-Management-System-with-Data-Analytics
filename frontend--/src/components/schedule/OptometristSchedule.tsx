@@ -4,31 +4,33 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Calendar, Clock, MapPin, User, RefreshCw, Edit, X, AlertCircle, CheckCircle, XCircle } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
-import { getWeeklySchedule } from '@/services/availabilityApi';
+import { optometristRotationApi } from '@/services/optometristRotationApi';
 import { getOptometristScheduleChangeRequests } from '@/services/scheduleApi';
+import { getActiveBranches } from '@/services/branchApi';
 import { useAuth } from '@/contexts/AuthContext';
 import ScheduleEditModal from './ScheduleEditModal';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
-interface WeeklySchedule {
+interface OptometristRotation {
+  id: number;
+  optometrist_id: number;
+  rotation_schedule: Array<{
+    day: number;
+    day_name: string;
+    branch_id: number;
+    start_time: string;
+    end_time: string;
+    formatted_time: string;
+  }>;
+  all_branches: number[];
+  is_active: boolean;
   optometrist: {
     id: number;
     name: string;
+    email: string;
   };
-  schedule: Array<{
-    day: string;
-    day_number: number;
-    available: boolean;
-    branch: {
-      id: number;
-      name: string;
-      code: string;
-    } | null;
-    schedule: {
-      start_time: string;
-      end_time: string;
-    } | null;
-  }>;
+  created_at: string;
+  updated_at: string;
 }
 
 const OptometristSchedule = () => {
@@ -40,10 +42,16 @@ const OptometristSchedule = () => {
   const [allRequests, setAllRequests] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState('schedule');
 
-  // Fetch weekly schedule
-  const { data: scheduleData, isLoading, error, refetch } = useQuery({
-    queryKey: ['weekly-schedule'],
-    queryFn: getWeeklySchedule,
+  // Fetch optometrist rotations
+  const { data: rotationData, isLoading, error, refetch } = useQuery({
+    queryKey: ['optometrist-rotations'],
+    queryFn: optometristRotationApi.getAllRotations,
+  });
+
+  // Fetch branches for display
+  const { data: branchesData } = useQuery({
+    queryKey: ['branches'],
+    queryFn: getActiveBranches,
   });
 
   // Fetch schedule change requests
@@ -129,6 +137,11 @@ const OptometristSchedule = () => {
     return days[dayOfWeek - 1] || 'Unknown';
   };
 
+  const getBranchName = (branchId: number) => {
+    const branch = branchesData?.find(b => b.id === branchId);
+    return branch?.name || `Branch ${branchId}`;
+  };
+
   const getRequestStatusColor = (status: string) => {
     switch (status) {
       case 'pending': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
@@ -195,10 +208,12 @@ const OptometristSchedule = () => {
     );
   }
 
-  const weeklySchedule = scheduleData?.data?.weekly_schedule || [];
-  const samuelSchedule = weeklySchedule.find(s => s.optometrist.name.includes('Samuel'));
+  const weeklySchedule = rotationData?.rotations || [];
+  const currentUserRotation = weeklySchedule.find((rotation: OptometristRotation) => 
+    rotation.optometrist_id === user?.id
+  );
 
-  if (!samuelSchedule) {
+  if (!currentUserRotation) {
     return (
       <div className="max-w-6xl mx-auto p-6">
         <Card>
@@ -207,11 +222,12 @@ const OptometristSchedule = () => {
               <Calendar className="h-6 w-6 text-yellow-600" />
               <CardTitle>Optometrist Schedule</CardTitle>
             </div>
-            <CardDescription>No schedule data found</CardDescription>
+            <CardDescription>No rotation schedule found</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="text-center py-8">
-              <p className="text-yellow-600">No schedule found for Dr. Samuel Loreto Prieto</p>
+              <p className="text-yellow-600">No rotation schedule found for {user?.name}</p>
+              <p className="text-sm text-gray-500 mt-2">Please contact your administrator to set up your rotation schedule.</p>
             </div>
           </CardContent>
         </Card>
@@ -234,9 +250,9 @@ const OptometristSchedule = () => {
             <div className="flex items-center space-x-2">
               <Calendar className="h-6 w-6 text-blue-600" />
               <div>
-                <CardTitle>Dr. Samuel Loreto Prieto - Weekly Schedule</CardTitle>
+                <CardTitle>{user?.name} - Weekly Rotation Schedule</CardTitle>
                 <CardDescription>
-                  Weekly rotation across 4 branches
+                  Weekly rotation across {currentUserRotation.all_branches.length} branches
                 </CardDescription>
               </div>
             </div>
@@ -290,9 +306,9 @@ const OptometristSchedule = () => {
           {/* Schedule Grid */}
           <div className="grid grid-cols-1 md:grid-cols-7 gap-4">
             {weekDates.map((date, index) => {
-              const dayData = samuelSchedule.schedule[index];
-              const isToday = date.toDateString() === today.toDateString();
               const dayOfWeek = index + 1;
+              const rotationDay = currentUserRotation.rotation_schedule.find(schedule => schedule.day === dayOfWeek);
+              const isToday = date.toDateString() === today.toDateString();
               
               return (
                 <div
@@ -323,7 +339,6 @@ const OptometristSchedule = () => {
                     </div>
                   )}
 
-
                   {/* Day Header */}
                   <div className="text-center mb-4">
                     <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
@@ -340,37 +355,36 @@ const OptometristSchedule = () => {
                   </div>
 
                   {/* Schedule Content */}
-                  {dayData?.available ? (
+                  {rotationDay ? (
                     <div className="space-y-4">
                       <Badge 
                         variant="secondary" 
-                        className={`w-full justify-center py-1.5 ${getStatusColor(dayData, date)} font-medium`}
+                        className="w-full justify-center py-1.5 bg-green-100 text-green-800 border-green-200 font-medium"
                       >
-                        {getStatusText(dayData, date)}
+                        Available
                       </Badge>
                       
                       <div className="space-y-3">
                         <div className="flex items-center space-x-2 p-2 bg-green-50 rounded-lg">
                           <MapPin className="h-4 w-4 text-green-600" />
                           <span className="text-sm font-semibold text-green-800">
-                            {dayData.branch?.name}
+                            {getBranchName(rotationDay.branch_id)}
                           </span>
                         </div>
                         
                         <div className="flex items-center space-x-2 p-2 bg-blue-50 rounded-lg">
                           <Clock className="h-4 w-4 text-blue-600" />
                           <span className="text-sm font-semibold text-blue-800">
-                            {dayData.schedule?.start_time} - {dayData.schedule?.end_time}
+                            {rotationDay.formatted_time}
                           </span>
                         </div>
                         
                         <div className="text-center">
                           <span className="inline-block px-2 py-1 text-xs font-medium text-gray-600 bg-gray-100 rounded-full">
-                            {dayData.branch?.code}
+                            {rotationDay.day_name}
                           </span>
                         </div>
                       </div>
-
                     </div>
                   ) : (
                     <div className="text-center space-y-3">
@@ -384,7 +398,6 @@ const OptometristSchedule = () => {
                         <X className="h-4 w-4" />
                         <span className="text-sm">No work scheduled</span>
                       </div>
-
                     </div>
                   )}
                 </div>
@@ -397,10 +410,10 @@ const OptometristSchedule = () => {
             <h4 className="font-semibold text-blue-900 mb-2">Schedule Summary</h4>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
               <div>
-                <strong>Total Working Days:</strong> {samuelSchedule.schedule.filter(day => day.available).length} days
+                <strong>Total Working Days:</strong> {currentUserRotation.rotation_schedule.length} days
               </div>
               <div>
-                <strong>Branches Covered:</strong> {new Set(samuelSchedule.schedule.filter(day => day.available).map(day => day.branch?.name)).size} branches
+                <strong>Branches Covered:</strong> {currentUserRotation.all_branches.length} branches
               </div>
             </div>
           </div>

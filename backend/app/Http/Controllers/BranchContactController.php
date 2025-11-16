@@ -226,13 +226,13 @@ class BranchContactController extends Controller
             $contact = BranchContact::findOrFail($id);
             $contact->delete();
 
-            Log::info('Branch contact deleted', [
+            Log::info('Branch contact deleted (soft deleted)', [
                 'contact_id' => $id,
                 'branch_id' => $contact->branch_id
             ]);
 
             return response()->json([
-                'message' => 'Contact information deleted successfully'
+                'message' => 'Contact information deleted successfully (soft deleted - data preserved in database)'
             ]);
         } catch (\Exception $e) {
             Log::error('Failed to delete branch contact: ' . $e->getMessage());

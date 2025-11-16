@@ -18,19 +18,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useAppointments } from '../hooks/useAppointments';
+import { useAppointments, useUpdateAppointment } from '../hooks/useAppointments';
 import { Appointment, APPOINTMENT_STATUSES, APPOINTMENT_TYPES } from '../types/appointment.types';
 import { useAuth } from '@/contexts/AuthContext';
+import { useToast } from '@/hooks/use-toast';
 import BranchFilter from '@/components/common/BranchFilter';
 import PrescriptionForm from '@/components/prescriptions/PrescriptionForm';
 
 const OptometristAppointments: React.FC = () => {
   const { user } = useAuth();
+  const { toast } = useToast();
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterType, setFilterType] = useState<string>('all');
   const [filterBranch, setFilterBranch] = useState<string>('all');
   const [showPrescriptionForm, setShowPrescriptionForm] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
+  const [takingOverId, setTakingOverId] = useState<number | null>(null);
 
   // Get all appointments since there's only one doctor
   const { appointments, loading, error, refetch } = useAppointments({
@@ -39,6 +42,8 @@ const OptometristAppointments: React.FC = () => {
     branch_id: filterBranch !== 'all' ? filterBranch : undefined,
     // Removed my_appointments filter to show all appointments
   });
+
+  const { update: updateAppointment, loading: updatingAppointment } = useUpdateAppointment();
 
   const handleCreatePrescription = (appointment: Appointment) => {
     setSelectedAppointment(appointment);
@@ -54,6 +59,61 @@ const OptometristAppointments: React.FC = () => {
   const handlePrescriptionCancel = () => {
     setShowPrescriptionForm(false);
     setSelectedAppointment(null);
+  };
+
+  const handleTakeOver = async (appointment: Appointment) => {
+    if (!user?.id) {
+      toast({
+        title: "Error",
+        description: "You must be logged in to take over an appointment",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Don't take over if already assigned to this user
+    if (appointment.optometrist_id === user.id) {
+      toast({
+        title: "Already Assigned",
+        description: "This appointment is already assigned to you",
+        variant: "default",
+      });
+      return;
+    }
+
+    try {
+      setTakingOverId(appointment.id);
+      
+      // Update appointment to assign it to current user
+      // If status is 'scheduled', also change it to 'confirmed'
+      const updateData: any = {
+        optometrist_id: user.id,
+      };
+
+      if (appointment.status === 'scheduled') {
+        updateData.status = 'confirmed';
+      }
+
+      await updateAppointment(appointment.id.toString(), updateData);
+
+      toast({
+        title: "Success",
+        description: "You have successfully taken over this appointment",
+        variant: "default",
+      });
+
+      // Refresh appointments list
+      refetch();
+    } catch (error: any) {
+      console.error('Error taking over appointment:', error);
+      toast({
+        title: "Error",
+        description: error?.response?.data?.message || "Failed to take over appointment. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setTakingOverId(null);
+    }
   };
 
   const getStatusColor = (status: string) => {
@@ -231,9 +291,14 @@ const OptometristAppointments: React.FC = () => {
               {appointments.map((appointment) => (
                 <TableRow key={appointment.id}>
                   <TableCell>
-                    <div className="flex items-center space-x-2">
-                      <User className="h-4 w-4 text-gray-400" />
-                      <span className="font-medium">{appointment.patient?.name || 'Unknown Patient'}</span>
+                    <div className="space-y-1">
+                      <div className="flex items-center space-x-2">
+                        <User className="h-4 w-4 text-gray-400" />
+                        <span className="font-medium">{appointment.patient?.name || 'Unknown Patient'}</span>
+                      </div>
+                      {appointment.patient?.phone && (
+                        <div className="text-xs text-gray-500 ml-6">{appointment.patient.phone}</div>
+                      )}
                     </div>
                   </TableCell>
                   <TableCell>
@@ -281,16 +346,19 @@ const OptometristAppointments: React.FC = () => {
                         <Eye className="h-4 w-4 mr-1" />
                         View
                       </Button>
-                      {appointment.status === 'scheduled' || appointment.status === 'confirmed' ? (
+                      {(appointment.status === 'scheduled' || appointment.status === 'confirmed') && 
+                       appointment.optometrist_id !== user?.id ? (
                         <Button 
                           size="sm" 
                           variant="default"
+                          onClick={() => handleTakeOver(appointment)}
+                          disabled={updatingAppointment || takingOverId === appointment.id}
                           className="bg-blue-600 hover:bg-blue-700"
                         >
                           <User className="h-4 w-4 mr-1" />
-                          Take Over
+                          {updatingAppointment && takingOverId === appointment.id ? 'Taking Over...' : 'Take Over'}
                         </Button>
-                      ) : appointment.status === 'in_progress' && (
+                      ) : appointment.status === 'in_progress' && appointment.optometrist_id === user?.id && (
                         <Button 
                           size="sm" 
                           variant="default"

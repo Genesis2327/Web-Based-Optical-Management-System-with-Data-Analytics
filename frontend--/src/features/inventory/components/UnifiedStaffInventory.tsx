@@ -24,7 +24,9 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import axios from 'axios';
 
-const API_BASE_URL = 'http://127.0.0.1:8000/api';
+import { getApiBaseUrlDynamic } from '@/config/api';
+// Use dynamic API URL - recalculates based on current hostname
+const getAPIUrl = () => getApiBaseUrlDynamic();
 
 interface InventoryItem {
   id: number;
@@ -117,7 +119,7 @@ const UnifiedStaffInventory: React.FC = () => {
       setError(null);
 
       const token = sessionStorage.getItem('auth_token');
-      const response = await axios.get(`${API_BASE_URL}/inventory/enhanced?branch_id=${selectedBranchId}`, {
+      const response = await axios.get(`${getAPIUrl()}/inventory/enhanced?branch_id=${selectedBranchId}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -152,7 +154,7 @@ const UnifiedStaffInventory: React.FC = () => {
       setError(null);
       
       const token = sessionStorage.getItem('auth_token');
-      await axios.post(`${API_BASE_URL}/enhanced-inventory`, {
+      await axios.post(`${getAPIUrl()}/enhanced-inventory`, {
         branch_id: selectedBranchId,
         product_name: formData.name,
         sku: formData.sku,
@@ -191,8 +193,6 @@ const UnifiedStaffInventory: React.FC = () => {
       const payload: any = {
         quantity: parseInt(formData.stock_quantity),
         min_threshold: parseInt(formData.min_stock_threshold),
-        brand: formData.brand,
-        model: formData.model,
       };
       
       // Only include unit_price if it has a value
@@ -208,7 +208,7 @@ const UnifiedStaffInventory: React.FC = () => {
       console.log('Updating inventory with payload:', payload);
       
       const token = sessionStorage.getItem('auth_token');
-      await axios.put(`${API_BASE_URL}/enhanced-inventory/${selectedItem.id}`, payload, {
+      await axios.put(`${getAPIUrl()}/enhanced-inventory/${selectedItem.id}`, payload, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -236,7 +236,7 @@ const UnifiedStaffInventory: React.FC = () => {
       setError(null);
       
       const token = sessionStorage.getItem('auth_token');
-      await axios.delete(`${API_BASE_URL}/enhanced-inventory/${selectedItem.id}`, {
+      await axios.delete(`${getAPIUrl()}/enhanced-inventory/${selectedItem.id}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },

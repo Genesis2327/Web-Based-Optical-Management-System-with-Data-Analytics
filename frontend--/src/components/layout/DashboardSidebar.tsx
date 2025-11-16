@@ -21,9 +21,15 @@ import {
   Banknote,
   ScrollText,
   Receipt,
+  X,
 } from 'lucide-react';
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
+import {
+  Sheet,
+  SheetContent,
+} from '@/components/ui/sheet';
+import { Button } from '@/components/ui/button';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -153,6 +159,12 @@ const getNavItems = (role: UserRole): NavItem[] => {
         description: 'Manage appointments'
       },
       {
+        title: 'My Schedule',
+        href: '/staff/schedule',
+        icon: Clock,
+        description: 'View your work schedule'
+      },
+      {
         title: 'Reservations & Transactions',
         href: '/staff/reservations',
         icon: Banknote,
@@ -227,6 +239,12 @@ const getNavItems = (role: UserRole): NavItem[] => {
         description: 'Manage all employee schedules across branches'
       },
       {
+        title: 'Notifications',
+        href: '/admin/notifications',
+        icon: Bell,
+        description: 'View and manage notifications'
+      },
+      {
         title: 'Profile',
         href: '/admin/profile',
         icon: UserCircle,
@@ -238,7 +256,13 @@ const getNavItems = (role: UserRole): NavItem[] => {
   return baseItems[role] || [];
 };
 
-export const DashboardSidebar = () => {
+interface DashboardSidebarProps {
+  isMobile?: boolean;
+  isOpen?: boolean;
+  onClose?: () => void;
+}
+
+const SidebarContent = ({ onClose }: { onClose?: () => void }) => {
   const { user } = useAuth();
   const location = useLocation();
 
@@ -256,42 +280,85 @@ export const DashboardSidebar = () => {
     return colors[role];
   };
 
+  const handleNavClick = () => {
+    // Close sidebar on mobile when navigating
+    if (onClose) {
+      onClose();
+    }
+  };
+
   return (
-    <aside className="w-64 bg-white border-r border-slate-200 min-h-screen">
-      <nav className="p-4 space-y-2">
-        {navItems.map((item) => {
-          const isActive = location.pathname === item.href;
-          return (
-            <NavLink
-              key={item.href}
-              to={item.href}
-              className={cn(
-                'flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200',
-                'hover:bg-slate-50 group',
-                isActive && [
-                  'border-l-4',
-                  getRoleAccentColor(user.role as UserRole),
-                  'text-slate-900 font-semibold'
-                ],
-                !isActive && 'text-slate-600 hover:text-slate-900'
+    <nav className="p-4 space-y-2">
+      {navItems.map((item) => {
+        const isActive = location.pathname === item.href;
+        return (
+          <NavLink
+            key={item.href}
+            to={item.href}
+            onClick={handleNavClick}
+            className={cn(
+              'flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200',
+              'hover:bg-slate-50 group',
+              isActive && [
+                'border-l-4',
+                getRoleAccentColor(user.role as UserRole),
+                'text-slate-900 font-semibold'
+              ],
+              !isActive && 'text-slate-600 hover:text-slate-900'
+            )}
+          >
+            <item.icon className={cn(
+              'h-5 w-5 transition-colors',
+              isActive ? 'text-slate-700' : 'text-slate-500 group-hover:text-slate-700'
+            )} />
+            <div className="flex-1">
+              <div>{item.title}</div>
+              {item.description && (
+                <div className="text-xs text-slate-500 mt-0.5">
+                  {item.description}
+                </div>
               )}
+            </div>
+          </NavLink>
+        );
+      })}
+    </nav>
+  );
+};
+
+export const DashboardSidebar = ({ isMobile = false, isOpen = false, onClose }: DashboardSidebarProps) => {
+  const { user } = useAuth();
+
+  if (!user) return null;
+
+  // Mobile: Use Sheet component (drawer)
+  if (isMobile) {
+    return (
+      <Sheet open={isOpen} onOpenChange={(open) => !open && onClose?.()}>
+        <SheetContent side="left" className="w-64 p-0 sm:max-w-sm [&>button]:hidden">
+          <div className="flex items-center justify-between p-4 border-b sticky top-0 bg-white z-10">
+            <h2 className="text-lg font-semibold">Menu</h2>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onClose}
+              aria-label="Close menu"
             >
-              <item.icon className={cn(
-                'h-5 w-5 transition-colors',
-                isActive ? 'text-slate-700' : 'text-slate-500 group-hover:text-slate-700'
-              )} />
-              <div className="flex-1">
-                <div>{item.title}</div>
-                {item.description && (
-                  <div className="text-xs text-slate-500 mt-0.5">
-                    {item.description}
-                  </div>
-                )}
-              </div>
-            </NavLink>
-          );
-        })}
-      </nav>
+              <X className="h-5 w-5" />
+            </Button>
+          </div>
+          <div className="bg-white overflow-y-auto" style={{ height: 'calc(100vh - 4rem)' }}>
+            <SidebarContent onClose={onClose} />
+          </div>
+        </SheetContent>
+      </Sheet>
+    );
+  }
+
+  // Desktop: Regular sidebar
+  return (
+    <aside className="w-64 bg-white border-r border-slate-200 min-h-screen hidden md:block">
+      <SidebarContent />
     </aside>
   );
 };

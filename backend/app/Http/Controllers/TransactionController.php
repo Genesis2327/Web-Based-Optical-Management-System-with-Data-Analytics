@@ -80,6 +80,9 @@ class TransactionController extends Controller
 
             // Create receipt
             $receipt = Receipt::create([
+                'customer_id' => $appointment->patient_id,
+                'branch_id' => $appointment->branch_id,
+                'reservation_id' => $reservation->id,
                 'appointment_id' => $appointment->id,
                 'sales_type' => $validated['sales_type'],
                 'date' => now()->toDateString(),
@@ -296,6 +299,12 @@ class TransactionController extends Controller
 
     /**
      * Create a new transaction when appointment or reservation is confirmed
+     * 
+     * ⚠️ LIMITATION: Online payment methods (Credit Card, Debit Card, Online Payment) are
+     * accepted and recorded in the database but do not integrate with actual payment gateway
+     * providers. These are mock implementations for demonstration purposes only. Only Cash
+     * payments involve real transaction processing. Online payment transactions are recorded
+     * without processing real financial transactions through external payment processors.
      */
     public function createTransaction(Request $request)
     {
@@ -312,6 +321,7 @@ class TransactionController extends Controller
             'customer_id' => 'required|exists:users,id',
             'branch_id' => 'required|exists:branches,id',
             'total_amount' => 'required|numeric|min:0',
+            // NOTE: Online payment methods are mock implementations only
             'payment_method' => 'required|in:Cash,Credit Card,Debit Card,Online Payment',
             'notes' => 'nullable|string',
         ]);
@@ -479,6 +489,8 @@ class TransactionController extends Controller
 
             // Create receipt
             $receipt = Receipt::create([
+                'customer_id' => $transaction->customer_id,
+                'branch_id' => $transaction->branch_id,
                 'appointment_id' => $transaction->appointment_id,
                 'sales_type' => $validated['sales_type'],
                 'date' => now()->toDateString(),
@@ -595,56 +607,71 @@ class TransactionController extends Controller
      */
     public function getPatientTransactions(Request $request)
     {
-        $user = Auth::user();
-        
-        if (!in_array($user->role->value, ['staff', 'optometrist', 'admin'])) {
-            return response()->json(['message' => 'Unauthorized'], 403);
-        }
-
-        $query = Transaction::with([
-            'customer', 
-            'appointment.optometrist', 
-            'reservation.product.category'
-        ])
-            ->where('status', 'Completed');
-
-        // Filter by branch for staff/optometrist
-        if ($user->role->value !== 'admin') {
-            $query->where('branch_id', $user->branch_id);
-        }
-
-        // Apply date filter
-        if ($request->has('date_from')) {
-            $query->whereDate('created_at', '>=', $request->date_from);
-        }
-
-        if ($request->has('date_to')) {
-            $query->whereDate('created_at', '<=', $request->date_to);
-        }
-
-        $transactions = $query->get();
-
-        // Group by customer
-        $patientData = $transactions->groupBy('customer_id')->map(function ($customerTransactions) {
-            $firstTransaction = $customerTransactions->first();
-            $customer = $firstTransaction->customer;
+        try {
+            $user = Auth::user();
             
-            return [
-                'id' => $customer->id,
-                'name' => $customer->name,
-                'email' => $customer->email,
-                'total_transactions' => $customerTransactions->count(),
-                'total_spent' => $customerTransactions->sum('total_amount'),
-                'completed_appointments' => $customerTransactions->whereNotNull('appointment_id')->count(),
-                'reserved_products' => $customerTransactions->whereNotNull('reservation_id')->count(),
-                'last_transaction_date' => $customerTransactions->max('created_at'),
-                'transactions' => $customerTransactions->sortByDesc('created_at')->values(),
-            ];
-        })->values()->sortByDesc('total_spent');
+            if (!$user || !in_array($user->role->value, ['staff', 'optometrist', 'admin'])) {
+                return response()->json(['message' => 'Unauthorized'], 403);
+            }
 
-        return response()->json([
-            'patients' => $patientData,
-        ]);
+            $query = Transaction::with([
+                'customer', 
+                'appointment.optometrist', 
+                'reservation.product.category'
+            ])
+                ->where('status', 'Completed');
+
+            // Filter by branch for staff/optometrist
+            if ($user->role->value !== 'admin') {
+                $query->where('branch_id', $user->branch_id);
+            }
+
+            // Apply date filter
+            if ($request->has('date_from')) {
+                $query->whereDate('created_at', '>=', $request->date_from);
+            }
+
+            if ($request->has('date_to')) {
+                $query->whereDate('created_at', '<=', $request->date_to);
+            }
+
+            $transactions = $query->get();
+
+            // Group by customer
+            $patientData = $transactions->groupBy('customer_id')->map(function ($customerTransactions) {
+                $firstTransaction = $customerTransactions->first();
+                $customer = $firstTransaction->customer;
+                
+                // Skip if customer is null
+                if (!$customer) {
+                    return null;
+                }
+                
+                return [
+                    'id' => $customer->id,
+                    'name' => $customer->name,
+                    'email' => $customer->email,
+                    'total_transactions' => $customerTransactions->count(),
+                    'total_spent' => $customerTransactions->sum('total_amount'),
+                    'completed_appointments' => $customerTransactions->whereNotNull('appointment_id')->count(),
+                    'reserved_products' => $customerTransactions->whereNotNull('reservation_id')->count(),
+                    'last_transaction_date' => $customerTransactions->max('created_at'),
+                    'transactions' => $customerTransactions->sortByDesc('created_at')->values(),
+                ];
+            })->filter()->values()->sortByDesc('total_spent');
+
+            return response()->json([
+                'patients' => $patientData,
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Error in getPatientTransactions: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString()
+            ]);
+            return response()->json([
+                'message' => 'Error fetching patient transactions',
+                'error' => config('app.debug') ? $e->getMessage() : 'An error occurred'
+            ], 500);
+        }
     }
 
     /**

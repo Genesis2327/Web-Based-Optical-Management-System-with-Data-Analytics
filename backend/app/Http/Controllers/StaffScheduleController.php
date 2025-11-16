@@ -12,6 +12,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class StaffScheduleController extends Controller
 {
@@ -21,33 +22,225 @@ class StaffScheduleController extends Controller
      */
     public function getAllStaffSchedules(Request $request): JsonResponse
     {
-        $user = Auth::user();
-        
-        // Check authorization - only admins can see all schedules
-        $userRole = null;
-        if (is_object($user->role)) {
-            $userRole = $user->role->value ?? (string)$user->role;
-        } else {
-            $userRole = (string)$user->role;
-        }
-        
-        if (!$user || $userRole !== 'admin') {
-            return response()->json(['message' => 'Unauthorized'], 403);
-        }
+        try {
+            $user = Auth::user();
+            
+            // Check if user is authenticated
+            if (!$user) {
+                return response()->json(['message' => 'Unauthorized'], 403);
+            }
+            
+            // Check authorization - only admins can see all schedules
+            $userRole = null;
+            if (isset($user->role)) {
+                if (is_object($user->role)) {
+                    $userRole = $user->role->value ?? (string)$user->role;
+                } else {
+                    $userRole = (string)$user->role;
+                }
+            }
+            
+            if ($userRole !== 'admin') {
+                return response()->json(['message' => 'Unauthorized. Admin access required.'], 403);
+            }
 
-        // Get all staff schedules across all branches
-        $schedules = Schedule::where('is_active', true)
-            ->with(['staff', 'branch', 'creator', 'updater'])
-            ->orderBy('branch_id')
-            ->orderBy('staff_role')
-            ->orderBy('staff_id')
-            ->orderBy('day_of_week')
-            ->get();
+            // Check if schedules table exists
+            if (!Schema::hasTable('schedules')) {
+                \Log::warning('schedules table does not exist');
+                return response()->json([
+                    'staff_schedules' => [],
+                    'total' => 0,
+                    'message' => 'Schedules table does not exist. Please run migrations.'
+                ], 200);
+            }
 
-        return response()->json([
-            'staff_schedules' => $schedules,
-            'total' => $schedules->count()
-        ]);
+            // Build query safely - disable soft deletes if deleted_at column doesn't exist
+            $hasDeletedAt = Schema::hasColumn('schedules', 'deleted_at');
+            $query = Schedule::query();
+            
+            // Disable soft deletes scope if deleted_at column doesn't exist
+            if (!$hasDeletedAt) {
+                $query->withoutGlobalScopes();
+            }
+            
+            // Only filter by is_active if column exists
+            if (Schema::hasColumn('schedules', 'is_active')) {
+                $query->where('is_active', true);
+            }
+            
+            // Load relationships only if tables exist - use try-catch for each relationship
+            $withRelations = [];
+            try {
+                if (Schema::hasTable('users') && Schema::hasColumn('schedules', 'staff_id')) {
+                    $withRelations[] = 'staff';
+                }
+            } catch (\Exception $e) {
+                \Log::warning('Could not load staff relationship: ' . $e->getMessage());
+            }
+            
+            try {
+                if (Schema::hasTable('branches') && Schema::hasColumn('schedules', 'branch_id')) {
+                    $withRelations[] = 'branch';
+                }
+            } catch (\Exception $e) {
+                \Log::warning('Could not load branch relationship: ' . $e->getMessage());
+            }
+            
+            try {
+                if (Schema::hasTable('users') && Schema::hasColumn('schedules', 'created_by')) {
+                    $withRelations[] = 'creator';
+                }
+            } catch (\Exception $e) {
+                \Log::warning('Could not load creator relationship: ' . $e->getMessage());
+            }
+            
+            try {
+                if (Schema::hasTable('users') && Schema::hasColumn('schedules', 'updated_by')) {
+                    $withRelations[] = 'updater';
+                }
+            } catch (\Exception $e) {
+                \Log::warning('Could not load updater relationship: ' . $e->getMessage());
+            }
+            
+            // Load relationships with error handling
+            if (!empty($withRelations)) {
+                try {
+                    $query->with($withRelations);
+                } catch (\Exception $e) {
+                    \Log::warning('Error loading relationships, continuing without: ' . $e->getMessage());
+                    // Continue without relationships if loading fails
+                }
+            }
+            
+            // Order by columns only if they exist
+            try {
+                if (Schema::hasColumn('schedules', 'branch_id')) {
+                    $query->orderBy('branch_id');
+                }
+                if (Schema::hasColumn('schedules', 'staff_role')) {
+                    $query->orderBy('staff_role');
+                }
+                if (Schema::hasColumn('schedules', 'staff_id')) {
+                    $query->orderBy('staff_id');
+                }
+                if (Schema::hasColumn('schedules', 'day_of_week')) {
+                    $query->orderBy('day_of_week');
+                }
+            } catch (\Exception $e) {
+                \Log::warning('Error setting order by, using default: ' . $e->getMessage());
+            }
+            
+            // Execute query with error handling
+            try {
+                $schedules = $query->get();
+            } catch (\Exception $e) {
+                \Log::error('Error executing schedule query: ' . $e->getMessage());
+                // Return empty array if query fails
+                $schedules = collect([]);
+            }
+
+            // Format schedules with error handling
+            $formattedSchedules = $schedules->map(function ($schedule) {
+                try {
+                    // Safely get staff data
+                    $staffData = null;
+                    if ($schedule->staff) {
+                        $staffData = [
+                            'id' => $schedule->staff->id ?? null,
+                            'name' => $schedule->staff->name ?? 'Unknown',
+                            'email' => $schedule->staff->email ?? null,
+                        ];
+                    } else {
+                        $staffData = [
+                            'id' => $schedule->staff_id ?? null,
+                            'name' => 'Unknown Staff',
+                            'email' => null,
+                        ];
+                    }
+                    
+                    // Safely get branch data
+                    $branchData = null;
+                    if ($schedule->branch) {
+                        $branchData = [
+                            'id' => $schedule->branch->id ?? null,
+                            'name' => $schedule->branch->name ?? 'Unknown',
+                            'address' => $schedule->branch->address ?? null,
+                        ];
+                    } else {
+                        $branchData = [
+                            'id' => $schedule->branch_id ?? null,
+                            'name' => 'Unknown Branch',
+                            'address' => null,
+                        ];
+                    }
+                    
+                    return [
+                        'id' => $schedule->id ?? null,
+                        'staff_id' => $schedule->staff_id ?? null,
+                        'staff' => $staffData,
+                        'staff_role' => $schedule->staff_role ?? 'unknown',
+                        'branch_id' => $schedule->branch_id ?? null,
+                        'branch' => $branchData,
+                        'day_of_week' => $schedule->day_of_week ?? null,
+                        'day_name' => $schedule->day_name ?? 'Unknown',
+                        'start_time' => $schedule->start_time ?? null,
+                        'end_time' => $schedule->end_time ?? null,
+                        'formatted_time' => ($schedule->formatted_start_time ?? '') . ' - ' . ($schedule->formatted_end_time ?? ''),
+                        'is_active' => $schedule->is_active ?? true,
+                        'created_by' => $schedule->creator ? ($schedule->creator->name ?? null) : null,
+                        'updated_by' => $schedule->updater ? ($schedule->updater->name ?? null) : null,
+                        'created_at' => $schedule->created_at ?? null,
+                        'updated_at' => $schedule->updated_at ?? null,
+                    ];
+                } catch (\Exception $e) {
+                    \Log::warning('Error formatting schedule: ' . $e->getMessage());
+                    return [
+                        'id' => $schedule->id ?? null,
+                        'staff_id' => $schedule->staff_id ?? null,
+                        'staff' => [
+                            'id' => $schedule->staff_id ?? null,
+                            'name' => 'Unknown',
+                            'email' => null,
+                        ],
+                        'staff_role' => 'unknown',
+                        'branch_id' => $schedule->branch_id ?? null,
+                        'branch' => [
+                            'id' => $schedule->branch_id ?? null,
+                            'name' => 'Unknown',
+                            'address' => null,
+                        ],
+                        'day_of_week' => $schedule->day_of_week ?? null,
+                        'day_name' => 'Unknown',
+                        'start_time' => null,
+                        'end_time' => null,
+                        'formatted_time' => '',
+                        'is_active' => true,
+                        'created_by' => null,
+                        'updated_by' => null,
+                        'created_at' => $schedule->created_at ?? null,
+                        'updated_at' => $schedule->updated_at ?? null,
+                    ];
+                }
+            });
+
+            return response()->json([
+                'staff_schedules' => $formattedSchedules,
+                'total' => $formattedSchedules->count()
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Error in StaffScheduleController::getAllStaffSchedules: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine()
+            ]);
+            
+            return response()->json([
+                'message' => 'Error fetching staff schedules',
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
+                'staff_schedules' => [],
+                'total' => 0
+            ], 500);
+        }
     }
 
     /**
@@ -56,77 +249,274 @@ class StaffScheduleController extends Controller
      */
     public function getBranchStaffSchedules(Request $request, $branchId): JsonResponse
     {
-        $user = Auth::user();
-        
-        // Check authorization
-        $userRole = null;
-        if (is_object($user->role)) {
-            $userRole = $user->role->value ?? (string)$user->role;
-        } else {
-            $userRole = (string)$user->role;
-        }
-        
-        if (!$user || 
-            ($userRole !== 'admin' && 
-             $userRole !== 'staff' && 
-             $userRole !== 'optometrist' && 
-             $user->branch_id != $branchId)) {
-            return response()->json(['message' => 'Unauthorized'], 403);
-        }
+        try {
+            $user = Auth::user();
+            
+            // Check if user is authenticated
+            if (!$user) {
+                return response()->json(['message' => 'Unauthorized'], 403);
+            }
+            
+            // Check authorization
+            $userRole = null;
+            if (isset($user->role)) {
+                if (is_object($user->role)) {
+                    $userRole = $user->role->value ?? (string)$user->role;
+                } else {
+                    $userRole = (string)$user->role;
+                }
+            }
+            
+            if ($userRole !== 'admin' && 
+                $userRole !== 'staff' && 
+                $userRole !== 'optometrist' && 
+                (!isset($user->branch_id) || $user->branch_id != $branchId)) {
+                return response()->json(['message' => 'Unauthorized'], 403);
+            }
 
-        $branch = Branch::find($branchId);
-        if (!$branch) {
-            return response()->json(['message' => 'Branch not found'], 404);
-        }
+            // Check if branches table exists
+            if (!Schema::hasTable('branches')) {
+                return response()->json([
+                    'message' => 'Branches table does not exist. Please run migrations.',
+                    'branch' => null,
+                    'staff_schedules' => [],
+                    'summary' => [
+                        'total_staff' => 0,
+                        'optometrists' => 0,
+                        'staff' => 0,
+                    ]
+                ], 200);
+            }
 
-        // Get all staff schedules for the branch
-        $schedules = Schedule::where('branch_id', $branchId)
-            ->where('is_active', true)
-            ->with(['staff', 'creator', 'updater'])
-            ->orderBy('staff_role')
-            ->orderBy('staff_id')
-            ->orderBy('day_of_week')
-            ->get();
+            $branch = Branch::find($branchId);
+            if (!$branch) {
+                return response()->json(['message' => 'Branch not found'], 404);
+            }
 
-        // Group schedules by staff member
-        $staffSchedules = $schedules->groupBy('staff_id')->map(function ($staffSchedules) {
-            $staff = $staffSchedules->first()->staff;
-            return [
-                'staff_id' => $staff->id,
-                'staff_name' => $staff->name,
-                'staff_role' => $staffSchedules->first()->staff_role,
-                'email' => $staff->email,
-                'schedules' => $staffSchedules->map(function ($schedule) {
+            // Check if schedules table exists
+            if (!Schema::hasTable('schedules')) {
+                return response()->json([
+                    'branch' => [
+                        'id' => $branch->id,
+                        'name' => $branch->name,
+                        'address' => $branch->address,
+                    ],
+                    'staff_schedules' => [],
+                    'summary' => [
+                        'total_staff' => 0,
+                        'optometrists' => 0,
+                        'staff' => 0,
+                    ],
+                    'message' => 'Schedules table does not exist. Please run migrations.'
+                ], 200);
+            }
+
+            // Build query safely
+            $hasDeletedAt = Schema::hasColumn('schedules', 'deleted_at');
+            $query = Schedule::query();
+            
+            // Disable soft deletes scope if deleted_at column doesn't exist
+            if (!$hasDeletedAt) {
+                $query->withoutGlobalScopes();
+            }
+            
+            // Filter by branch_id
+            if (Schema::hasColumn('schedules', 'branch_id')) {
+                $query->where('branch_id', $branchId);
+            }
+            
+            // Filter by is_active if column exists
+            if (Schema::hasColumn('schedules', 'is_active')) {
+                $query->where('is_active', true);
+            }
+            
+            // Load relationships only if tables exist
+            $withRelations = [];
+            try {
+                if (Schema::hasTable('users') && Schema::hasColumn('schedules', 'staff_id')) {
+                    $withRelations[] = 'staff';
+                }
+            } catch (\Exception $e) {
+                \Log::warning('Could not load staff relationship: ' . $e->getMessage());
+            }
+            
+            try {
+                if (Schema::hasTable('users') && Schema::hasColumn('schedules', 'created_by')) {
+                    $withRelations[] = 'creator';
+                }
+            } catch (\Exception $e) {
+                \Log::warning('Could not load creator relationship: ' . $e->getMessage());
+            }
+            
+            try {
+                if (Schema::hasTable('users') && Schema::hasColumn('schedules', 'updated_by')) {
+                    $withRelations[] = 'updater';
+                }
+            } catch (\Exception $e) {
+                \Log::warning('Could not load updater relationship: ' . $e->getMessage());
+            }
+            
+            if (!empty($withRelations)) {
+                try {
+                    $query->with($withRelations);
+                } catch (\Exception $e) {
+                    \Log::warning('Error loading relationships: ' . $e->getMessage());
+                }
+            }
+            
+            // Order by columns only if they exist
+            try {
+                if (Schema::hasColumn('schedules', 'staff_role')) {
+                    $query->orderBy('staff_role');
+                }
+                if (Schema::hasColumn('schedules', 'staff_id')) {
+                    $query->orderBy('staff_id');
+                }
+                if (Schema::hasColumn('schedules', 'day_of_week')) {
+                    $query->orderBy('day_of_week');
+                }
+            } catch (\Exception $e) {
+                \Log::warning('Error setting order by: ' . $e->getMessage());
+            }
+            
+            // Execute query with error handling
+            try {
+                $schedules = $query->get();
+            } catch (\Exception $e) {
+                \Log::error('Error executing schedule query: ' . $e->getMessage());
+                $schedules = collect([]);
+            }
+
+            // Group schedules by staff member with error handling
+            $staffSchedules = $schedules->groupBy('staff_id')->map(function ($staffSchedules) {
+                try {
+                    $firstSchedule = $staffSchedules->first();
+                    $staff = $firstSchedule->staff ?? null;
+                    
+                    if (!$staff) {
+                        // If staff relationship is not loaded or doesn't exist, use schedule data
+                        return [
+                            'staff_id' => $firstSchedule->staff_id ?? null,
+                            'staff_name' => 'Unknown Staff',
+                            'staff_role' => $firstSchedule->staff_role ?? 'unknown',
+                            'email' => null,
+                            'schedules' => $staffSchedules->map(function ($schedule) {
+                                try {
+                                    return [
+                                        'id' => $schedule->id ?? null,
+                                        'day_of_week' => $schedule->day_of_week ?? null,
+                                        'day_name' => $schedule->day_name ?? 'Unknown',
+                                        'start_time' => $schedule->start_time ?? null,
+                                        'end_time' => $schedule->end_time ?? null,
+                                        'formatted_time' => ($schedule->formatted_start_time ?? '') . ' - ' . ($schedule->formatted_end_time ?? ''),
+                                        'is_active' => $schedule->is_active ?? true,
+                                        'created_by' => $schedule->creator ? ($schedule->creator->name ?? null) : null,
+                                        'updated_by' => $schedule->updater ? ($schedule->updater->name ?? null) : null,
+                                        'created_at' => $schedule->created_at ?? null,
+                                        'updated_at' => $schedule->updated_at ?? null,
+                                    ];
+                                } catch (\Exception $e) {
+                                    \Log::warning('Error formatting schedule: ' . $e->getMessage());
+                                    return [
+                                        'id' => $schedule->id ?? null,
+                                        'day_of_week' => $schedule->day_of_week ?? null,
+                                        'day_name' => 'Unknown',
+                                        'start_time' => null,
+                                        'end_time' => null,
+                                        'formatted_time' => '',
+                                        'is_active' => true,
+                                        'created_by' => null,
+                                        'updated_by' => null,
+                                        'created_at' => $schedule->created_at ?? null,
+                                        'updated_at' => $schedule->updated_at ?? null,
+                                    ];
+                                }
+                            })->values()
+                        ];
+                    }
+                    
                     return [
-                        'id' => $schedule->id,
-                        'day_of_week' => $schedule->day_of_week,
-                        'day_name' => $schedule->day_name,
-                        'start_time' => $schedule->start_time,
-                        'end_time' => $schedule->end_time,
-                        'formatted_time' => $schedule->formatted_start_time . ' - ' . $schedule->formatted_end_time,
-                        'is_active' => $schedule->is_active,
-                        'created_by' => $schedule->creator ? $schedule->creator->name : null,
-                        'updated_by' => $schedule->updater ? $schedule->updater->name : null,
-                        'created_at' => $schedule->created_at,
-                        'updated_at' => $schedule->updated_at,
+                        'staff_id' => $staff->id ?? null,
+                        'staff_name' => $staff->name ?? 'Unknown',
+                        'staff_role' => $firstSchedule->staff_role ?? 'unknown',
+                        'email' => $staff->email ?? null,
+                        'schedules' => $staffSchedules->map(function ($schedule) {
+                            try {
+                                return [
+                                    'id' => $schedule->id ?? null,
+                                    'day_of_week' => $schedule->day_of_week ?? null,
+                                    'day_name' => $schedule->day_name ?? 'Unknown',
+                                    'start_time' => $schedule->start_time ?? null,
+                                    'end_time' => $schedule->end_time ?? null,
+                                    'formatted_time' => ($schedule->formatted_start_time ?? '') . ' - ' . ($schedule->formatted_end_time ?? ''),
+                                    'is_active' => $schedule->is_active ?? true,
+                                    'created_by' => $schedule->creator ? ($schedule->creator->name ?? null) : null,
+                                    'updated_by' => $schedule->updater ? ($schedule->updater->name ?? null) : null,
+                                    'created_at' => $schedule->created_at ?? null,
+                                    'updated_at' => $schedule->updated_at ?? null,
+                                ];
+                            } catch (\Exception $e) {
+                                \Log::warning('Error formatting schedule: ' . $e->getMessage());
+                                return [
+                                    'id' => $schedule->id ?? null,
+                                    'day_of_week' => $schedule->day_of_week ?? null,
+                                    'day_name' => 'Unknown',
+                                    'start_time' => null,
+                                    'end_time' => null,
+                                    'formatted_time' => '',
+                                    'is_active' => true,
+                                    'created_by' => null,
+                                    'updated_by' => null,
+                                    'created_at' => $schedule->created_at ?? null,
+                                    'updated_at' => $schedule->updated_at ?? null,
+                                ];
+                            }
+                        })->values()
                     ];
-                })->values()
-            ];
-        })->values();
+                } catch (\Exception $e) {
+                    \Log::warning('Error grouping schedules by staff: ' . $e->getMessage());
+                    return [
+                        'staff_id' => null,
+                        'staff_name' => 'Unknown',
+                        'staff_role' => 'unknown',
+                        'email' => null,
+                        'schedules' => [],
+                    ];
+                }
+            })->values();
 
-        return response()->json([
-            'branch' => [
-                'id' => $branch->id,
-                'name' => $branch->name,
-                'address' => $branch->address,
-            ],
-            'staff_schedules' => $staffSchedules,
-            'summary' => [
-                'total_staff' => $staffSchedules->count(),
-                'optometrists' => $staffSchedules->where('staff_role', 'optometrist')->count(),
-                'staff' => $staffSchedules->where('staff_role', 'staff')->count(),
-            ]
-        ]);
+            return response()->json([
+                'branch' => [
+                    'id' => $branch->id ?? null,
+                    'name' => $branch->name ?? 'Unknown',
+                    'address' => $branch->address ?? null,
+                ],
+                'staff_schedules' => $staffSchedules,
+                'summary' => [
+                    'total_staff' => $staffSchedules->count(),
+                    'optometrists' => $staffSchedules->where('staff_role', 'optometrist')->count(),
+                    'staff' => $staffSchedules->where('staff_role', 'staff')->count(),
+                ]
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Error in StaffScheduleController::getBranchStaffSchedules: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine()
+            ]);
+            
+            return response()->json([
+                'message' => 'Error fetching branch staff schedules',
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
+                'branch' => null,
+                'staff_schedules' => [],
+                'summary' => [
+                    'total_staff' => 0,
+                    'optometrists' => 0,
+                    'staff' => 0,
+                ]
+            ], 500);
+        }
     }
 
     /**
@@ -229,7 +619,9 @@ class StaffScheduleController extends Controller
             'staff_id' => 'required|exists:users,id',
             'staff_role' => 'required|in:optometrist,staff',
             'branch_id' => 'required|exists:branches,id',
-            'day_of_week' => 'required|integer|between:1,7',
+            'day_of_week' => 'sometimes|integer|between:1,7', // Keep for backward compatibility
+            'days_of_week' => 'required|array|min:1',
+            'days_of_week.*' => 'integer|between:1,7',
             'start_time' => 'required|date_format:H:i',
             'end_time' => 'required|date_format:H:i|after:start_time',
             'is_active' => 'boolean',
@@ -256,37 +648,46 @@ class StaffScheduleController extends Controller
         }
 
         try {
-            // Check if schedule already exists for this staff member on this day
-            $existingSchedule = Schedule::where('staff_id', $request->staff_id)
-                ->where('day_of_week', $request->day_of_week)
-                ->first();
+            $daysOfWeek = $request->days_of_week ?? [$request->day_of_week ?? 1];
+            $createdSchedules = [];
+            
+            foreach ($daysOfWeek as $day) {
+                // Check if schedule already exists for this staff member on this day
+                $existingSchedule = Schedule::where('staff_id', $request->staff_id)
+                    ->where('day_of_week', $day)
+                    ->first();
 
-            if ($existingSchedule) {
-                // Update existing schedule
-                $existingSchedule->update([
-                    'branch_id' => $request->branch_id,
-                    'start_time' => $request->start_time,
-                    'end_time' => $request->end_time,
-                    'is_active' => $request->get('is_active', true),
-                    'updated_by' => $user->id,
-                ]);
-
-                $schedule = $existingSchedule;
-            } else {
-                // Create new schedule
-                $schedule = Schedule::create([
-                    'staff_id' => $request->staff_id,
-                    'staff_role' => $request->staff_role,
-                    'branch_id' => $request->branch_id,
-                    'day_of_week' => $request->day_of_week,
-                    'start_time' => $request->start_time,
-                    'end_time' => $request->end_time,
-                    'is_active' => $request->get('is_active', true),
-                    'created_by' => $user->id,
-                    'updated_by' => $user->id,
-                ]);
+                if ($existingSchedule) {
+                    // Update existing schedule
+                    $existingSchedule->update([
+                        'branch_id' => $request->branch_id,
+                        'days_of_week' => $daysOfWeek, // Store all days for reference
+                        'start_time' => $request->start_time,
+                        'end_time' => $request->end_time,
+                        'is_active' => $request->get('is_active', true),
+                        'updated_by' => $user->id,
+                    ]);
+                    $createdSchedules[] = $existingSchedule;
+                } else {
+                    // Create new schedule
+                    $schedule = Schedule::create([
+                        'staff_id' => $request->staff_id,
+                        'staff_role' => $request->staff_role,
+                        'branch_id' => $request->branch_id,
+                        'day_of_week' => $day, // Keep single day for individual records
+                        'days_of_week' => $daysOfWeek, // Store all days for reference
+                        'start_time' => $request->start_time,
+                        'end_time' => $request->end_time,
+                        'is_active' => $request->get('is_active', true),
+                        'created_by' => $user->id,
+                        'updated_by' => $user->id,
+                    ]);
+                    $createdSchedules[] = $schedule;
+                }
             }
 
+            // Load the first schedule with relationships for response
+            $schedule = $createdSchedules[0];
             $schedule->load(['staff', 'branch', 'creator', 'updater']);
 
             return response()->json([
@@ -303,6 +704,7 @@ class StaffScheduleController extends Controller
                         'name' => $schedule->branch->name,
                     ],
                     'day_of_week' => $schedule->day_of_week,
+                    'days_of_week' => $schedule->days_of_week ?? [$schedule->day_of_week],
                     'day_name' => $schedule->day_name,
                     'start_time' => $schedule->start_time,
                     'end_time' => $schedule->end_time,
@@ -347,7 +749,7 @@ class StaffScheduleController extends Controller
             $schedule->delete();
 
             return response()->json([
-                'message' => 'Schedule deleted successfully'
+                'message' => 'Schedule deleted successfully (soft deleted - data preserved in database)'
             ]);
 
         } catch (\Exception $e) {
@@ -364,63 +766,172 @@ class StaffScheduleController extends Controller
      */
     public function getStaffMembers(Request $request): JsonResponse
     {
-        $user = Auth::user();
-        
-        $userRole = null;
-        if (is_object($user->role)) {
-            $userRole = $user->role->value ?? (string)$user->role;
-        } else {
-            $userRole = (string)$user->role;
-        }
-        
-        if (!$user || !in_array($userRole, ['admin', 'staff', 'optometrist'])) {
-            return response()->json(['message' => 'Unauthorized'], 403);
-        }
-
-        $role = $request->get('role'); // optional filter by role
-        $branchId = $request->get('branch_id'); // optional filter by branch
-
-        $query = User::whereIn('role', ['optometrist', 'staff'])
-            ->where('is_approved', true)
-            ->with('branch');
-
-        if ($role) {
-            $query->where('role', $role);
-        }
-
-        if ($branchId) {
-            $query->where('branch_id', $branchId);
-        }
-
-        $staffMembers = $query->get()->map(function ($staff) {
-            $staffRole = null;
-            if (is_object($staff->role)) {
-                $staffRole = $staff->role->value ?? (string)$staff->role;
-            } else {
-                $staffRole = (string)$staff->role;
+        try {
+            $user = Auth::user();
+            
+            // Check if user is authenticated
+            if (!$user) {
+                return response()->json(['message' => 'Unauthorized'], 403);
             }
             
-            return [
-                'id' => $staff->id,
-                'name' => $staff->name,
-                'email' => $staff->email,
-                'role' => $staffRole,
-                'branch' => $staff->branch ? [
-                    'id' => $staff->branch->id,
-                    'name' => $staff->branch->name,
-                    'address' => $staff->branch->address,
-                ] : null,
-            ];
-        });
+            $userRole = null;
+            if (isset($user->role)) {
+                if (is_object($user->role)) {
+                    $userRole = $user->role->value ?? (string)$user->role;
+                } else {
+                    $userRole = (string)$user->role;
+                }
+            }
+            
+            if (!in_array($userRole, ['admin', 'staff', 'optometrist'])) {
+                return response()->json(['message' => 'Unauthorized'], 403);
+            }
 
-        return response()->json([
-            'staff_members' => $staffMembers,
-            'summary' => [
-                'total' => $staffMembers->count(),
-                'optometrists' => $staffMembers->where('role', 'optometrist')->count(),
-                'staff' => $staffMembers->where('role', 'staff')->count(),
-            ]
-        ]);
+            // Check if users table exists
+            if (!Schema::hasTable('users')) {
+                \Log::warning('users table does not exist');
+                return response()->json([
+                    'staff_members' => [],
+                    'summary' => [
+                        'total' => 0,
+                        'optometrists' => 0,
+                        'staff' => 0,
+                    ],
+                    'message' => 'Users table does not exist. Please run migrations.'
+                ], 200);
+            }
+            $role = $request->get('role'); // optional filter by role
+            $branchId = $request->get('branch_id'); // optional filter by branch
+
+            // Build query safely - handle enum role casting
+            $query = User::query();
+            
+            // Filter by role - use string values only (enum is stored as string in DB)
+            try {
+                if (Schema::hasColumn('users', 'role')) {
+                    // Query by string values only (the enum is stored as string in DB)
+                    $query->whereIn('role', ['optometrist', 'staff']);
+                }
+            } catch (\Exception $e) {
+                \Log::warning('Error filtering by role: ' . $e->getMessage());
+                // If whereIn fails, try individual where clauses
+                try {
+                    $query->where(function($q) {
+                        $q->where('role', 'optometrist')
+                          ->orWhere('role', 'staff');
+                    });
+                } catch (\Exception $e2) {
+                    \Log::error('Error with fallback role filtering: ' . $e2->getMessage());
+                }
+            }
+            
+            // Filter by is_approved if column exists
+            try {
+                if (Schema::hasColumn('users', 'is_approved')) {
+                    $query->where('is_approved', true);
+                }
+            } catch (\Exception $e) {
+                \Log::warning('Error filtering by is_approved: ' . $e->getMessage());
+            }
+            
+            // Load branch relationship only if branches table exists
+            try {
+                if (Schema::hasTable('branches') && Schema::hasColumn('users', 'branch_id')) {
+                    $query->with('branch');
+                }
+            } catch (\Exception $e) {
+                \Log::warning('Could not load branch relationship: ' . $e->getMessage());
+            }
+
+            // Apply optional filters
+            if ($role) {
+                try {
+                    $query->where('role', $role);
+                } catch (\Exception $e) {
+                    \Log::warning('Error filtering by role parameter: ' . $e->getMessage());
+                }
+            }
+
+            if ($branchId) {
+                try {
+                    if (Schema::hasColumn('users', 'branch_id')) {
+                        $query->where('branch_id', $branchId);
+                    }
+                } catch (\Exception $e) {
+                    \Log::warning('Error filtering by branch_id: ' . $e->getMessage());
+                }
+            }
+
+            // Execute query with error handling
+            try {
+                $staffMembers = $query->get();
+            } catch (\Exception $e) {
+                \Log::error('Error executing staff members query: ' . $e->getMessage(), [
+                    'trace' => $e->getTraceAsString()
+                ]);
+                $staffMembers = collect([]);
+            }
+
+            $formattedStaff = $staffMembers->map(function ($staff) {
+                try {
+                    $staffRole = null;
+                    if (isset($staff->role)) {
+                        if (is_object($staff->role)) {
+                            $staffRole = $staff->role->value ?? (string)$staff->role;
+                        } else {
+                            $staffRole = (string)$staff->role;
+                        }
+                    }
+                    
+                    return [
+                        'id' => $staff->id ?? null,
+                        'name' => $staff->name ?? 'Unknown',
+                        'email' => $staff->email ?? null,
+                        'role' => $staffRole ?? 'unknown',
+                        'branch' => $staff->branch ? [
+                            'id' => $staff->branch->id ?? null,
+                            'name' => $staff->branch->name ?? 'Unknown',
+                            'address' => $staff->branch->address ?? null,
+                        ] : null,
+                    ];
+                } catch (\Exception $e) {
+                    \Log::warning('Error formatting staff member: ' . $e->getMessage());
+                    return [
+                        'id' => $staff->id ?? null,
+                        'name' => 'Unknown',
+                        'email' => null,
+                        'role' => 'unknown',
+                        'branch' => null,
+                    ];
+                }
+            });
+
+            return response()->json([
+                'staff_members' => $formattedStaff,
+                'summary' => [
+                    'total' => $formattedStaff->count(),
+                    'optometrists' => $formattedStaff->where('role', 'optometrist')->count(),
+                    'staff' => $formattedStaff->where('role', 'staff')->count(),
+                ]
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Error in StaffScheduleController::getStaffMembers: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine()
+            ]);
+            
+            return response()->json([
+                'message' => 'Error fetching staff members',
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
+                'staff_members' => [],
+                'summary' => [
+                    'total' => 0,
+                    'optometrists' => 0,
+                    'staff' => 0,
+                ]
+            ], 500);
+        }
     }
 
     /**
@@ -740,6 +1251,171 @@ class StaffScheduleController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'message' => 'Failed to reject change request',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Show a specific schedule
+     */
+    public function show(Request $request, $scheduleId): JsonResponse
+    {
+        $user = Auth::user();
+        
+        $userRole = null;
+        if (is_object($user->role)) {
+            $userRole = $user->role->value ?? (string)$user->role;
+        } else {
+            $userRole = (string)$user->role;
+        }
+        
+        if (!$user || !in_array($userRole, ['admin', 'staff', 'optometrist'])) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        try {
+            $schedule = Schedule::with(['staff', 'branch', 'creator', 'updater'])
+                ->findOrFail($scheduleId);
+
+            return response()->json([
+                'schedule' => [
+                    'id' => $schedule->id,
+                    'staff' => [
+                        'id' => $schedule->staff->id,
+                        'name' => $schedule->staff->name,
+                        'role' => $schedule->staff_role,
+                    ],
+                    'branch' => [
+                        'id' => $schedule->branch->id,
+                        'name' => $schedule->branch->name,
+                    ],
+                    'day_of_week' => $schedule->day_of_week,
+                    'days_of_week' => $schedule->days_of_week ?? [$schedule->day_of_week],
+                    'day_name' => $schedule->day_name,
+                    'start_time' => $schedule->start_time,
+                    'end_time' => $schedule->end_time,
+                    'formatted_time' => $schedule->formatted_start_time . ' - ' . $schedule->formatted_end_time,
+                    'is_active' => $schedule->is_active,
+                    'created_at' => $schedule->created_at,
+                    'updated_at' => $schedule->updated_at,
+                ]
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Schedule not found',
+                'error' => $e->getMessage()
+            ], 404);
+        }
+    }
+
+    /**
+     * Update a specific schedule
+     */
+    public function update(Request $request, $scheduleId): JsonResponse
+    {
+        $user = Auth::user();
+        
+        $userRole = null;
+        if (is_object($user->role)) {
+            $userRole = $user->role->value ?? (string)$user->role;
+        } else {
+            $userRole = (string)$user->role;
+        }
+        
+        if (!$user || $userRole !== 'admin') {
+            return response()->json(['message' => 'Unauthorized. Admin access required.'], 403);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'staff_id' => 'sometimes|exists:users,id',
+            'staff_role' => 'sometimes|in:optometrist,staff',
+            'branch_id' => 'sometimes|exists:branches,id',
+            'day_of_week' => 'sometimes|integer|between:1,7',
+            'days_of_week' => 'sometimes|array|min:1',
+            'days_of_week.*' => 'integer|between:1,7',
+            'start_time' => 'sometimes|date_format:H:i',
+            'end_time' => 'sometimes|date_format:H:i|after:start_time',
+            'is_active' => 'sometimes|boolean',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        try {
+            $schedule = Schedule::findOrFail($scheduleId);
+            
+            $updateData = $request->only([
+                'staff_id', 'staff_role', 'branch_id', 'day_of_week', 
+                'days_of_week', 'start_time', 'end_time', 'is_active'
+            ]);
+            $updateData['updated_by'] = $user->id;
+            
+            $schedule->update($updateData);
+            $schedule->load(['staff', 'branch', 'creator', 'updater']);
+
+            return response()->json([
+                'message' => 'Schedule updated successfully',
+                'schedule' => [
+                    'id' => $schedule->id,
+                    'staff' => [
+                        'id' => $schedule->staff->id,
+                        'name' => $schedule->staff->name,
+                        'role' => $schedule->staff_role,
+                    ],
+                    'branch' => [
+                        'id' => $schedule->branch->id,
+                        'name' => $schedule->branch->name,
+                    ],
+                    'day_of_week' => $schedule->day_of_week,
+                    'days_of_week' => $schedule->days_of_week ?? [$schedule->day_of_week],
+                    'day_name' => $schedule->day_name,
+                    'start_time' => $schedule->start_time,
+                    'end_time' => $schedule->end_time,
+                    'formatted_time' => $schedule->formatted_start_time . ' - ' . $schedule->formatted_end_time,
+                    'is_active' => $schedule->is_active,
+                ]
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Error updating schedule',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Delete a specific schedule
+     */
+    public function destroy(Request $request, $scheduleId): JsonResponse
+    {
+        $user = Auth::user();
+        
+        $userRole = null;
+        if (is_object($user->role)) {
+            $userRole = $user->role->value ?? (string)$user->role;
+        } else {
+            $userRole = (string)$user->role;
+        }
+        
+        if (!$user || $userRole !== 'admin') {
+            return response()->json(['message' => 'Unauthorized. Admin access required.'], 403);
+        }
+
+        try {
+            $schedule = Schedule::findOrFail($scheduleId);
+            $schedule->delete();
+
+            return response()->json([
+                'message' => 'Schedule deleted successfully (soft deleted - data preserved in database)'
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Error deleting schedule',
                 'error' => $e->getMessage()
             ], 500);
         }

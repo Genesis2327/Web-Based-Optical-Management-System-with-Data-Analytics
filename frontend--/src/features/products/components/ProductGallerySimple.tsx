@@ -436,13 +436,13 @@ export const ProductGallerySimple: React.FC = () => {
                 {product.image_paths && product.image_paths.length > 0 ? (
                   <>
                     <img
-                      src={product.image_paths[getSelectedImageIndex(product.id)]}
+                      src={(product.image_order || product.image_paths || [])[getSelectedImageIndex(product.id)]}
                       alt={product.name}
                       className="w-full h-full object-contain"
                     />
                     
                     {/* Image Navigation */}
-                    {product.image_paths.length > 1 && (
+                    {(product.image_order || product.image_paths || []).length > 1 && (
                       <>
                         <Button
                           size="sm"
@@ -457,15 +457,15 @@ export const ProductGallerySimple: React.FC = () => {
                           size="sm"
                           variant="secondary"
                           className="absolute right-2 top-1/2 transform -translate-y-1/2 h-8 w-8 p-0"
-                          onClick={() => setSelectedImageIndex(product.id, Math.min(product.image_paths.length - 1, getSelectedImageIndex(product.id) + 1))}
-                          disabled={getSelectedImageIndex(product.id) === product.image_paths.length - 1}
+                          onClick={() => setSelectedImageIndex(product.id, Math.min((product.image_order || product.image_paths || []).length - 1, getSelectedImageIndex(product.id) + 1))}
+                          disabled={getSelectedImageIndex(product.id) === (product.image_order || product.image_paths || []).length - 1}
                         >
                           <ChevronRight className="h-4 w-4" />
                         </Button>
                         
                         {/* Image Indicators */}
                         <div className="absolute bottom-2 left-1/2 transform -translate-x-1/2 flex gap-1">
-                          {product.image_paths.map((_, index) => (
+                          {(product.image_order || product.image_paths || []).map((_, index) => (
                             <button
                               key={index}
                               className={`w-2 h-2 rounded-full ${
@@ -510,7 +510,6 @@ export const ProductGallerySimple: React.FC = () => {
                 <p className="font-bold text-lg mb-2">₱{Number(product.price || 0).toFixed(2)}</p>
                 
                 <div className="flex items-center justify-between mb-3">
-                  <Badge variant="outline">{product.category}</Badge>
                   <span className="text-sm text-gray-600">
                     Stock: {product.stock_quantity}
                   </span>

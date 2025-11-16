@@ -34,6 +34,7 @@ class User extends Authenticatable
         'date_of_birth',
         'emergency_contact',
         'emergency_phone',
+        'must_change_password',
     ];
 
     /**
@@ -58,6 +59,7 @@ class User extends Authenticatable
             'password' => 'hashed',
             'role' => UserRole::class,
             'is_approved' => 'boolean',
+            'must_change_password' => 'boolean',
         ];
     }
 
@@ -67,6 +69,23 @@ class User extends Authenticatable
     public function branch()
     {
         return $this->belongsTo(Branch::class);
+    }
+
+    /**
+     * Get all branches this optometrist handles (many-to-many relationship)
+     */
+    public function optometristBranches()
+    {
+        return $this->belongsToMany(Branch::class, 'optometrist_branches')
+                    ->withTimestamps();
+    }
+
+    /**
+     * Check if user is an optometrist with multiple branch assignments
+     */
+    public function isOptometristWithMultipleBranches(): bool
+    {
+        return $this->role->value === 'optometrist' && $this->optometristBranches()->count() > 0;
     }
 
     /**

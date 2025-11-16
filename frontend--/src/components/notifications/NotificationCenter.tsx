@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Bell, Calendar, Eye, Package, CheckCircle } from 'lucide-react';
+import { Bell, Calendar, Eye, Package, CheckCircle, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -7,11 +7,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNotifications } from '@/contexts/NotificationContext';
+import { useNavigate } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 
 const NotificationCenter = () => {
   const { toast } = useToast();
   const { user } = useAuth();
+  const navigate = useNavigate();
   const { 
     notifications, 
     unreadCount, 
@@ -26,16 +28,111 @@ const NotificationCenter = () => {
     refreshNotifications();
   }, [refreshNotifications]);
 
-  // Filter notifications based on user role
-  const filteredNotifications = user?.role === 'customer'
-    ? notifications.filter(n => ['appointment', 'prescription', 'reminder'].includes(n.type || ''))
-    : notifications;
+  // Define available notification types per role - MUST match sidebar features
+  // Based on DashboardSidebar.tsx navigation items
+  const getRoleNotificationTypes = (role?: string): string[] => {
+    switch (role) {
+      case 'admin':
+        // Admin sidebar: Dashboard, Analytics, User Management, Branch Management, Inventory, 
+        // Product Gallery, Employee Schedule, Notifications, Profile
+        // Admin does NOT have: Appointments, Prescriptions
+        return ['inventory', 'inventory_update', 'low_stock_alert', 'user_signup', 'system'];
+      case 'staff':
+        // Staff sidebar: Dashboard, Appointments, Reservations & Transactions, Inventory, 
+        // Patients, Notifications, Profile
+        // Staff does NOT have: Prescriptions
+        return ['appointment', 'inventory', 'inventory_update', 'low_stock_alert', 'system'];
+      case 'optometrist':
+        // Optometrist sidebar: Dashboard, Today's Appointments, Patient History, 
+        // Prescriptions, My Schedule, Notifications, Profile
+        // Optometrist does NOT have: Inventory
+        return ['appointment', 'prescription', 'system'];
+      case 'customer':
+        // Customer sidebar: Dashboard, Appointments, Vision History, Prescriptions, 
+        // Products, Receipts, Feedback, Notifications, Profile
+        return ['appointment', 'prescription', 'reminder'];
+      default:
+        return [];
+    }
+  };
+
+  // Filter notifications based on user role (moved before getRoleTabs)
+  const allowedTypes = getRoleNotificationTypes(user?.role);
+  const filteredNotifications = notifications.filter(n => allowedTypes.includes(n.type || ''));
+
+  // Define available tabs per role - MUST match sidebar features
+  const getRoleTabs = (role?: string): Array<{ value: string; label: string; count: number }> => {
+    const allCount = filteredNotifications.length;
+    const unreadCount = filteredNotifications.filter(n => n.status === 'unread').length;
+    
+    switch (role) {
+      case 'admin':
+        // Admin: Inventory, Users, System (NO Appointments, NO Prescriptions)
+        return [
+          { value: 'all', label: 'All', count: allCount },
+          { value: 'unread', label: 'Unread', count: unreadCount },
+          { value: 'inventory', label: 'Inventory', count: filteredNotifications.filter(n => ['inventory', 'inventory_update', 'low_stock_alert'].includes(n.type || '')).length },
+          { value: 'users', label: 'Users', count: filteredNotifications.filter(n => n.type === 'user_signup').length },
+          { value: 'system', label: 'System', count: filteredNotifications.filter(n => n.type === 'system').length },
+        ];
+      case 'staff':
+        // Staff: Appointments, Inventory, System (NO Prescriptions)
+        return [
+          { value: 'all', label: 'All', count: allCount },
+          { value: 'unread', label: 'Unread', count: unreadCount },
+          { value: 'appointment', label: 'Appointments', count: filteredNotifications.filter(n => n.type === 'appointment').length },
+          { value: 'inventory', label: 'Inventory', count: filteredNotifications.filter(n => ['inventory', 'inventory_update', 'low_stock_alert'].includes(n.type || '')).length },
+          { value: 'system', label: 'System', count: filteredNotifications.filter(n => n.type === 'system').length },
+        ];
+      case 'optometrist':
+        // Optometrist: Appointments, Prescriptions, System (NO Inventory)
+        return [
+          { value: 'all', label: 'All', count: allCount },
+          { value: 'unread', label: 'Unread', count: unreadCount },
+          { value: 'appointment', label: 'Appointments', count: filteredNotifications.filter(n => n.type === 'appointment').length },
+          { value: 'prescription', label: 'Prescriptions', count: filteredNotifications.filter(n => n.type === 'prescription').length },
+          { value: 'system', label: 'System', count: filteredNotifications.filter(n => n.type === 'system').length },
+        ];
+      case 'customer':
+        // Customer: Appointments, Prescriptions
+        return [
+          { value: 'all', label: 'All', count: allCount },
+          { value: 'unread', label: 'Unread', count: unreadCount },
+          { value: 'appointment', label: 'Appointments', count: filteredNotifications.filter(n => n.type === 'appointment').length },
+          { value: 'prescription', label: 'Prescriptions', count: filteredNotifications.filter(n => n.type === 'prescription').length },
+        ];
+      default:
+        return [
+          { value: 'all', label: 'All', count: allCount },
+          { value: 'unread', label: 'Unread', count: unreadCount },
+        ];
+    }
+  };
+
+  // Get tabs for current user role
+  const roleTabs = getRoleTabs(user?.role);
+  
+  // Get grid columns class based on number of tabs
+  const getGridColsClass = (tabsCount: number): string => {
+    const gridColsMap: { [key: number]: string } = {
+      2: 'grid-cols-2',
+      3: 'grid-cols-3',
+      4: 'grid-cols-4',
+      5: 'grid-cols-5',
+      6: 'grid-cols-6',
+      7: 'grid-cols-7',
+    };
+    return gridColsMap[tabsCount] || 'grid-cols-2';
+  };
 
   const getTypeIcon = (type?: string) => {
     switch (type) {
       case 'appointment': return Calendar;
       case 'prescription': return Eye;
-      case 'inventory': return Package;
+      case 'inventory_update':
+      case 'inventory':
+      case 'low_stock_alert': return Package;
+      case 'user_signup': return User;
       case 'system': return Bell;
       case 'reminder': return Bell;
       default: return Bell;
@@ -85,13 +182,67 @@ const NotificationCenter = () => {
     }
   };
 
+  const getNavigationPath = (notification: any): string | null => {
+    const notifData = typeof notification.data === 'string' 
+      ? JSON.parse(notification.data) 
+      : notification.data;
+    
+    const rolePrefix = user?.role || 'customer';
+    
+    switch (notification.type) {
+      case 'appointment':
+        if (notifData?.appointment_id) {
+          return `/${rolePrefix}/appointments`;
+        }
+        return `/${rolePrefix}/appointments`;
+      
+      case 'prescription':
+        if (notifData?.prescription_id) {
+          return `/${rolePrefix}/prescriptions`;
+        }
+        return `/${rolePrefix}/prescriptions`;
+      
+      case 'inventory':
+        return `/${rolePrefix}/inventory`;
+      
+      case 'user_signup':
+      case 'system':
+        if (rolePrefix === 'admin') {
+          return '/admin/users';
+        }
+        return null;
+      
+      case 'reminder':
+        return `/${rolePrefix}/appointments`;
+      
+      default:
+        return null;
+    }
+  };
+
+  const handleNotificationCardClick = async (notification: any) => {
+    // Mark as read
+    if (notification.status === 'unread') {
+      await handleMarkAsRead(notification.id);
+    }
+    
+    // Navigate to relevant page
+    const path = getNavigationPath(notification);
+    if (path) {
+      navigate(path);
+    }
+  };
+
   const urgentCount = filteredNotifications.filter(n => n.status === 'unread').length;
 
   const NotificationCard = ({ notification }: { notification: any }) => {
     const Icon = getTypeIcon(notification.type);
     
     return (
-      <Card className={`transition-all duration-200 hover:shadow-md ${notification.status === 'unread' ? 'border-l-4 border-l-primary bg-primary/5' : ''}`}>
+      <Card 
+        className={`transition-all duration-200 hover:shadow-md cursor-pointer ${notification.status === 'unread' ? 'border-l-4 border-l-primary bg-primary/5' : ''}`}
+        onClick={() => handleNotificationCardClick(notification)}
+      >
         <CardContent className="p-4">
           <div className="flex items-start justify-between">
             <div className="flex items-start space-x-3 flex-1">
@@ -118,7 +269,10 @@ const NotificationCenter = () => {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => handleMarkAsRead(notification.id)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleMarkAsRead(notification.id);
+                  }}
                 >
                   <CheckCircle className="h-4 w-4" />
                 </Button>
@@ -166,17 +320,12 @@ const NotificationCenter = () => {
         </Card>
       ) : (
         <Tabs defaultValue="all" className="w-full">
-          <TabsList className={`grid w-full ${user?.role === 'customer' ? 'grid-cols-4' : 'grid-cols-6'}`}>
-            <TabsTrigger value="all">All ({filteredNotifications.length})</TabsTrigger>
-            <TabsTrigger value="unread">Unread ({unreadCount})</TabsTrigger>
-            <TabsTrigger value="appointment">Appointments ({filteredNotifications.filter(n => n.type === 'appointment').length})</TabsTrigger>
-            <TabsTrigger value="prescription">Prescriptions ({filteredNotifications.filter(n => n.type === 'prescription').length})</TabsTrigger>
-            {user?.role !== 'customer' && (
-              <>
-                <TabsTrigger value="inventory">Inventory ({filteredNotifications.filter(n => n.type === 'inventory').length})</TabsTrigger>
-                <TabsTrigger value="system">System ({filteredNotifications.filter(n => n.type === 'system').length})</TabsTrigger>
-              </>
-            )}
+          <TabsList className={`grid w-full ${getGridColsClass(roleTabs.length)}`}>
+            {roleTabs.map(tab => (
+              <TabsTrigger key={tab.value} value={tab.value}>
+                {tab.label} ({tab.count})
+              </TabsTrigger>
+            ))}
           </TabsList>
 
           <TabsContent value="all" className="space-y-4">
@@ -191,32 +340,49 @@ const NotificationCenter = () => {
             ))}
           </TabsContent>
 
-          <TabsContent value="appointment" className="space-y-4">
-            {filteredNotifications.filter(n => n.type === 'appointment').map(notification => (
-              <NotificationCard key={notification.id} notification={notification} />
-            ))}
-          </TabsContent>
+          {/* Appointment tab - for staff, optometrist, and customer (NOT admin) */}
+          {(user?.role === 'staff' || user?.role === 'optometrist' || user?.role === 'customer') && (
+            <TabsContent value="appointment" className="space-y-4">
+              {filteredNotifications.filter(n => n.type === 'appointment').map(notification => (
+                <NotificationCard key={notification.id} notification={notification} />
+              ))}
+            </TabsContent>
+          )}
 
-          <TabsContent value="prescription" className="space-y-4">
-            {filteredNotifications.filter(n => n.type === 'prescription').map(notification => (
-              <NotificationCard key={notification.id} notification={notification} />
-            ))}
-          </TabsContent>
+          {/* Prescription tab - only for optometrist and customer (NOT admin, NOT staff) */}
+          {(user?.role === 'optometrist' || user?.role === 'customer') && (
+            <TabsContent value="prescription" className="space-y-4">
+              {filteredNotifications.filter(n => n.type === 'prescription').map(notification => (
+                <NotificationCard key={notification.id} notification={notification} />
+              ))}
+            </TabsContent>
+          )}
 
-          {user?.role !== 'customer' && (
-            <>
-              <TabsContent value="inventory" className="space-y-4">
-                {filteredNotifications.filter(n => n.type === 'inventory').map(notification => (
-                  <NotificationCard key={notification.id} notification={notification} />
-                ))}
-              </TabsContent>
+          {/* Inventory tab - for admin and staff (NOT optometrist, NOT customer) */}
+          {(user?.role === 'admin' || user?.role === 'staff') && (
+            <TabsContent value="inventory" className="space-y-4">
+              {filteredNotifications.filter(n => ['inventory', 'inventory_update', 'low_stock_alert'].includes(n.type || '')).map(notification => (
+                <NotificationCard key={notification.id} notification={notification} />
+              ))}
+            </TabsContent>
+          )}
 
-              <TabsContent value="system" className="space-y-4">
-                {filteredNotifications.filter(n => n.type === 'system').map(notification => (
-                  <NotificationCard key={notification.id} notification={notification} />
-                ))}
-              </TabsContent>
-            </>
+          {/* Users tab - only for admin */}
+          {user?.role === 'admin' && (
+            <TabsContent value="users" className="space-y-4">
+              {filteredNotifications.filter(n => n.type === 'user_signup').map(notification => (
+                <NotificationCard key={notification.id} notification={notification} />
+              ))}
+            </TabsContent>
+          )}
+          
+          {/* System tab - for admin, staff, and optometrist */}
+          {(user?.role === 'admin' || user?.role === 'staff' || user?.role === 'optometrist') && (
+            <TabsContent value="system" className="space-y-4">
+              {filteredNotifications.filter(n => n.type === 'system').map(notification => (
+                <NotificationCard key={notification.id} notification={notification} />
+              ))}
+            </TabsContent>
           )}
         </Tabs>
       )}

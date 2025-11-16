@@ -5,13 +5,8 @@ import { Badge } from '@/components/ui/badge';
 import { 
   Phone, 
   Mail, 
-  MessageCircle, 
   MapPin, 
   Clock, 
-  Facebook, 
-  Instagram, 
-  Twitter, 
-  Linkedin,
   ExternalLink,
   Copy,
   Check
@@ -79,15 +74,6 @@ const ContactCard: React.FC<ContactCardProps> = ({ contact, showBranchName = tru
     }
   };
 
-  const handleWhatsAppClick = () => {
-    if (contact.whatsapp_link) {
-      window.open(contact.whatsapp_link, '_blank');
-    }
-  };
-
-  const handleSocialMediaClick = (url: string) => {
-    window.open(url, '_blank');
-  };
 
   return (
     <Card className="w-full max-w-md mx-auto">
@@ -169,40 +155,6 @@ const ContactCard: React.FC<ContactCardProps> = ({ contact, showBranchName = tru
           </div>
         )}
 
-        {/* WhatsApp */}
-        {contact.whatsapp_number && (
-          <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
-            <div className="flex items-center gap-3">
-              <MessageCircle className="h-4 w-4 text-green-600" />
-              <div>
-                <p className="text-sm font-medium text-green-900">WhatsApp</p>
-                <p className="text-sm text-green-700">{contact.formatted_whatsapp}</p>
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => copyToClipboard(contact.whatsapp_number!, 'WhatsApp number')}
-                className="h-8 w-8 p-0"
-              >
-                {copiedItem === 'WhatsApp number' ? (
-                  <Check className="h-3 w-3 text-green-600" />
-                ) : (
-                  <Copy className="h-3 w-3" />
-                )}
-              </Button>
-              <Button
-                size="sm"
-                onClick={handleWhatsAppClick}
-                className="bg-green-600 hover:bg-green-700"
-              >
-                Chat
-              </Button>
-            </div>
-          </div>
-        )}
-
         {/* Address */}
         {contact.address && (
           <div className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
@@ -225,58 +177,6 @@ const ContactCard: React.FC<ContactCardProps> = ({ contact, showBranchName = tru
           </div>
         )}
 
-        {/* Social Media */}
-        {Object.keys(contact.social_media).length > 0 && (
-          <div className="space-y-2">
-            <p className="text-sm font-medium text-gray-900">Follow Us</p>
-            <div className="flex gap-2">
-              {contact.social_media.facebook && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => handleSocialMediaClick(contact.social_media.facebook!)}
-                  className="flex items-center gap-2"
-                >
-                  <Facebook className="h-4 w-4 text-blue-600" />
-                  <span className="hidden sm:inline">Facebook</span>
-                </Button>
-              )}
-              {contact.social_media.instagram && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => handleSocialMediaClick(contact.social_media.instagram!)}
-                  className="flex items-center gap-2"
-                >
-                  <Instagram className="h-4 w-4 text-pink-600" />
-                  <span className="hidden sm:inline">Instagram</span>
-                </Button>
-              )}
-              {contact.social_media.twitter && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => handleSocialMediaClick(contact.social_media.twitter!)}
-                  className="flex items-center gap-2"
-                >
-                  <Twitter className="h-4 w-4 text-blue-400" />
-                  <span className="hidden sm:inline">Twitter</span>
-                </Button>
-              )}
-              {contact.social_media.linkedin && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => handleSocialMediaClick(contact.social_media.linkedin!)}
-                  className="flex items-center gap-2"
-                >
-                  <Linkedin className="h-4 w-4 text-blue-700" />
-                  <span className="hidden sm:inline">LinkedIn</span>
-                </Button>
-              )}
-            </div>
-          </div>
-        )}
       </CardContent>
     </Card>
   );

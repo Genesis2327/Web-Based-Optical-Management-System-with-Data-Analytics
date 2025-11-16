@@ -10,7 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Product, ProductFormData, ProductCategory } from '../types/product.types';
-import { Loader2, Upload, X, Image as ImageIcon } from 'lucide-react';
+import { ImageReorderer } from './ImageReorderer';
+import { Loader2, Upload, Image as ImageIcon } from 'lucide-react';
 
 // Validation schema
 const productFormSchema = z.object({
@@ -45,6 +46,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({
 }) => {
   const [imageFiles, setImageFiles] = useState<File[]>([]);
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
+  const [primaryImageIndex, setPrimaryImageIndex] = useState<number>(0);
 
   const {
     register,
@@ -145,10 +147,36 @@ export const ProductForm: React.FC<ProductFormProps> = ({
     });
   };
 
-  // Remove image preview
-  const removeImage = (index: number) => {
+  // Handle image reordering
+  const handleImageReorder = (newOrder: Array<{file: File; preview: string; name: string; size: number}>) => {
+    const newFiles = newOrder.map(item => item.file);
+    const newPreviews = newOrder.map(item => item.preview);
+    
+    setImageFiles(newFiles);
+    setImagePreviews(newPreviews);
+    
+    // Adjust primary index if needed
+    if (primaryImageIndex >= newOrder.length) {
+      setPrimaryImageIndex(Math.max(0, newOrder.length - 1));
+    }
+  };
+
+  // Handle image removal
+  const handleImageRemove = (index: number) => {
     setImageFiles(prev => prev.filter((_, i) => i !== index));
     setImagePreviews(prev => prev.filter((_, i) => i !== index));
+    
+    // Adjust primary index if needed
+    if (primaryImageIndex >= index && primaryImageIndex > 0) {
+      setPrimaryImageIndex(primaryImageIndex - 1);
+    } else if (primaryImageIndex >= imageFiles.length - 1) {
+      setPrimaryImageIndex(Math.max(0, imageFiles.length - 2));
+    }
+  };
+
+  // Handle primary image change
+  const handlePrimaryImageChange = (index: number) => {
+    setPrimaryImageIndex(index);
   };
 
   // Handle form submission
@@ -318,31 +346,25 @@ export const ProductForm: React.FC<ProductFormProps> = ({
                   Choose Images
                 </Button>
                 <p className="text-sm text-gray-500">
-                  JPG, PNG, GIF or WebP (Max 5MB each)
+                  JPG, PNG, GIF or WebP (Max 5MB each). Use the reorderer below to manage image order.
                 </p>
               </div>
             </div>
 
-            {/* Image Previews */}
+            {/* Image Management */}
             {imagePreviews.length > 0 && (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {imagePreviews.map((preview, index) => (
-                  <div key={index} className="relative group">
-                    <img
-                      src={preview}
-                      alt={`Preview ${index + 1}`}
-                      className="w-full h-32 object-cover rounded-lg border-2 border-gray-200"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removeImage(index)}
-                      className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))}
-              </div>
+              <ImageReorderer
+                images={imageFiles.map((file, index) => ({
+                  file,
+                  preview: imagePreviews[index],
+                  name: file.name,
+                  size: file.size
+                }))}
+                onReorder={handleImageReorder}
+                onRemove={handleImageRemove}
+                onSetPrimary={handlePrimaryImageChange}
+                primaryIndex={primaryImageIndex}
+              />
             )}
 
             {imagePreviews.length === 0 && (
@@ -378,6 +400,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({
     </Card>
   );
 };
+
 
 
 

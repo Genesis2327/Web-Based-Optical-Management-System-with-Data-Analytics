@@ -42,7 +42,9 @@ export class RealtimeClient {
           this.queryClient.invalidateQueries({ queryKey: ['appointments'] });
           break;
         case 'prescription.created':
+          // Invalidate all prescription-related queries
           this.queryClient.invalidateQueries({ queryKey: ['prescriptions'] });
+          this.queryClient.invalidateQueries({ queryKey: ['patient-prescriptions'] });
           break;
         default:
           break;

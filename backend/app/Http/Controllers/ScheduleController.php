@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\Schedule;
+use App\Models\OptometristRotation;
+use App\Models\Branch;
 use App\Models\User;
 use App\Enums\UserRole;
 use Illuminate\Http\Request;
@@ -18,66 +20,103 @@ class ScheduleController extends Controller
     public function getDoctorSchedule(Request $request, $doctorId): JsonResponse
     {
         try {
-        // Find the doctor
-        $doctor = User::where('id', $doctorId)
-            ->where('role', 'optometrist')
-            ->first();
+            // Find the doctor
+            $doctor = User::where('id', $doctorId)
+                ->where('role', 'optometrist')
+                ->first();
 
-        if (!$doctor) {
-            return response()->json([
-                'error' => 'Doctor not found'
-            ], 404);
-        }
+            if (!$doctor) {
+                return response()->json([
+                    'error' => 'Doctor not found'
+                ], 404);
+            }
 
-        // Get the doctor's weekly schedule (Monday to Saturday)
-        $schedules = Schedule::where('staff_id', $doctorId)
-            ->where('staff_role', 'optometrist')
-            ->where('is_active', true)
-            ->whereIn('day_of_week', [1, 2, 3, 4, 5, 6]) // Monday to Saturday
-            ->with(['branch'])
-            ->orderBy('day_of_week')
-            ->get();
+            // Get the doctor's rotation schedule (preferred for optometrists)
+            $rotation = OptometristRotation::where('optometrist_id', $doctorId)
+                ->where('is_active', true)
+                ->first();
 
-            // Format the response
-            $weeklySchedule = $schedules->map(function ($schedule) {
-                return [
-                    'day' => $schedule->day_name,
-                    'branch' => $schedule->branch->name,
-                    'time' => $schedule->formatted_start_time . ' - ' . $schedule->formatted_end_time,
-                    'day_of_week' => $schedule->day_of_week,
-                    'branch_id' => $schedule->branch_id,
-                    'start_time' => $schedule->start_time,
-                    'end_time' => $schedule->end_time,
+            if ($rotation && !empty($rotation->rotation_schedule)) {
+                // Use rotation schedule
+                $completeSchedule = [];
+                $daysOfWeek = [
+                    1 => 'Monday',
+                    2 => 'Tuesday',
+                    3 => 'Wednesday',
+                    4 => 'Thursday',
+                    5 => 'Friday',
+                    6 => 'Saturday',
                 ];
-            });
 
-            // Ensure we have all 6 days (Monday to Saturday)
-            $daysOfWeek = [
-                1 => 'Monday',
-                2 => 'Tuesday',
-                3 => 'Wednesday',
-                4 => 'Thursday',
-                5 => 'Friday',
-                6 => 'Saturday',
-            ];
-
-            $completeSchedule = [];
-            foreach ($daysOfWeek as $dayNum => $dayName) {
-                $daySchedule = $weeklySchedule->where('day_of_week', $dayNum)->first();
-                
-                if ($daySchedule) {
-                    $completeSchedule[] = $daySchedule;
-                } else {
-                    // If no schedule for this day, mark as unavailable
+                foreach ($rotation->rotation_schedule as $scheduleItem) {
+                    $dayNum = $scheduleItem['day'];
+                    $branch = Branch::find($scheduleItem['branch_id']);
+                    
                     $completeSchedule[] = [
-                        'day' => $dayName,
-                        'branch' => 'Not Available',
-                        'time' => 'Not Available',
+                        'day' => $daysOfWeek[$dayNum] ?? 'Unknown',
+                        'branch' => $branch ? $branch->name : 'Unknown Branch',
+                        'time' => ($scheduleItem['start_time'] ?? '09:00') . ' - ' . ($scheduleItem['end_time'] ?? '17:00'),
                         'day_of_week' => $dayNum,
-                        'branch_id' => null,
-                        'start_time' => null,
-                        'end_time' => null,
+                        'branch_id' => $scheduleItem['branch_id'],
+                        'start_time' => $scheduleItem['start_time'] ?? '09:00',
+                        'end_time' => $scheduleItem['end_time'] ?? '17:00',
                     ];
+                }
+
+                // Sort by day of week
+                usort($completeSchedule, function ($a, $b) {
+                    return $a['day_of_week'] <=> $b['day_of_week'];
+                });
+
+            } else {
+                // Fallback to old Schedule table if no rotation exists
+                $schedules = Schedule::where('staff_id', $doctorId)
+                    ->where('staff_role', 'optometrist')
+                    ->where('is_active', true)
+                    ->whereIn('day_of_week', [1, 2, 3, 4, 5, 6])
+                    ->with(['branch'])
+                    ->orderBy('day_of_week')
+                    ->get();
+
+                $weeklySchedule = $schedules->map(function ($schedule) {
+                    return [
+                        'day' => $schedule->day_name,
+                        'branch' => $schedule->branch->name,
+                        'time' => $schedule->formatted_start_time . ' - ' . $schedule->formatted_end_time,
+                        'day_of_week' => $schedule->day_of_week,
+                        'branch_id' => $schedule->branch_id,
+                        'start_time' => $schedule->start_time,
+                        'end_time' => $schedule->end_time,
+                    ];
+                });
+
+                // Ensure we have all 6 days
+                $daysOfWeek = [
+                    1 => 'Monday',
+                    2 => 'Tuesday',
+                    3 => 'Wednesday',
+                    4 => 'Thursday',
+                    5 => 'Friday',
+                    6 => 'Saturday',
+                ];
+
+                $completeSchedule = [];
+                foreach ($daysOfWeek as $dayNum => $dayName) {
+                    $daySchedule = $weeklySchedule->where('day_of_week', $dayNum)->first();
+                    
+                    if ($daySchedule) {
+                        $completeSchedule[] = $daySchedule;
+                    } else {
+                        $completeSchedule[] = [
+                            'day' => $dayName,
+                            'branch' => 'Not Available',
+                            'time' => 'Not Available',
+                            'day_of_week' => $dayNum,
+                            'branch_id' => null,
+                            'start_time' => null,
+                            'end_time' => null,
+                        ];
+                    }
                 }
             }
 

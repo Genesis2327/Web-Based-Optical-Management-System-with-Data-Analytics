@@ -21,8 +21,8 @@ export const getStorageUrl = (path: string): string => {
   }
   
   // Get the API base URL and construct the storage URL
-  const apiBaseUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api-mysql.php';
-  const baseUrl = apiBaseUrl.replace('/api-mysql.php', '');
+  const apiBaseUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api';
+  const baseUrl = apiBaseUrl.replace('/api', '');
   const cleanPath = path.startsWith('/') ? path.substring(1) : path;
   
   return `${baseUrl}/storage/${cleanPath}`;

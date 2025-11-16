@@ -7,6 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Eye, Save, X } from 'lucide-react';
 import { toast } from 'sonner';
+import { useQueryClient } from '@tanstack/react-query';
 
 interface PrescriptionFormProps {
   appointment: {
@@ -32,6 +33,7 @@ interface EyeData {
 }
 
 const PrescriptionForm: React.FC<PrescriptionFormProps> = ({ appointment, onSuccess, onCancel }) => {
+  const queryClient = useQueryClient();
   const [loading, setLoading] = useState(false);
   const [rightEye, setRightEye] = useState<EyeData>({
     sphere: '',
@@ -185,10 +187,39 @@ const PrescriptionForm: React.FC<PrescriptionFormProps> = ({ appointment, onSucc
       const expiryDate = new Date(appointmentDate);
       expiryDate.setFullYear(expiryDate.getFullYear() + 2); // Prescriptions typically valid for 2 years
 
+      // Convert empty strings to null for numeric fields to ensure proper storage
+      // But keep '0' as a valid value (some prescriptions might have 0.00 sphere)
+      const cleanEyeData = (eye: EyeData) => {
+        const cleaned: any = {};
+        // Only include fields that have actual values (not empty strings)
+        if (eye.sphere !== undefined && eye.sphere !== null && eye.sphere.toString().trim() !== '') {
+          cleaned.sphere = eye.sphere.toString().trim();
+        }
+        if (eye.cylinder !== undefined && eye.cylinder !== null && eye.cylinder.toString().trim() !== '') {
+          cleaned.cylinder = eye.cylinder.toString().trim();
+        }
+        if (eye.axis !== undefined && eye.axis !== null && eye.axis.toString().trim() !== '') {
+          cleaned.axis = eye.axis.toString().trim();
+        }
+        if (eye.pd !== undefined && eye.pd !== null && eye.pd.toString().trim() !== '') {
+          cleaned.pd = eye.pd.toString().trim();
+        }
+        if (eye.add !== undefined && eye.add !== null && eye.add.toString().trim() !== '') {
+          cleaned.add = eye.add.toString().trim();
+        }
+        return cleaned;
+      };
+
+      const cleanedRightEye = cleanEyeData(rightEye);
+      const cleanedLeftEye = cleanEyeData(leftEye);
+      
+      console.log('Eye data before cleaning:', { rightEye, leftEye });
+      console.log('Eye data after cleaning:', { cleanedRightEye, cleanedLeftEye });
+      
       const requestBody = {
         appointment_id: appointment.id,
-        right_eye: rightEye,
-        left_eye: leftEye,
+        right_eye: cleanedRightEye,
+        left_eye: cleanedLeftEye,
         ...formData,
         // Set issue date to appointment date (same day process)
         issue_date: appointment.appointment_date,
@@ -199,7 +230,7 @@ const PrescriptionForm: React.FC<PrescriptionFormProps> = ({ appointment, onSucc
         referral_notes: referralNotes
       };
 
-      console.log('Request body:', requestBody);
+      console.log('Full request body:', JSON.stringify(requestBody, null, 2));
       console.log('API URL:', `${import.meta.env.VITE_API_URL || 'http://localhost:8000/api'}/prescriptions`);
 
     const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000/api'}/prescriptions`, {
@@ -247,6 +278,18 @@ const PrescriptionForm: React.FC<PrescriptionFormProps> = ({ appointment, onSucc
 
       const result = await response.json();
       console.log('Prescription created successfully:', result);
+      
+      // Invalidate React Query cache to ensure all components refresh
+      queryClient.invalidateQueries({ queryKey: ['prescriptions'] });
+      queryClient.invalidateQueries({ queryKey: ['patient-prescriptions'] });
+      queryClient.invalidateQueries({ queryKey: ['optometrist-prescriptions'] });
+      
+      // If we have patient_id in the result, invalidate that specific patient's prescriptions
+      const patientId = result.data?.patient_id || result.patient_id || appointment.patient.id;
+      if (patientId) {
+        queryClient.invalidateQueries({ queryKey: ['patient-prescriptions', patientId] });
+      }
+      
       toast.success('Prescription created successfully');
       onSuccess();
     } catch (error: any) {

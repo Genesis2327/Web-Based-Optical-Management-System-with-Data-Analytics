@@ -16,8 +16,19 @@ class Prescription extends Model
         'appointment_id',
         'patient_id',
         'optometrist_id',
+        'branch_id',
         'type',
+        'prescription_number',
         'prescription_data',
+        'right_eye',
+        'left_eye',
+        'vision_acuity',
+        'additional_notes',
+        'recommendations',
+        'lens_type',
+        'coating',
+        'follow_up_date',
+        'follow_up_notes',
         'issue_date',
         'expiry_date',
         'status',
@@ -26,8 +37,11 @@ class Prescription extends Model
 
     protected $casts = [
         'prescription_data' => 'array',
+        'right_eye' => 'array',
+        'left_eye' => 'array',
         'issue_date' => 'date',
         'expiry_date' => 'date',
+        'follow_up_date' => 'date',
     ];
 
     /**
@@ -52,6 +66,101 @@ class Prescription extends Model
     public function optometrist(): BelongsTo
     {
         return $this->belongsTo(User::class, 'optometrist_id');
+    }
+
+    // Removed accessors - Laravel's array cast handles JSON encoding/decoding automatically
+    // Accessors were interfering with the casting mechanism
+    // If prescription_data fallback is needed, handle it in the resource or controller
+
+    /**
+     * Accessor for vision_acuity - returns data from prescription_data if not set directly
+     */
+    public function getVisionAcuityAttribute($value)
+    {
+        if ($value) {
+            return $value;
+        }
+        
+        $data = $this->prescription_data ?? [];
+        return $data['vision_acuity'] ?? null;
+    }
+
+    /**
+     * Accessor for lens_type - returns data from prescription_data if not set directly
+     */
+    public function getLensTypeAttribute($value)
+    {
+        if ($value) {
+            return $value;
+        }
+        
+        $data = $this->prescription_data ?? [];
+        return $data['lens_type'] ?? null;
+    }
+
+    /**
+     * Accessor for coating - returns data from prescription_data if not set directly
+     */
+    public function getCoatingAttribute($value)
+    {
+        if ($value) {
+            return $value;
+        }
+        
+        $data = $this->prescription_data ?? [];
+        return $data['coating'] ?? null;
+    }
+
+    /**
+     * Accessor for recommendations - returns data from prescription_data if not set directly
+     */
+    public function getRecommendationsAttribute($value)
+    {
+        if ($value) {
+            return $value;
+        }
+        
+        $data = $this->prescription_data ?? [];
+        return $data['recommendations'] ?? null;
+    }
+
+    /**
+     * Accessor for additional_notes - returns data from prescription_data if not set directly
+     */
+    public function getAdditionalNotesAttribute($value)
+    {
+        if ($value) {
+            return $value;
+        }
+        
+        $data = $this->prescription_data ?? [];
+        return $data['additional_notes'] ?? null;
+    }
+
+    /**
+     * Accessor for follow_up_date - returns data from prescription_data if not set directly
+     */
+    public function getFollowUpDateAttribute($value)
+    {
+        if ($value) {
+            return $value;
+        }
+        
+        $data = $this->prescription_data ?? [];
+        return isset($data['follow_up_date']) ? $data['follow_up_date'] : null;
+    }
+
+    /**
+     * Accessor for follow_up_notes - returns data from prescription_data if not set directly
+     */
+    public function getFollowUpNotesAttribute($value)
+    {
+        if ($value) {
+            return $value;
+        }
+        
+        $data = $this->prescription_data ?? [];
+        return $data['follow_up_notes'] ?? null;
     }
 
     /**

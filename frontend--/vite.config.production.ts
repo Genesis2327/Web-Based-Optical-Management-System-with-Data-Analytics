@@ -65,3 +65,4 @@ export default defineConfig(async ({ mode }) => {
     envPrefix: 'VITE_',
   };
 });
+

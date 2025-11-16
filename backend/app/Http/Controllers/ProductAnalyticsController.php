@@ -48,15 +48,16 @@ class ProductAnalyticsController extends Controller
 
         // Get current period sales data
         $currentSales = $currentPeriodQuery
+            ->leftJoin('product_categories', 'products.category_id', '=', 'product_categories.id')
             ->select(
                 'products.id',
                 'products.name',
-                'products.category',
+                'product_categories.name as category',
                 'products.price',
                 DB::raw('SUM(reservations.quantity) as units_sold'),
                 DB::raw('SUM(reservations.quantity * products.price) as revenue')
             )
-            ->groupBy('products.id', 'products.name', 'products.category', 'products.price')
+            ->groupBy('products.id', 'products.name', 'product_categories.name', 'products.price')
             ->orderByDesc('units_sold')
             ->limit($limit)
             ->get();
@@ -209,15 +210,16 @@ class ProductAnalyticsController extends Controller
         $categorySales = DB::table('reservation_items')
             ->join('reservations', 'reservation_items.reservation_id', '=', 'reservations.id')
             ->join('products', 'reservation_items.product_id', '=', 'products.id')
+            ->leftJoin('product_categories', 'products.category_id', '=', 'product_categories.id')
             ->where('reservations.status', 'completed')
             ->where('reservations.created_at', '>=', $startDate)
             ->select(
-                'products.category',
+                'product_categories.name as category',
                 DB::raw('SUM(reservation_items.quantity) as units_sold'),
                 DB::raw('SUM(reservation_items.quantity * products.price) as revenue'),
                 DB::raw('COUNT(DISTINCT products.id) as unique_products')
             )
-            ->groupBy('products.category')
+            ->groupBy('product_categories.name')
             ->orderByDesc('units_sold')
             ->get();
 
@@ -254,16 +256,17 @@ class ProductAnalyticsController extends Controller
                      ->where('reservations.status', 'completed')
                      ->where('reservations.created_at', '>=', $startDate);
             })
+            ->leftJoin('product_categories', 'products.category_id', '=', 'product_categories.id')
             ->where('products.is_active', true)
             ->select(
                 'products.id',
                 'products.name',
-                'products.category',
+                'product_categories.name as category',
                 'products.price',
                 DB::raw('COALESCE(SUM(reservation_items.quantity), 0) as units_sold'),
                 DB::raw('COALESCE(SUM(reservation_items.quantity * products.price), 0) as revenue')
             )
-            ->groupBy('products.id', 'products.name', 'products.category', 'products.price')
+            ->groupBy('products.id', 'products.name', 'product_categories.name', 'products.price')
             ->having('units_sold', '<', 5) // Less than 5 units sold
             ->orderBy('units_sold', 'asc')
             ->get();

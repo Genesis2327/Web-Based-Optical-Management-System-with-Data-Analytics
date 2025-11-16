@@ -6,16 +6,18 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Product extends Model
 {
-    use HasFactory;
+    use HasFactory, SoftDeletes;
 
     protected $fillable = [
         'name',
         'description',
         'price',
         'image_paths',
+        'image_order',
         'stock_quantity',
         'is_active',
         'created_by',
@@ -29,6 +31,7 @@ class Product extends Model
         'category_id',
         'image_metadata',
         'primary_image',
+        'secondary_image',
         'attributes',
         'brand',
         'model',
@@ -37,6 +40,7 @@ class Product extends Model
 
     protected $casts = [
         'image_paths' => 'array',
+        'image_order' => 'array',
         'image_metadata' => 'array',
         'attributes' => 'array',
         'price' => 'decimal:2',
@@ -80,37 +84,46 @@ class Product extends Model
         return $this->hasMany(Reservation::class);
     }
 
+
     /**
      * Get all branch stock records for this product
      */
+    /*
     public function branchStock(): HasMany
     {
         return $this->hasMany(BranchStock::class);
     }
+    */
 
     /**
      * Get total stock across all branches
      */
+    /*
     public function getTotalStockAttribute(): int
     {
         return $this->branchStock()->sum('stock_quantity');
     }
+    */
 
     /**
      * Get total available stock across all branches
      */
+    /*
     public function getTotalAvailableStockAttribute(): int
     {
         return $this->branchStock()->sum(\DB::raw('stock_quantity - reserved_quantity'));
     }
+    */
 
     /**
      * Check if product is available in any branch
      */
+    /*
     public function isAvailableInAnyBranch(): bool
     {
         return $this->branchStock()->whereRaw('stock_quantity > reserved_quantity')->exists();
     }
+    */
 
     /**
      * Scope to get only active products.
@@ -201,10 +214,45 @@ class Product extends Model
             return $this->primary_image;
         }
         
-        if ($this->image_paths && count($this->image_paths) > 0) {
-            return $this->image_paths[0];
+        // Use ordered images if available, otherwise fall back to image_paths
+        $images = $this->getOrderedImages();
+        if ($images && count($images) > 0) {
+            return $images[0];
         }
         
         return null;
     }
+
+    /**
+     * Get images in the correct display order.
+     */
+    public function getOrderedImages(): array
+    {
+        // If image_order exists and is not empty, use it
+        if ($this->image_order && is_array($this->image_order) && count($this->image_order) > 0) {
+            return $this->image_order;
+        }
+        
+        // Fall back to image_paths if image_order is not set
+        if ($this->image_paths && is_array($this->image_paths)) {
+            return $this->image_paths;
+        }
+        
+        return [];
+    }
+
+    /**
+     * Set the image order and update image_paths accordingly.
+     */
+    public function setImageOrder(array $orderedPaths): void
+    {
+        $this->image_order = $orderedPaths;
+        $this->image_paths = $orderedPaths;
+        
+        // Update primary image to be the first image
+        if (count($orderedPaths) > 0) {
+            $this->primary_image = $orderedPaths[0];
+        }
+    }
+
 }

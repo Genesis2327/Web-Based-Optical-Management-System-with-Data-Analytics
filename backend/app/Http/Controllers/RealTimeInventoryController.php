@@ -232,14 +232,14 @@ class RealTimeInventoryController extends Controller
         ]);
 
         $oldQuantity = $branchStock->stock_quantity;
-        $newQuantity = $request->stock_quantity;
+        $newQuantity = (int) $request->stock_quantity; // Explicitly cast to int to ensure 0 is saved
 
         $branchStock->update([
             'stock_quantity' => $newQuantity,
         ]);
 
-        // Clear related cache
-        $this->clearInventoryCache();
+        // Clear related cache for this branch
+        $this->clearInventoryCache($branchStock->branch_id);
 
         // Log the change
         Log::info('Stock quantity updated', [
@@ -278,22 +278,46 @@ class RealTimeInventoryController extends Controller
     }
 
     /**
-     * Clear inventory cache
+     * Clear inventory cache for a specific branch or all branches
+     * Since Laravel cache doesn't support wildcard deletion, we'll clear
+     * all cache when stock is updated to ensure fresh data
      */
-    private function clearInventoryCache(): void
+    private function clearInventoryCache($branchId = null): void
     {
-        // Clear all inventory-related cache
-        $cacheKeys = [
-            'realtime_inventory_*',
-            'cross_branch_availability_*',
-            'stock_alerts_*',
+        // Get user info for cache key generation
+        $user = Auth::user();
+        $userRole = $user?->role?->value ?? 'customer';
+        $userBranchId = $user?->branch_id ?? null;
+
+        // Clear all possible cache variations for realtime inventory
+        // This includes all combinations of filters that might be cached
+        $variations = [
+            ['branch_id' => $branchId, 'product_id' => null, 'include_out_of_stock' => false],
+            ['branch_id' => $branchId, 'product_id' => null, 'include_out_of_stock' => true],
+            ['branch_id' => null, 'product_id' => null, 'include_out_of_stock' => false],
+            ['branch_id' => null, 'product_id' => null, 'include_out_of_stock' => true],
         ];
 
-        foreach ($cacheKeys as $pattern) {
-            // In a real implementation, you might use Redis or another cache driver
-            // that supports pattern-based cache clearing
-            Cache::flush();
+        foreach ($variations as $variation) {
+            $cacheKey = "realtime_inventory_" . md5(serialize([
+                'branch_id' => $variation['branch_id'],
+                'product_id' => $variation['product_id'],
+                'include_out_of_stock' => $variation['include_out_of_stock'],
+                'user_role' => $userRole,
+                'user_branch_id' => $userBranchId,
+            ]));
+            Cache::forget($cacheKey);
         }
+        
+        // Clear enhanced inventory cache (all variations)
+        Cache::forget('enhanced_inventory_all');
+        if ($branchId) {
+            Cache::forget('enhanced_inventory_branch_' . $branchId);
+        }
+        
+        // Clear stock alerts cache
+        Cache::forget('stock_alerts_' . ($branchId ?? 'all'));
+        Cache::forget('stock_alerts_all');
     }
 }
 

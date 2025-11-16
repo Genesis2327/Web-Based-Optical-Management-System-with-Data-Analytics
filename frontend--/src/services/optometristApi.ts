@@ -1,6 +1,5 @@
 import axios from 'axios';
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api';
+import { API_BASE_URL } from '../config/api';
 
 // Create axios instance with default config
 const api = axios.create({
@@ -52,7 +51,11 @@ export interface OptometristPatientDetails {
     name: string;
     email: string;
     phone?: string;
+    social_media?: string;
+    address?: string;
     date_of_birth?: string;
+    emergency_contact?: string;
+    emergency_phone?: string;
   };
   appointments: Array<{
     id: number;

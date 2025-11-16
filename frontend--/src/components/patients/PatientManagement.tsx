@@ -12,10 +12,13 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
 import { getPatients, getPatientDetails, updatePatient, Patient, PatientDetails, PatientUpdateData } from '@/services/patientApi';
+import { useQueryClient } from '@tanstack/react-query';
+import { useWebSocket } from '@/hooks/useWebSocket';
 
 
 const PatientManagement = () => {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedPatient, setSelectedPatient] = useState<PatientDetails | null>(null);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
@@ -29,6 +32,29 @@ const PatientManagement = () => {
   });
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editFormData, setEditFormData] = useState<PatientUpdateData>({});
+
+  // Listen for prescription created events and refresh patient data
+  useWebSocket({
+    onPrescriptionCreated: (data) => {
+      console.log('Prescription created event received in patient management:', data);
+      if (data.prescription?.patient_id) {
+        // Refresh patient details if viewing the affected patient
+        if (selectedPatient && selectedPatient.id === data.prescription.patient_id) {
+          handlePatientSelect(selectedPatient);
+        }
+        // Refresh patients list
+        fetchPatients();
+      }
+    },
+    onGeneralNotification: (data) => {
+      if (data.message && data.message.toLowerCase().includes('prescription')) {
+        if (selectedPatient) {
+          handlePatientSelect(selectedPatient);
+        }
+        fetchPatients();
+      }
+    }
+  });
 
   // Fetch patients on component mount
   useEffect(() => {

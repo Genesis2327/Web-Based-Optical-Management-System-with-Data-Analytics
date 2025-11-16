@@ -2,7 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Calendar, Clock, Eye, User, FileText, Plus, Edit, Trash2, Loader2, AlertCircle } from 'lucide-react';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { Separator } from '@/components/ui/separator';
+import { Calendar, Clock, Eye, User, FileText, Plus, Edit, Loader2, AlertCircle, Info } from 'lucide-react';
 import {
   Table,
   TableBody,
@@ -21,16 +24,32 @@ import {
 import { format } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import PrescriptionForm from '@/components/prescriptions/PrescriptionForm';
+import { useQueryClient } from '@tanstack/react-query';
+import { useWebSocket } from '@/hooks/useWebSocket';
 
 const OptometristPrescriptionManagement: React.FC = () => {
   const { user } = useAuth();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [prescriptions, setPrescriptions] = useState<OptometristPrescription[]>([]);
   const [appointments, setAppointments] = useState<OptometristAppointment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showPrescriptionForm, setShowPrescriptionForm] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState<OptometristAppointment | null>(null);
+  const [selectedPrescription, setSelectedPrescription] = useState<OptometristPrescription | null>(null);
+  const [showPrescriptionDetails, setShowPrescriptionDetails] = useState(false);
+
+  // Listen for prescription created events to refresh list
+  useWebSocket({
+    onPrescriptionCreated: (data) => {
+      console.log('Prescription created event received in optometrist management:', data);
+      // Refresh prescriptions list
+      queryClient.invalidateQueries({ queryKey: ['prescriptions'] });
+      queryClient.invalidateQueries({ queryKey: ['optometrist-prescriptions'] });
+      loadData();
+    }
+  });
 
   // Load prescriptions and appointments on component mount
   useEffect(() => {
@@ -99,6 +118,12 @@ const OptometristPrescriptionManagement: React.FC = () => {
   const handlePrescriptionSuccess = async () => {
     setShowPrescriptionForm(false);
     setSelectedAppointment(null);
+    
+    // Invalidate React Query cache
+    queryClient.invalidateQueries({ queryKey: ['prescriptions'] });
+    queryClient.invalidateQueries({ queryKey: ['patient-prescriptions'] });
+    queryClient.invalidateQueries({ queryKey: ['optometrist-prescriptions'] });
+    
     // Reload data
     await loadData();
   };
@@ -155,6 +180,209 @@ const OptometristPrescriptionManagement: React.FC = () => {
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold">Prescription Management</h1>
       </div>
+
+      {/* Prescription Details Dialog */}
+      {selectedPrescription && (
+        <Dialog open={showPrescriptionDetails} onOpenChange={setShowPrescriptionDetails}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Prescription Details - {selectedPrescription.patient?.name || 'Unknown Patient'}</DialogTitle>
+              <DialogDescription>
+                Complete prescription information and customer details
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-6 mt-4">
+              {/* Patient Information */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Patient Information</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label className="text-sm text-muted-foreground">Patient Name</Label>
+                      <p className="font-medium">{selectedPrescription.patient?.name || 'N/A'}</p>
+                    </div>
+                    <div>
+                      <Label className="text-sm text-muted-foreground">Email</Label>
+                      <p className="text-sm">{selectedPrescription.patient?.email || 'N/A'}</p>
+                    </div>
+                    <div>
+                      <Label className="text-sm text-muted-foreground">Prescription Number</Label>
+                      <p className="font-mono text-sm">{selectedPrescription.prescription_number || 'N/A'}</p>
+                    </div>
+                    <div>
+                      <Label className="text-sm text-muted-foreground">Status</Label>
+                      <Badge className={getStatusColor(selectedPrescription.status)}>
+                        {selectedPrescription.status}
+                      </Badge>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Prescription Information */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Prescription Information</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label className="text-sm text-muted-foreground">Issue Date</Label>
+                      <p>{format(new Date(selectedPrescription.issue_date), 'MMM d, yyyy')}</p>
+                    </div>
+                    <div>
+                      <Label className="text-sm text-muted-foreground">Expiry Date</Label>
+                      <p>{selectedPrescription.expiry_date ? format(new Date(selectedPrescription.expiry_date), 'MMM d, yyyy') : 'N/A'}</p>
+                    </div>
+                    <div>
+                      <Label className="text-sm text-muted-foreground">Type</Label>
+                      <Badge variant="outline">
+                        {selectedPrescription.type?.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()) || 'N/A'}
+                      </Badge>
+                    </div>
+                    <div>
+                      <Label className="text-sm text-muted-foreground">Vision Acuity</Label>
+                      <p>{selectedPrescription.vision_acuity || 'N/A'}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Eye Prescription Details */}
+              <div className="grid grid-cols-2 gap-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Right Eye (OD)</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    <div>
+                      <Label className="text-sm text-muted-foreground">Sphere (S)</Label>
+                      <p className="font-medium">{selectedPrescription.right_eye?.sphere || 'N/A'}</p>
+                    </div>
+                    <div>
+                      <Label className="text-sm text-muted-foreground">Cylinder (C)</Label>
+                      <p className="font-medium">{selectedPrescription.right_eye?.cylinder || 'N/A'}</p>
+                    </div>
+                    <div>
+                      <Label className="text-sm text-muted-foreground">Axis (A)</Label>
+                      <p className="font-medium">{selectedPrescription.right_eye?.axis || 'N/A'}</p>
+                    </div>
+                    <div>
+                      <Label className="text-sm text-muted-foreground">Pupillary Distance (PD)</Label>
+                      <p className="font-medium">{selectedPrescription.right_eye?.pd || 'N/A'}</p>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Left Eye (OS)</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    <div>
+                      <Label className="text-sm text-muted-foreground">Sphere (S)</Label>
+                      <p className="font-medium">{selectedPrescription.left_eye?.sphere || 'N/A'}</p>
+                    </div>
+                    <div>
+                      <Label className="text-sm text-muted-foreground">Cylinder (C)</Label>
+                      <p className="font-medium">{selectedPrescription.left_eye?.cylinder || 'N/A'}</p>
+                    </div>
+                    <div>
+                      <Label className="text-sm text-muted-foreground">Axis (A)</Label>
+                      <p className="font-medium">{selectedPrescription.left_eye?.axis || 'N/A'}</p>
+                    </div>
+                    <div>
+                      <Label className="text-sm text-muted-foreground">Pupillary Distance (PD)</Label>
+                      <p className="font-medium">{selectedPrescription.left_eye?.pd || 'N/A'}</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Additional Information */}
+              {(selectedPrescription.lens_type || selectedPrescription.coating || selectedPrescription.recommendations || selectedPrescription.additional_notes) && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Additional Information</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {selectedPrescription.lens_type && (
+                      <div>
+                        <Label className="text-sm text-muted-foreground">Lens Type</Label>
+                        <p>{selectedPrescription.lens_type}</p>
+                      </div>
+                    )}
+                    {selectedPrescription.coating && (
+                      <div>
+                        <Label className="text-sm text-muted-foreground">Coating</Label>
+                        <p>{selectedPrescription.coating}</p>
+                      </div>
+                    )}
+                    {selectedPrescription.recommendations && (
+                      <div>
+                        <Label className="text-sm text-muted-foreground">Recommendations</Label>
+                        <p className="text-sm bg-blue-50 p-3 rounded">{selectedPrescription.recommendations}</p>
+                      </div>
+                    )}
+                    {selectedPrescription.additional_notes && (
+                      <div>
+                        <Label className="text-sm text-muted-foreground">Additional Notes</Label>
+                        <p className="text-sm bg-gray-50 p-3 rounded">{selectedPrescription.additional_notes}</p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Follow-up Information */}
+              {(selectedPrescription.follow_up_date || selectedPrescription.follow_up_notes) && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Follow-up Information</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {selectedPrescription.follow_up_date && (
+                      <div>
+                        <Label className="text-sm text-muted-foreground">Follow-up Date</Label>
+                        <p>{format(new Date(selectedPrescription.follow_up_date), 'MMM d, yyyy')}</p>
+                      </div>
+                    )}
+                    {selectedPrescription.follow_up_notes && (
+                      <div>
+                        <Label className="text-sm text-muted-foreground">Follow-up Notes</Label>
+                        <p className="text-sm bg-yellow-50 p-3 rounded">{selectedPrescription.follow_up_notes}</p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Appointment Information */}
+              {selectedPrescription.appointment && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Appointment Information</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <Label className="text-sm text-muted-foreground">Appointment Date</Label>
+                        <p>{selectedPrescription.appointment?.appointment_date ? format(new Date(selectedPrescription.appointment.appointment_date), 'MMM d, yyyy') : 'N/A'}</p>
+                      </div>
+                      <div>
+                        <Label className="text-sm text-muted-foreground">Appointment Type</Label>
+                        <p>{selectedPrescription.appointment?.type || 'N/A'}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* In-Progress Appointments Section */}
       {appointments && appointments.length > 0 && (
@@ -272,14 +500,18 @@ const OptometristPrescriptionManagement: React.FC = () => {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <div className="flex space-x-2">
-                        <Button size="sm" variant="outline">
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button size="sm" variant="outline">
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
+                      <Button 
+                        size="sm" 
+                        variant="outline"
+                        onClick={() => {
+                          setSelectedPrescription(prescription);
+                          setShowPrescriptionDetails(true);
+                        }}
+                        className="flex items-center gap-2"
+                      >
+                        <Info className="h-4 w-4" />
+                        View Details
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))}

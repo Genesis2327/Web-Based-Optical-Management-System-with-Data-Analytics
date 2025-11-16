@@ -5,6 +5,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Calendar, Clock, MapPin, User, RefreshCw } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
+import { optometristRotationApi } from '@/services/optometristRotationApi';
+import { getActiveBranches } from '@/services/branchApi';
 
 interface Doctor {
   id: number;
@@ -45,38 +47,54 @@ const DoctorSchedule: React.FC<DoctorScheduleProps> = ({
   const [scheduleData, setScheduleData] = useState<DoctorScheduleData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [branches, setBranches] = useState<Array<{id: number, name: string, code: string}>>([]);
 
   const fetchSchedule = async () => {
     setLoading(true);
     setError(null);
     
     try {
-      let url = 'http://127.0.0.1:8000/api/schedules';
-      if (doctorId) {
-        url = `http://127.0.0.1:8000/api/schedules/doctor/${doctorId}`;
-      }
+      // Fetch branches first
+      const branchesData = await getActiveBranches();
+      setBranches(branchesData);
       
-      const response = await fetch(url);
-      const data = await response.json();
+      // Fetch optometrist rotations
+      const data = await optometristRotationApi.getAllRotations();
 
-      if (response.ok) {
-        if (doctorId) {
-          // Single doctor response
-          setScheduleData(data);
-        } else {
-          // Multiple doctors response - find doctor with actual schedule
-          const doctorsWithSchedules = Object.values(data.schedules).filter((doctor: any) => 
-            doctor.schedule && doctor.schedule.length > 0
-          ) as DoctorScheduleData[];
-          
-          if (doctorsWithSchedules.length > 0) {
-            setScheduleData(doctorsWithSchedules[0]);
-          } else {
-            setScheduleData(null);
-          }
+      if (data && data.rotations && data.rotations.length > 0) {
+        // Get the first rotation (usually there's only one optometrist)
+        const rotation = data.rotations[0];
+        const optometrist = rotation.optometrist;
+        
+        // Transform rotation schedule to match expected format
+        const scheduleItems: ScheduleItem[] = [];
+        const rotationSchedule = rotation.rotation_schedule || [];
+        
+        for (const schedule of rotationSchedule) {
+          const branch = branchesData.find(b => b.id === schedule.branch_id);
+          scheduleItems.push({
+            day_of_week: schedule.day,
+            day_name: getDayNameFromNumber(schedule.day),
+            branch: {
+              id: schedule.branch_id,
+              name: branch?.name || `Branch ${schedule.branch_id}`,
+              code: branch?.code || ''
+            },
+            start_time: schedule.start_time || '09:00',
+            end_time: schedule.end_time || '17:00',
+            time_range: formatTimeRange(schedule.start_time || '09:00', schedule.end_time || '17:00')
+          });
         }
+        
+        setScheduleData({
+          doctor: {
+            id: optometrist.id,
+            name: optometrist?.name || 'Optometrist'
+          },
+          schedule: scheduleItems
+        });
       } else {
-        setError(data.error || 'Failed to fetch schedule');
+        setScheduleData(null);
       }
     } catch (err) {
       setError('Network error while fetching schedule');
@@ -84,6 +102,15 @@ const DoctorSchedule: React.FC<DoctorScheduleProps> = ({
     } finally {
       setLoading(false);
     }
+  };
+
+  const getDayNameFromNumber = (dayNumber: number): string => {
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    return days[dayNumber === 7 ? 0 : dayNumber - 1];
+  };
+
+  const formatTimeRange = (start: string, end: string): string => {
+    return `${start} - ${end}`;
   };
 
   useEffect(() => {

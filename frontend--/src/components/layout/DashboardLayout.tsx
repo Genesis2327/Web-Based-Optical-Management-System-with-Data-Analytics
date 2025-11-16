@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
-import { LogOut, Settings, User } from 'lucide-react';
+import { LogOut, User, Menu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
@@ -15,10 +15,13 @@ import { Badge } from '@/components/ui/badge';
 import { useAuth, UserRole } from '@/contexts/AuthContext';
 import { DashboardSidebar } from './DashboardSidebar';
 import NotificationBell from '@/components/common/NotificationBell';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 const DashboardLayout = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const handleLogout = () => {
     logout();
@@ -59,9 +62,21 @@ const DashboardLayout = () => {
   return (
     <div className="min-h-screen bg-slate-50">
       {/* Header */}
-      <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between sticky top-0 z-40 shadow-sm">
-        <div className="flex items-center space-x-4">
-          <h1 className="text-xl font-semibold text-slate-900">
+      <header className="bg-white border-b border-slate-200 px-4 sm:px-6 py-4 flex items-center justify-between sticky top-0 z-40 shadow-sm">
+        <div className="flex items-center space-x-2 sm:space-x-4">
+          {/* Mobile Menu Button */}
+          {isMobile && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="mr-2"
+              onClick={() => setSidebarOpen(true)}
+              aria-label="Open menu"
+            >
+              <Menu className="h-5 w-5" />
+            </Button>
+          )}
+          <h1 className="text-lg sm:text-xl font-semibold text-slate-900 truncate">
             Optical Clinic Management
           </h1>
           <Badge className={getRoleColor(user.role)}>
@@ -70,7 +85,7 @@ const DashboardLayout = () => {
         </div>
 
         <div className="flex items-center space-x-4">
-          {/* Notifications */}
+          {/* Notifications - Same for all roles */}
           <NotificationBell />
 
           {/* User Menu */}
@@ -104,10 +119,6 @@ const DashboardLayout = () => {
                 <User className="mr-2 h-4 w-4" />
                 <span>Profile</span>
               </DropdownMenuItem>
-              <DropdownMenuItem>
-                <Settings className="mr-2 h-4 w-4" />
-                <span>Settings</span>
-              </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={handleLogout}>
                 <LogOut className="mr-2 h-4 w-4" />
@@ -120,13 +131,18 @@ const DashboardLayout = () => {
 
       <div className="flex">
         {/* Sidebar */}
-        <DashboardSidebar />
+        <DashboardSidebar 
+          isMobile={isMobile}
+          isOpen={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+        />
 
         {/* Main Content */}
-        <main className="flex-1 p-6">
+        <main className="flex-1 p-3 sm:p-4 md:p-5 lg:p-6 overflow-x-hidden">
           <Outlet />
         </main>
       </div>
+
     </div>
   );
 };

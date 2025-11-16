@@ -1,6 +1,6 @@
 import axios from 'axios';
+import { API_BASE_URL } from '../config/api';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api';
 const api = axios.create({ baseURL: API_BASE_URL });
 
 export interface BranchPerformance {
@@ -9,8 +9,9 @@ export interface BranchPerformance {
   code: string;
   address: string;
   revenue: number;
-  patients: number;
-  appointments: number;
+  patients: number; // Unique patients at this branch
+  patient_visits?: number; // Total patient visits (appointments) at this branch
+  appointments: number; // Total appointments (backward compatibility)
   growth: number;
   inventory_items: number;
   low_stock_alerts: number;
@@ -20,8 +21,9 @@ export interface BranchPerformance {
 
 export interface BranchAnalyticsSummary {
   total_revenue: number;
-  total_patients: number;
-  total_appointments: number;
+  total_patients: number; // Unique patients across all branches
+  total_patient_visits?: number; // Total patient visits across all branches
+  total_appointments: number; // Total appointments (backward compatibility)
   average_growth: number;
   total_branches: number;
 }
@@ -117,7 +119,7 @@ export const getProductAvailability = async (productId?: number, branchId?: numb
   if (branchId) params.append('branch_id', branchId.toString());
   
   try {
-    const response = await api.get(`/api-mysql.php/analytics/product-availability?${params.toString()}`, {
+    const response = await api.get(`/api/analytics/product-availability?${params.toString()}`, {
       headers: {
         'Authorization': `Bearer ${token}`,
         'Accept': 'application/json',

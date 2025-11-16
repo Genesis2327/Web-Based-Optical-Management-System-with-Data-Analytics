@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class BranchStock extends Model
 {
@@ -21,6 +22,14 @@ class BranchStock extends Model
         'auto_restock_enabled',
         'auto_restock_quantity',
         'last_restock_date',
+        'cost_per_unit',
+        'average_cost',
+        'valuation_method',
+        'total_cost_value',
+        'location_code',
+        'bin_number',
+        'adjustment_notes',
+        'last_adjustment_data',
     ];
 
     protected $casts = [
@@ -32,6 +41,10 @@ class BranchStock extends Model
         'auto_restock_enabled' => 'boolean',
         'auto_restock_quantity' => 'integer',
         'last_restock_date' => 'datetime',
+        'cost_per_unit' => 'decimal:2',
+        'average_cost' => 'decimal:2',
+        'total_cost_value' => 'decimal:2',
+        'last_adjustment_data' => 'array',
     ];
 
     /**
@@ -48,6 +61,14 @@ class BranchStock extends Model
     public function branch(): BelongsTo
     {
         return $this->belongsTo(Branch::class);
+    }
+
+    /**
+     * Get all inventory transactions for this stock record
+     */
+    public function transactions(): HasMany
+    {
+        return $this->hasMany(InventoryTransaction::class, 'branch_stock_id');
     }
 
     /**
@@ -139,10 +160,11 @@ class BranchStock extends Model
     public function updateStatus(): void
     {
         $availableQuantity = $this->available_quantity;
+        $minThreshold = $this->min_stock_threshold ?? 5; // Default to 5 if NULL
         
         if ($availableQuantity <= 0) {
             $this->status = 'Out of Stock';
-        } elseif ($availableQuantity <= $this->min_stock_threshold) {
+        } elseif ($availableQuantity <= $minThreshold) {
             $this->status = 'Low Stock';
         } else {
             $this->status = 'In Stock';

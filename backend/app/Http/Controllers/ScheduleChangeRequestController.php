@@ -20,14 +20,21 @@ class ScheduleChangeRequestController extends Controller
     {
         $user = Auth::user();
 
+        $userRole = null;
+        if (is_object($user->role)) {
+            $userRole = $user->role->value ?? (string)$user->role;
+        } else {
+            $userRole = (string)$user->role;
+        }
+
         // Only admin can view all requests
-        if (!$user || $user->role !== 'admin') {
+        if (!$user || $userRole !== 'admin') {
             return response()->json([
                 'message' => 'Unauthorized. Only Admin can view schedule change requests.'
             ], 403);
         }
 
-        $query = ScheduleChangeRequest::with(['optometrist', 'branch', 'reviewer']);
+        $query = ScheduleChangeRequest::with(['staff', 'branch', 'reviewer']);
 
         // Filter by status
         if ($request->has('status') && $request->status) {
@@ -61,14 +68,22 @@ class ScheduleChangeRequestController extends Controller
             return response()->json(['message' => 'Unauthorized'], 401);
         }
 
-        if ($user->role !== 'admin' && $user->id != $optometristId) {
+        $userRole = null;
+        if (is_object($user->role)) {
+            $userRole = $user->role->value ?? (string)$user->role;
+        } else {
+            $userRole = (string)$user->role;
+        }
+
+        if ($userRole !== 'admin' && $user->id != $optometristId) {
             return response()->json([
                 'message' => 'Unauthorized. You can only view your own requests.'
             ], 403);
         }
 
         $requests = ScheduleChangeRequest::with(['branch', 'reviewer'])
-            ->where('optometrist_id', $optometristId)
+            ->where('staff_id', $optometristId)
+            ->where('staff_role', 'optometrist')
             ->orderBy('created_at', 'desc')
             ->get();
 
@@ -89,7 +104,8 @@ class ScheduleChangeRequestController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
-            'optometrist_id' => 'required|exists:users,id',
+            'staff_id' => 'required|exists:users,id',
+            'staff_role' => 'required|in:optometrist,staff',
             'day_of_week' => 'required|integer|between:1,7',
             'branch_id' => 'nullable|exists:branches,id',
             'start_time' => 'nullable|date_format:H:i',
@@ -105,14 +121,14 @@ class ScheduleChangeRequestController extends Controller
         }
 
         // Users can only create requests for themselves
-        if ($user->id != $request->optometrist_id) {
+        if ($user->id != $request->staff_id) {
             return response()->json([
                 'message' => 'Unauthorized. You can only create requests for yourself.'
             ], 403);
         }
 
         // Check if there's already a pending request for this day
-        $existingRequest = ScheduleChangeRequest::where('optometrist_id', $request->optometrist_id)
+        $existingRequest = ScheduleChangeRequest::where('staff_id', $request->staff_id)
             ->where('day_of_week', $request->day_of_week)
             ->where('status', 'pending')
             ->first();
@@ -142,8 +158,15 @@ class ScheduleChangeRequestController extends Controller
     {
         $user = Auth::user();
 
+        $userRole = null;
+        if (is_object($user->role)) {
+            $userRole = $user->role->value ?? (string)$user->role;
+        } else {
+            $userRole = (string)$user->role;
+        }
+
         // Only admin can update requests
-        if (!$user || $user->role !== 'admin') {
+        if (!$user || $userRole !== 'admin') {
             return response()->json([
                 'message' => 'Unauthorized. Only Admin can update schedule change requests.'
             ], 403);
@@ -189,7 +212,7 @@ class ScheduleChangeRequestController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Schedule change request ' . $request->status . ' successfully',
-                'request' => $scheduleChangeRequest->load(['optometrist', 'branch', 'reviewer'])
+                'request' => $scheduleChangeRequest->load(['staff', 'branch', 'reviewer'])
             ]);
 
         } catch (\Exception $e) {
@@ -206,11 +229,11 @@ class ScheduleChangeRequestController extends Controller
      */
     private function updateSchedule(ScheduleChangeRequest $request): void
     {
-        $optometristId = $request->optometrist_id;
+        $staffId = $request->staff_id;
         $dayOfWeek = $request->day_of_week;
 
         // Find existing schedule for this day
-        $existingSchedule = Schedule::where('optometrist_id', $optometristId)
+        $existingSchedule = Schedule::where('staff_id', $staffId)
             ->where('day_of_week', $dayOfWeek)
             ->first();
 
@@ -224,7 +247,8 @@ class ScheduleChangeRequestController extends Controller
         } else {
             // Create new schedule entry
             Schedule::create([
-                'optometrist_id' => $optometristId,
+                'staff_id' => $staffId,
+                'staff_role' => $request->staff_role,
                 'day_of_week' => $dayOfWeek,
                 'branch_id' => $request->branch_id,
                 'start_time' => $request->start_time,
@@ -245,11 +269,18 @@ class ScheduleChangeRequestController extends Controller
             return response()->json(['message' => 'Unauthorized'], 401);
         }
 
-        $scheduleChangeRequest = ScheduleChangeRequest::with(['optometrist', 'branch', 'reviewer'])
+        $userRole = null;
+        if (is_object($user->role)) {
+            $userRole = $user->role->value ?? (string)$user->role;
+        } else {
+            $userRole = (string)$user->role;
+        }
+
+        $scheduleChangeRequest = ScheduleChangeRequest::with(['staff', 'branch', 'reviewer'])
             ->findOrFail($id);
 
         // Users can only view their own requests, admin can view any
-        if ($user->role !== 'admin' && $user->id != $scheduleChangeRequest->optometrist_id) {
+        if ($userRole !== 'admin' && $user->id != $scheduleChangeRequest->staff_id) {
             return response()->json([
                 'message' => 'Unauthorized. You can only view your own requests.'
             ], 403);

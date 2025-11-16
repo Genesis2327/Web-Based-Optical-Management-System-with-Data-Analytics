@@ -75,6 +75,7 @@ class DatabaseSeeder extends Seeder
         // Run seeders in order (branches first, then users, then related data)
         $this->call([
             BranchSeeder::class,        // Create branches first
+            ProductCategorySeeder::class, // Create product categories
             UserSeeder::class,           // Create users (test accounts)
             ProductSeeder::class,        // Create sample products
             // ScheduleSeeder::class,    // Create doctor schedules (if exists)

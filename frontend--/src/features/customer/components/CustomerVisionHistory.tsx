@@ -7,9 +7,11 @@ import { format } from 'date-fns';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ComposedChart, Bar } from 'recharts';
 import { useAuth } from '@/contexts/AuthContext';
 import { Skeleton } from '@/components/ui/skeleton';
-import { prescriptionService } from '@/features/prescriptions/services/prescription.service';
 import { Prescription } from '@/features/prescriptions/services/prescription.service';
 import { EyeTrackerLineChart } from '@/components/charts/EyeTrackerLineChart';
+import { usePatientPrescriptions } from '@/features/prescriptions/hooks/usePrescriptions';
+import { useWebSocket } from '@/hooks/useWebSocket';
+import { useQueryClient } from '@tanstack/react-query';
 
 interface VisionRecord {
   id: string;
@@ -45,84 +47,87 @@ interface VisionRecord {
 
 const CustomerVisionHistory: React.FC = () => {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const [selectedRecord, setSelectedRecord] = useState<string | null>(null);
-  const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [lastPrescriptionCount, setLastPrescriptionCount] = useState(0);
+  const { prescriptions, loading, error, refetch } = usePatientPrescriptions(user?.id || null);
 
-  // Load prescriptions on component mount
-  useEffect(() => {
-    if (user?.id) {
-      loadPrescriptions();
-    } else if (user === null) {
-      // User is not authenticated, don't try to load prescriptions
-      setLoading(false);
+  // Listen for prescription created events and refresh
+  useWebSocket({
+    onPrescriptionCreated: (data) => {
+      console.log('Prescription created event received:', data);
+      // Check if this prescription is for the current user
+      const patientId = data.prescription?.patient_id || data.patient?.id;
+      if (patientId === user?.id) {
+        // Invalidate all prescription-related queries
+        queryClient.invalidateQueries({ queryKey: ['patient-prescriptions'] });
+        queryClient.invalidateQueries({ queryKey: ['patient-prescriptions', user?.id] });
+        queryClient.invalidateQueries({ queryKey: ['prescriptions'] });
+        // Refetch immediately
+        refetch();
+      }
+    },
+    onGeneralNotification: (data) => {
+      // Check if notification is about prescription (fallback)
+      if (data.message && data.message.toLowerCase().includes('prescription')) {
+        queryClient.invalidateQueries({ queryKey: ['patient-prescriptions'] });
+        queryClient.invalidateQueries({ queryKey: ['patient-prescriptions', user?.id] });
+        refetch();
+      }
     }
-  }, [user?.id, user]);
+  });
 
-  // Refresh when user returns to the page (focus event) - no notifications
+  // Poll for new prescriptions every 30 seconds when component is mounted
   useEffect(() => {
-    const handleFocus = () => {
-      if (user?.id) {
-        loadPrescriptions(false); // No notification for focus refresh
-      }
-    };
+    if (!user?.id) return;
 
-    window.addEventListener('focus', handleFocus);
-    return () => window.removeEventListener('focus', handleFocus);
-  }, [user?.id]);
+    const interval = setInterval(() => {
+      refetch();
+    }, 30000); // Poll every 30 seconds
 
-  const loadPrescriptions = async (showNotification = false) => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      console.log('Loading prescriptions...');
-      const response = await prescriptionService.getPrescriptions();
-      console.log('Prescriptions response:', response);
-      
-      const newPrescriptions = response.data?.data || response.data || [];
-      
-      // Check if new prescriptions were added
-      if (showNotification && newPrescriptions.length > lastPrescriptionCount && lastPrescriptionCount > 0) {
-        const newCount = newPrescriptions.length - lastPrescriptionCount;
-        console.log(`New prescription(s) detected: ${newCount}`);
-        // You could add a toast notification here
-        alert(`New prescription(s) detected: ${newCount} prescription(s) added to your vision history!`);
-      }
-      
-      setPrescriptions(newPrescriptions);
-      setLastPrescriptionCount(newPrescriptions.length);
-    } catch (err: any) {
-      console.error('Error loading prescriptions:', err);
-      console.error('Error details:', {
-        status: err.response?.status,
-        statusText: err.response?.statusText,
-        data: err.response?.data,
-        message: err.message
-      });
-      
-      if (err.response?.status === 401) {
-        setError('Please log in to view your prescriptions');
-      } else if (err.response?.status === 403) {
-        setError('You do not have permission to view prescriptions');
-      } else if (err.response?.status === 500) {
-        setError('Server error. Please try again later or contact support.');
-      } else {
-        setError(err instanceof Error ? err.message : 'Failed to load prescriptions');
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
+    return () => clearInterval(interval);
+  }, [user?.id, refetch]);
 
   // Convert prescriptions to vision history format
   const visionHistory: VisionRecord[] = useMemo(() => {
     const result = prescriptions.map(prescription => {
-      // Get eye data from prescription_data JSON field
-      const rightEye = prescription.prescription_data?.right_eye || {};
-      const leftEye = prescription.prescription_data?.left_eye || {};
+      // Get eye data from prescription - now using top-level fields
+      // Handle both object and string formats
+      let rightEye = prescription.right_eye || prescription.prescription_data?.right_eye || {};
+      let leftEye = prescription.left_eye || prescription.prescription_data?.left_eye || {};
+      
+      // If eye data is a string (JSON), parse it
+      if (typeof rightEye === 'string') {
+        try {
+          rightEye = JSON.parse(rightEye);
+        } catch (e) {
+          console.warn('Failed to parse right_eye JSON:', e);
+          rightEye = {};
+        }
+      }
+      if (typeof leftEye === 'string') {
+        try {
+          leftEye = JSON.parse(leftEye);
+        } catch (e) {
+          console.warn('Failed to parse left_eye JSON:', e);
+          leftEye = {};
+        }
+      }
+      
+      // Debug log to see what we're getting
+      console.log(`Prescription ${prescription.id} - Full eye data analysis:`, {
+        prescription_id: prescription.id,
+        right_eye_raw: prescription.right_eye,
+        left_eye_raw: prescription.left_eye,
+        right_eye_type: typeof prescription.right_eye,
+        left_eye_type: typeof prescription.left_eye,
+        right_eye_is_array: Array.isArray(prescription.right_eye),
+        left_eye_is_array: Array.isArray(prescription.left_eye),
+        parsed_right: rightEye,
+        parsed_left: leftEye,
+        parsed_right_sphere: rightEye?.sphere,
+        parsed_left_sphere: leftEye?.sphere,
+        prescription_data: prescription.prescription_data
+      });
 
       // Determine examination type based on prescription type
       const getExamType = (type: string) => {
@@ -136,29 +141,28 @@ const CustomerVisionHistory: React.FC = () => {
         }
       };
 
-      // Extract condition tracking data
-      const condition = prescription.prescription_data?.condition || prescription.condition;
-      const trackable = prescription.prescription_data?.trackable || prescription.trackable;
-      const progressStatus = prescription.prescription_data?.progress_status || prescription.progress_status;
-      const progressNotes = prescription.prescription_data?.progress_notes || prescription.progress_notes;
-      const referralNotes = prescription.prescription_data?.referral_notes || prescription.referral_notes;
+      // Extract condition tracking data - try top-level fields first, then prescription_data
+      const condition = prescription.condition || prescription.prescription_data?.condition;
+      const trackable = prescription.trackable || prescription.prescription_data?.trackable;
+      const progressStatus = prescription.progress_status || prescription.prescription_data?.progress_status;
+      const progressNotes = prescription.progress_notes || prescription.prescription_data?.progress_notes;
+      const referralNotes = prescription.referral_notes || prescription.prescription_data?.referral_notes;
       
       // Debug log for each prescription
       if (condition && condition !== 'None') {
         console.log('Prescription with condition:', {
           id: prescription.id,
-          date: prescription.exam_date,
+          date: prescription.issue_date,
           condition,
           trackable,
-          progressStatus,
-          prescription_data: prescription.prescription_data
+          progressStatus
         });
       }
 
       // Create findings array
       const findings = [];
-      if (prescription.prescription_data?.vision_acuity) {
-        findings.push(`Vision acuity: ${prescription.prescription_data.vision_acuity}`);
+      if (prescription.vision_acuity || prescription.prescription_data?.vision_acuity) {
+        findings.push(`Vision acuity: ${prescription.vision_acuity || prescription.prescription_data.vision_acuity}`);
       }
       
       // Add condition information to findings
@@ -181,11 +185,11 @@ const CustomerVisionHistory: React.FC = () => {
         }
       }
       
-      if (prescription.prescription_data?.additional_notes) {
-        findings.push(prescription.prescription_data.additional_notes);
+      if (prescription.additional_notes || prescription.prescription_data?.additional_notes) {
+        findings.push(prescription.additional_notes || prescription.prescription_data.additional_notes);
       }
-      if (prescription.prescription_data?.follow_up_date) {
-        findings.push(`Follow-up scheduled for ${format(new Date(prescription.prescription_data.follow_up_date), 'MMM d, yyyy')}`);
+      if (prescription.follow_up_date || prescription.prescription_data?.follow_up_date) {
+        findings.push(`Follow-up scheduled for ${format(new Date(prescription.follow_up_date || prescription.prescription_data.follow_up_date), 'MMM d, yyyy')}`);
       }
       if (findings.length === 0) {
         findings.push('Eye examination completed successfully');
@@ -199,18 +203,38 @@ const CustomerVisionHistory: React.FC = () => {
         findings,
         prescription: {
           rightEye: {
-            sphere: rightEye?.sphere?.toString() || '0.00',
-            cylinder: rightEye?.cylinder?.toString() || '0.00',
-            axis: rightEye?.axis?.toString() || '0',
-            pd: rightEye?.pd?.toString() || '0',
-            add: rightEye?.add?.toString() || '0.00'
+            sphere: (rightEye && typeof rightEye === 'object' && rightEye.sphere !== null && rightEye.sphere !== undefined && rightEye.sphere !== '') 
+              ? String(rightEye.sphere) 
+              : '0.00',
+            cylinder: (rightEye && typeof rightEye === 'object' && rightEye.cylinder !== null && rightEye.cylinder !== undefined && rightEye.cylinder !== '') 
+              ? String(rightEye.cylinder) 
+              : '0.00',
+            axis: (rightEye && typeof rightEye === 'object' && rightEye.axis !== null && rightEye.axis !== undefined && rightEye.axis !== '') 
+              ? String(rightEye.axis) 
+              : '0',
+            pd: (rightEye && typeof rightEye === 'object' && rightEye.pd !== null && rightEye.pd !== undefined && rightEye.pd !== '') 
+              ? String(rightEye.pd) 
+              : '0',
+            add: (rightEye && typeof rightEye === 'object' && rightEye.add !== null && rightEye.add !== undefined && rightEye.add !== '') 
+              ? String(rightEye.add) 
+              : '0.00'
           },
           leftEye: {
-            sphere: leftEye?.sphere?.toString() || '0.00',
-            cylinder: leftEye?.cylinder?.toString() || '0.00',
-            axis: leftEye?.axis?.toString() || '0',
-            pd: leftEye?.pd?.toString() || '0',
-            add: leftEye?.add?.toString() || '0.00'
+            sphere: (leftEye && typeof leftEye === 'object' && leftEye.sphere !== null && leftEye.sphere !== undefined && leftEye.sphere !== '') 
+              ? String(leftEye.sphere) 
+              : '0.00',
+            cylinder: (leftEye && typeof leftEye === 'object' && leftEye.cylinder !== null && leftEye.cylinder !== undefined && leftEye.cylinder !== '') 
+              ? String(leftEye.cylinder) 
+              : '0.00',
+            axis: (leftEye && typeof leftEye === 'object' && leftEye.axis !== null && leftEye.axis !== undefined && leftEye.axis !== '') 
+              ? String(leftEye.axis) 
+              : '0',
+            pd: (leftEye && typeof leftEye === 'object' && leftEye.pd !== null && leftEye.pd !== undefined && leftEye.pd !== '') 
+              ? String(leftEye.pd) 
+              : '0',
+            add: (leftEye && typeof leftEye === 'object' && leftEye.add !== null && leftEye.add !== undefined && leftEye.add !== '') 
+              ? String(leftEye.add) 
+              : '0.00'
           }
         },
         // Include condition tracking data
@@ -219,8 +243,8 @@ const CustomerVisionHistory: React.FC = () => {
         progressStatus,
         progressNotes,
         referralNotes,
-        nextExam: prescription.prescription_data?.follow_up_date || prescription.expiry_date,
-        notes: prescription.prescription_data?.notes || prescription.prescription_data?.additional_notes || 'Eye examination completed successfully'
+        nextExam: prescription.follow_up_date || prescription.prescription_data?.follow_up_date || prescription.expiry_date,
+        notes: prescription.notes || prescription.prescription_data?.notes || prescription.additional_notes || prescription.prescription_data?.additional_notes || 'Eye examination completed successfully'
       };
     }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()); // Sort by date, newest first
     
@@ -376,7 +400,7 @@ const CustomerVisionHistory: React.FC = () => {
             </div>
           </div>
           <Button
-            onClick={loadPrescriptions}
+            onClick={refetch}
             disabled={loading}
             variant="outline"
             size="sm"

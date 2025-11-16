@@ -70,38 +70,219 @@ interface EyewearConditionNotification {
   timestamp: string;
 }
 
+interface PrescriptionNotification {
+  id: number;
+  type: string;
+  message: string;
+  prescription: {
+    id: number;
+    patient_id: number;
+    appointment_id: number;
+  };
+  patient?: {
+    id: number;
+    name: string;
+  };
+  optometrist?: {
+    id: number;
+    name: string;
+  };
+  timestamp: string;
+}
+
 class WebSocketService {
   private socket: Socket | null = null;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private reconnectDelay = 1000;
   private listeners: Map<string, Function[]> = new Map();
+  private isConnecting = false;
+  private connectionDisabled = false;
+  private hasLoggedError = false;
 
   constructor() {
-    this.connect();
+    // Only connect if WebSocket is enabled (check env var or default behavior)
+    const websocketEnabled = import.meta.env.VITE_WEBSOCKET_ENABLED !== 'false';
+    if (websocketEnabled) {
+      // Delay initial connection to avoid blocking page load
+      setTimeout(() => {
+        this.connect();
+      }, 1000);
+    } else {
+      this.connectionDisabled = true;
+      if (import.meta.env.DEV) {
+        console.log('WebSocket is disabled via environment variable');
+      }
+    }
+  }
+
+  private setupGlobalErrorHandler(): void {
+    // This will be called to set up error suppression if needed
+    // We handle errors in the connect method instead
   }
 
   private connect(): void {
-    const token = localStorage.getItem('token') || sessionStorage.getItem('auth_token');
-    
-    if (!token) {
-      console.warn('No authentication token found, WebSocket connection delayed');
+    // Prevent multiple simultaneous connection attempts
+    if (this.isConnecting || this.connectionDisabled) {
       return;
     }
 
+    // Don't attempt to reconnect if we've exceeded max attempts
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      if (!this.hasLoggedError) {
+        // Only log in development mode
+        if (import.meta.env.DEV) {
+          console.warn('WebSocket server is not available. Real-time features will be unavailable. You can start the WebSocket server or disable it via VITE_WEBSOCKET_ENABLED=false');
+        }
+        this.hasLoggedError = true;
+      }
+      return;
+    }
+
+    const rawToken = localStorage.getItem('token') || sessionStorage.getItem('auth_token');
+    
+    if (!rawToken) {
+      // Silently return - token will be available after login
+      return;
+    }
+
+    this.isConnecting = true;
+
     try {
-      this.socket = io(import.meta.env.VITE_WEBSOCKET_URL || 'http://localhost:6001', {
-        auth: {
-          token: token
-        },
-        transports: ['websocket', 'polling'],
-        timeout: 10000,
-        forceNew: true,
-      });
+      // Ensure Bearer prefix for servers expecting Authorization-like value in auth.token
+      const token = rawToken.toLowerCase().startsWith('bearer ')
+        ? rawToken
+        : `Bearer ${rawToken}`;
+      
+      const websocketUrl = import.meta.env.VITE_WEBSOCKET_URL || 'http://localhost:6001';
+      
+      // Suppress console errors during socket creation
+      // Always suppress WebSocket errors, but allow one log in dev mode on first attempt
+      const originalError = console.error;
+      const originalWarn = console.warn;
+      const isFirstAttempt = this.reconnectAttempts === 0 && import.meta.env.DEV;
+      
+      // Always set up error suppression to catch socket.io errors
+      console.error = (...args: any[]) => {
+        // Only suppress WebSocket-related errors
+        const message = args[0]?.toString() || '';
+        const fullMessage = JSON.stringify(args);
+        const allArgs = args.map(a => String(a)).join(' ');
+        
+        // Check if this is a WebSocket-related error
+        const isWebSocketError = 
+          message.includes('WebSocket') || 
+          message.includes('socket.io') || 
+          message.includes('ERR_CONNECTION_REFUSED') ||
+          message.includes('net::ERR_CONNECTION_REFUSED') ||
+          fullMessage.includes('ws://127.0.0.1:6001') ||
+          fullMessage.includes('ws://localhost:6001') ||
+          fullMessage.includes('socket.io/?EIO=') ||
+          allArgs.includes('WebSocket') ||
+          allArgs.includes('socket.io') ||
+          allArgs.includes('ERR_CONNECTION_REFUSED');
+        
+        if (!isWebSocketError) {
+          originalError.apply(console, args);
+        } else if (isFirstAttempt && !this.hasLoggedError) {
+          // Allow one log in dev mode on first attempt
+          originalError.apply(console, args);
+          this.hasLoggedError = true;
+        }
+        // Otherwise suppress WebSocket errors silently
+      };
+      
+      console.warn = (...args: any[]) => {
+        const message = args[0]?.toString() || '';
+        const fullMessage = JSON.stringify(args);
+        const allArgs = args.map(a => String(a)).join(' ');
+        
+        const isWebSocketWarning = 
+          message.includes('WebSocket') || 
+          message.includes('socket.io') ||
+          fullMessage.includes('ws://127.0.0.1:6001') ||
+          fullMessage.includes('ws://localhost:6001') ||
+          allArgs.includes('WebSocket') ||
+          allArgs.includes('socket.io');
+        
+        if (!isWebSocketWarning) {
+          originalWarn.apply(console, args);
+        }
+        // Suppress WebSocket warnings silently
+      };
+
+      try {
+        // Suppress errors at the window level before creating socket
+        const originalWindowError = window.onerror;
+        const originalWindowUnhandledRejection = window.onunhandledrejection;
+        
+        window.onerror = (message, source, lineno, colno, error) => {
+          const msg = String(message || '');
+          if (msg.includes('WebSocket') || msg.includes('socket.io') || msg.includes('ERR_CONNECTION_REFUSED')) {
+            // Suppress WebSocket errors at window level
+            return true;
+          }
+          if (originalWindowError) {
+            return originalWindowError(message, source, lineno, colno, error);
+          }
+          return false;
+        };
+        
+        window.onunhandledrejection = (event) => {
+          const reason = String(event.reason || '');
+          if (reason.includes('WebSocket') || reason.includes('socket.io') || reason.includes('ERR_CONNECTION_REFUSED')) {
+            event.preventDefault();
+            return true;
+          }
+          if (originalWindowUnhandledRejection) {
+            return originalWindowUnhandledRejection(event);
+          }
+          return false;
+        };
+        
+        this.socket = io(websocketUrl, {
+          auth: {
+            token: token
+          },
+          transports: ['websocket', 'polling'],
+          timeout: 5000, // Reduced timeout to fail faster
+          forceNew: true,
+          reconnection: false, // We'll handle reconnection manually
+          autoConnect: true,
+        });
+
+        // Suppress socket.io internal error logging
+        this.socket.io.on('error', () => {
+          // Silently handle connection errors - they're expected when server is down
+        });
+        
+        // Suppress connection error events
+        this.socket.on('connect_error', () => {
+          // Silently handled - expected when server is down
+        });
+        
+        // Restore window error handlers after a short delay
+        setTimeout(() => {
+          if (originalWindowError) window.onerror = originalWindowError;
+          if (originalWindowUnhandledRejection) window.onunhandledrejection = originalWindowUnhandledRejection;
+        }, 100);
+      } catch (error) {
+        // Silent catch - connection errors are expected
+      } finally {
+        // Always restore console methods after a short delay to catch any late errors
+        setTimeout(() => {
+          console.error = originalError;
+          console.warn = originalWarn;
+        }, 200);
+      }
 
       this.setupEventListeners();
     } catch (error) {
-      console.error('Failed to connect to WebSocket server:', error);
+      // Only log errors in development mode
+      if (import.meta.env.DEV && this.reconnectAttempts === 0) {
+        console.error('Failed to initialize WebSocket connection:', error);
+      }
+      this.isConnecting = false;
       this.handleReconnect();
     }
   }
@@ -110,18 +291,37 @@ class WebSocketService {
     if (!this.socket) return;
 
     this.socket.on('connect', () => {
-      console.log('WebSocket connected:', this.socket?.id);
+      // Only log in development mode
+      if (import.meta.env.DEV) {
+        console.log('WebSocket connected:', this.socket?.id);
+      }
+      this.isConnecting = false;
       this.reconnectAttempts = 0;
       this.reconnectDelay = 1000;
+      this.hasLoggedError = false; // Reset error log flag on successful connection
     });
 
     this.socket.on('disconnect', (reason) => {
-      console.log('WebSocket disconnected:', reason);
-      this.handleReconnect();
+      if (reason === 'io server disconnect') {
+        // Server disconnected, don't try to reconnect automatically
+        if (import.meta.env.DEV) {
+          console.log('WebSocket disconnected by server');
+        }
+        this.isConnecting = false;
+      } else {
+        // Client-side disconnect or network error, try to reconnect
+        this.isConnecting = false;
+        this.handleReconnect();
+      }
     });
 
     this.socket.on('connect_error', (error) => {
-      console.error('WebSocket connection error:', error);
+      this.isConnecting = false;
+      // Suppress connection error logs - they're expected when server is down
+      // Only log in development mode and only on first few attempts
+      if (import.meta.env.DEV && this.reconnectAttempts === 0) {
+        // Silent - connection errors are expected when server is not running
+      }
       this.handleReconnect();
     });
 
@@ -185,19 +385,38 @@ class WebSocketService {
                               data.priority === 'high' ? 'warning' : 'info';
       this.showNotification(data.message, notificationType);
     });
+
+    // Prescription notifications
+    this.socket.on('prescription.created', (data: PrescriptionNotification) => {
+      this.emit('prescription-created', data);
+      this.showNotification(data.message || 'Your prescription has been created', 'success');
+    });
   }
 
   private handleReconnect(): void {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error('Max reconnection attempts reached');
+      if (!this.hasLoggedError) {
+        // Only log in development mode
+        if (import.meta.env.DEV) {
+          console.warn('WebSocket server is not available. Real-time features will be unavailable. The application will continue to work normally.');
+        }
+        this.hasLoggedError = true;
+      }
+      // Disable further reconnection attempts silently
+      this.connectionDisabled = true;
       return;
     }
 
     this.reconnectAttempts++;
-    console.log(`Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
+    // Only log in development mode and only first attempt
+    if (import.meta.env.DEV && this.reconnectAttempts === 1) {
+      // Silent - connection attempts are expected
+    }
 
     setTimeout(() => {
-      this.connect();
+      if (this.reconnectAttempts < this.maxReconnectAttempts) {
+        this.connect();
+      }
     }, this.reconnectDelay);
 
     this.reconnectDelay = Math.min(this.reconnectDelay * 2, 30000); // Max 30 seconds
@@ -263,12 +482,36 @@ class WebSocketService {
   }
 
   public reconnect(): void {
+    if (this.connectionDisabled) {
+      console.warn('WebSocket is disabled');
+      return;
+    }
+    
     if (this.socket) {
       this.socket.disconnect();
     }
     this.reconnectAttempts = 0;
     this.reconnectDelay = 1000;
+    this.hasLoggedError = false;
+    this.isConnecting = false;
     this.connect();
+  }
+
+  public enable(): void {
+    if (this.connectionDisabled) {
+      this.connectionDisabled = false;
+      this.reconnectAttempts = 0;
+      this.hasLoggedError = false;
+      this.connect();
+    }
+  }
+
+  public disable(): void {
+    this.connectionDisabled = true;
+    if (this.socket) {
+      this.socket.disconnect();
+      this.socket = null;
+    }
   }
 
   public disconnect(): void {
@@ -304,4 +547,4 @@ class WebSocketService {
 const websocketService = new WebSocketService();
 
 export default websocketService;
-export type { NotificationData, AppointmentNotification, InventoryNotification };
+export type { NotificationData, AppointmentNotification, InventoryNotification, PrescriptionNotification };

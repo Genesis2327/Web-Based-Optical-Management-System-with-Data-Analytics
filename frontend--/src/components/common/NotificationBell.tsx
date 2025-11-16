@@ -1,11 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Bell, X, Check, CheckCheck } from 'lucide-react';
 import { useNotifications } from '@/contexts/NotificationContext';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '@/contexts/AuthContext';
 import { formatDistanceToNow } from 'date-fns';
 
 const NotificationBell: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
+  const { user } = useAuth();
   const { 
     notifications, 
     unreadCount, 
@@ -34,9 +38,64 @@ const NotificationBell: React.FC = () => {
     }
   };
 
+  const getNavigationPath = (notification: any): string | null => {
+    const notifData = typeof notification.data === 'string' 
+      ? JSON.parse(notification.data) 
+      : notification.data;
+    
+    const rolePrefix = user?.role || 'customer';
+    
+    switch (notification.type) {
+      case 'appointment':
+        if (notifData?.appointment_id) {
+          return `/${rolePrefix}/appointments`;
+        }
+        return `/${rolePrefix}/appointments`;
+      
+      case 'prescription':
+        if (notifData?.prescription_id) {
+          return `/${rolePrefix}/prescriptions`;
+        }
+        return `/${rolePrefix}/prescriptions`;
+      
+      case 'inventory_update':
+      case 'inventory':
+        return `/${rolePrefix}/inventory`;
+      
+      case 'user_signup':
+      case 'system':
+        if (rolePrefix === 'admin') {
+          return '/admin/users';
+        }
+        return null;
+      
+      case 'reminder':
+        return `/${rolePrefix}/appointments`;
+      
+      default:
+        return null;
+    }
+  };
+
   const handleNotificationClick = async (notification: any) => {
-    if (notification.status === 'unread') {
-      await markNotificationAsRead(notification.id);
+    try {
+      // Mark as read
+      if (notification.status === 'unread') {
+        await markNotificationAsRead(notification.id);
+      }
+      
+      // Navigate to relevant page
+      const path = getNavigationPath(notification);
+      if (path) {
+        setIsOpen(false);
+        navigate(path);
+      } else {
+        // If no navigation path, just mark as read and close
+        setIsOpen(false);
+      }
+    } catch (error) {
+      console.error('Error handling notification click:', error);
+      setIsOpen(false);
     }
   };
 
@@ -50,10 +109,15 @@ const NotificationBell: React.FC = () => {
         return '📅';
       case 'prescription':
         return '💊';
+      case 'inventory_update':
       case 'inventory':
         return '📦';
       case 'user_signup':
         return '👤';
+      case 'system':
+        return '⚙️';
+      case 'reminder':
+        return '⏰';
       default:
         return '🔔';
     }
@@ -65,10 +129,15 @@ const NotificationBell: React.FC = () => {
         return 'text-blue-600';
       case 'prescription':
         return 'text-green-600';
+      case 'inventory_update':
       case 'inventory':
         return 'text-orange-600';
       case 'user_signup':
         return 'text-purple-600';
+      case 'system':
+        return 'text-gray-600';
+      case 'reminder':
+        return 'text-yellow-600';
       default:
         return 'text-gray-600';
     }

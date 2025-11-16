@@ -1,6 +1,6 @@
 import axios from 'axios';
+import { API_BASE_URL } from '../config/api';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api';
 const api = axios.create({ baseURL: API_BASE_URL });
 
 // Add request interceptor to include auth token
@@ -16,6 +16,15 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    // Suppress 404 errors in console (they're expected for some endpoints)
+    if (error.response?.status === 404) {
+      // Only log 404s in development mode
+      if (!import.meta.env.DEV) {
+        // Suppress in production
+        return Promise.reject(error);
+      }
+    }
+    // Handle 401 unauthorized
     if (error.response?.status === 401) {
       sessionStorage.removeItem('auth_token');
       sessionStorage.removeItem('user');
@@ -39,12 +48,14 @@ export interface Branch {
 
 // Get all branches (admin only)
 export const getBranches = async (): Promise<Branch[]> => {
-  const response = await api.get('/branches');
-  // Handle both formats: direct array or {data: [...]} format
+  const response = await api.get('/branches-simple');
+  // Handle different response formats
   if (Array.isArray(response.data)) {
     return response.data;
   } else if (response.data && Array.isArray(response.data.data)) {
     return response.data.data;
+  } else if (response.data && Array.isArray(response.data.branches)) {
+    return response.data.branches;
   } else {
     return [];
   }
@@ -52,13 +63,35 @@ export const getBranches = async (): Promise<Branch[]> => {
 
 // Get active branches (public)
 export const getActiveBranches = async (): Promise<Branch[]> => {
-  const response = await api.get('/branches/active');
-  // Handle both formats: direct array or {data: [...]} format
-  if (Array.isArray(response.data)) {
-    return response.data;
-  } else if (response.data && Array.isArray(response.data.data)) {
-    return response.data.data;
-  } else {
+  try {
+    console.log('[branchApi] Fetching active branches from /branches/active...');
+    const response = await api.get('/branches/active');
+    console.log('[branchApi] Raw response:', response.data);
+    
+    // Handle both formats: direct array or {data: [...]} format
+    let branches: Branch[] = [];
+    if (Array.isArray(response.data)) {
+      branches = response.data;
+    } else if (response.data && Array.isArray(response.data.data)) {
+      branches = response.data.data;
+    } else {
+      console.warn('[branchApi] Unexpected response format:', response.data);
+      return [];
+    }
+    
+    console.log(`[branchApi] Successfully loaded ${branches.length} branches from everbright_optical database`);
+    branches.forEach((branch, index) => {
+      console.log(`[branchApi] Branch ${index + 1}: ID=${branch.id}, Name=${branch.name}, Code=${branch.code}`);
+    });
+    
+    return branches;
+  } catch (error: any) {
+    console.error('[branchApi] Error fetching active branches:', error);
+    console.error('[branchApi] Error details:', {
+      message: error.message,
+      response: error.response?.data,
+      status: error.response?.status
+    });
     return [];
   }
 };

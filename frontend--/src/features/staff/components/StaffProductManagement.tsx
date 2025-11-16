@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { getApiUrl } from '@/config/api';
 
 interface Product {
   id: number;
@@ -60,6 +61,13 @@ const StaffProductManagement: React.FC = () => {
     rejected: 0
   });
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const getStorageUrl = (path: string) => {
+    const apiBaseUrl = getApiUrl('/');
+    const baseUrl = apiBaseUrl.replace('/api', '');
+    const cleanPath = path.startsWith('/') ? path.substring(1) : path;
+    return `${baseUrl}/storage/${cleanPath}`;
+  };
 
   useEffect(() => {
     fetchProducts();
@@ -401,7 +409,7 @@ const StaffProductManagement: React.FC = () => {
                             {product.image_paths.slice(0, 3).map((image, index) => (
                               <img
                                 key={index}
-                                src={`http://127.0.0.1:8000/storage/${image}`}
+                                src={getStorageUrl(image)}
                                 alt={`${product.name} ${index + 1}`}
                                 className="w-16 h-16 object-cover rounded border"
                               />

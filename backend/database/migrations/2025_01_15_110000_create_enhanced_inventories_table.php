@@ -13,7 +13,7 @@ return new class extends Migration
     {
         Schema::create('enhanced_inventories', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('branch_id')->constrained()->onDelete('cascade');
+            $table->unsignedBigInteger('branch_id'); // Foreign key will be added later after branches table exists
             $table->string('product_name');
             $table->string('sku')->unique();
             $table->integer('quantity')->default(0);

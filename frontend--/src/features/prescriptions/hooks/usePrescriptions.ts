@@ -142,7 +142,10 @@ export const usePatientPrescriptions = (patientId: number | null) => {
     setError(null);
     try {
       const response = await getPatientPrescriptions(patientId);
-      const prescriptionsData = response.data;
+      // Handle both { data: [...] } and [...] response formats
+      const prescriptionsData = Array.isArray(response.data) 
+        ? response.data 
+        : (response.data?.data || []);
       
       // Sort prescriptions by appointment date (newest first) - issue date should match appointment date
       const sortedPrescriptions = prescriptionsData.sort((a: Prescription, b: Prescription) => {

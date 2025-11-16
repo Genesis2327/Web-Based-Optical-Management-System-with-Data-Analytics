@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Search, Plus, Edit, Eye, Trash2, Building2, UserCheck, CheckSquare, Square } from 'lucide-react';
+import { Users, Search, Plus, Edit, Eye, EyeOff, Trash2, Building2, UserCheck, CheckSquare, Square, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -17,6 +17,9 @@ interface User {
   id: number;
   name: string;
   email: string;
+  phone?: string;
+  social_media?: string;
+  address?: string;
   role: string;
   is_approved: boolean;
   branch?: {
@@ -24,6 +27,11 @@ interface User {
     name: string;
     address: string;
   };
+  optometrist_branches?: Array<{
+    id: number;
+    name?: string;
+    address?: string;
+  }>;
   created_at: string;
 }
 
@@ -39,6 +47,8 @@ const AdminUserManagement: React.FC = () => {
   const [selectedUsers, setSelectedUsers] = useState<Set<number>>(new Set());
   const [isAllSelected, setIsAllSelected] = useState(false);
   const [deletedUserIds, setDeletedUserIds] = useState<Set<number>>(new Set());
+  const [showPassword, setShowPassword] = useState(false);
+  const [showPasswordConfirmation, setShowPasswordConfirmation] = useState(false);
 
   // Fetch branches
   const { data: branches = [] } = useQuery({
@@ -50,10 +60,12 @@ const AdminUserManagement: React.FC = () => {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
+    phone: '',
     password: '',
     password_confirmation: '',
     role: 'customer',
     branch_id: '',
+    selected_branches: [] as number[],
     is_approved: true
   });
 
@@ -124,12 +136,23 @@ const AdminUserManagement: React.FC = () => {
     
     try {
       const token = sessionStorage.getItem('auth_token');
-      const requestData = {
-        ...formData,
+      
+      // Build request data
+      const requestData: any = {
+        name: formData.name,
+        email: formData.email,
+        phone: formData.phone || null,
+        password: formData.password,
+        password_confirmation: formData.password_confirmation,
+        role: formData.role,
         branch_id: formData.branch_id && formData.branch_id !== 'none' ? parseInt(formData.branch_id) : null,
+        is_approved: formData.is_approved,
       };
       
-      console.log('Creating user with data:', requestData);
+      console.log('Original form data:', formData);
+      console.log('Processed request data:', requestData);
+      console.log('Branch ID type:', typeof requestData.branch_id);
+      console.log('Branch ID value:', requestData.branch_id);
       
       const response = await fetch(`${API_BASE_URL}/admin/users`, {
         method: 'POST',
@@ -142,6 +165,7 @@ const AdminUserManagement: React.FC = () => {
       if (!response.ok) {
         const errorData = await response.json();
         console.error('Create user error:', errorData);
+        console.error('Validation errors:', errorData.errors);
         throw new Error(errorData.message || `Failed to create user: ${response.status}`);
       }
 
@@ -198,9 +222,10 @@ const AdminUserManagement: React.FC = () => {
       const requestData: any = {
         name: formData.name,
         email: formData.email,
+        phone: formData.phone || null,
         role: formData.role,
-        is_approved: formData.is_approved,
         branch_id: formData.branch_id && formData.branch_id !== 'none' ? parseInt(formData.branch_id) : null,
+        is_approved: formData.is_approved,
       };
       
       // Only include password if it's being changed (not empty)
@@ -209,6 +234,7 @@ const AdminUserManagement: React.FC = () => {
       }
       
       console.log('Updating user with data:', requestData);
+      console.log('Role:', formData.role);
       
       const response = await fetch(`${API_BASE_URL}/admin/users/${selectedUser.id}`, {
         method: 'PUT',
@@ -247,7 +273,7 @@ const AdminUserManagement: React.FC = () => {
   };
 
   const handleDeleteUser = async (userId: number) => {
-    if (!confirm('Are you sure you want to delete this user?')) return;
+    if (!confirm('Are you sure you want to permanently delete this user? This action cannot be undone.')) return;
 
     try {
       const token = sessionStorage.getItem('auth_token');
@@ -299,7 +325,7 @@ const AdminUserManagement: React.FC = () => {
       
       toast({
         title: "Success",
-        description: "User deleted successfully",
+        description: "User permanently deleted successfully",
       });
 
       // Don't call fetchUsers() as it might override the immediate update
@@ -318,10 +344,12 @@ const AdminUserManagement: React.FC = () => {
     setFormData({
       name: '',
       email: '',
+      phone: '',
       password: '',
       password_confirmation: '',
       role: 'customer',
       branch_id: '',
+      selected_branches: [],
       is_approved: true
     });
   };
@@ -339,15 +367,26 @@ const AdminUserManagement: React.FC = () => {
 
   const openEditDialog = (user: User) => {
     setSelectedUser(user);
+    
+    // For optometrists, extract branch IDs from optometrist_branches if available
+    let selectedBranches: number[] = [];
+    if (user.role === 'optometrist' && user.optometrist_branches && Array.isArray(user.optometrist_branches)) {
+      selectedBranches = user.optometrist_branches.map((b) => b.id);
+    }
+    
     setFormData({
       name: user.name,
       email: user.email,
+      phone: user.phone || '',
       password: '', // Don't pre-fill password
       password_confirmation: '', // Don't pre-fill password confirmation
       role: user.role,
       branch_id: user.branch?.id?.toString() || 'none',
+      selected_branches: selectedBranches,
       is_approved: user.is_approved
     });
+    
+    console.log('Opening edit dialog for user:', user);
     setIsEditDialogOpen(true);
   };
 
@@ -538,7 +577,7 @@ const AdminUserManagement: React.FC = () => {
             <DialogHeader>
               <DialogTitle>Add New User</DialogTitle>
               <DialogDescription>
-                Create a new user account with role and branch assignment.
+                Create a new user account with role and branch assignment. Note: Optometrists can select which branches to handle using checkboxes.
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleCreateUser} className="space-y-4">
@@ -564,34 +603,115 @@ const AdminUserManagement: React.FC = () => {
                     required
                   />
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="phone">Contact Number</Label>
+                  <Input
+                    id="phone"
+                    type="tel"
+                    value={formData.phone}
+                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                    placeholder="Enter contact number (e.g., 09123456789)"
+                  />
+                  <p className="text-xs text-gray-500">Optional - Contact number for the user</p>
+                </div>
               </div>
               
               <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  required
-                />
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="password">Password</Label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      // Generate a random password (12 characters: uppercase, lowercase, numbers)
+                      const uppercase = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+                      const lowercase = 'abcdefghijklmnopqrstuvwxyz';
+                      const numbers = '0123456789';
+                      const allChars = uppercase + lowercase + numbers;
+                      
+                      let password = '';
+                      // Ensure at least one of each type
+                      password += uppercase[Math.floor(Math.random() * uppercase.length)];
+                      password += lowercase[Math.floor(Math.random() * lowercase.length)];
+                      password += numbers[Math.floor(Math.random() * numbers.length)];
+                      
+                      // Fill the rest randomly
+                      for (let i = password.length; i < 12; i++) {
+                        password += allChars[Math.floor(Math.random() * allChars.length)];
+                      }
+                      
+                      // Shuffle the password
+                      password = password.split('').sort(() => Math.random() - 0.5).join('');
+                      
+                      setFormData({
+                        ...formData,
+                        password: password,
+                        password_confirmation: password
+                      });
+                      
+                      toast({
+                        title: "Password Generated",
+                        description: "A random password has been generated and filled in both fields.",
+                      });
+                    }}
+                    className="flex items-center gap-1 text-xs"
+                  >
+                    <RefreshCw className="h-3 w-3" />
+                    Generate
+                  </Button>
+                </div>
+                <div className="relative">
+                  <Input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    value={formData.password}
+                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                    required
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                    tabIndex={-1}
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
               </div>
               
               <div className="space-y-2">
                 <Label htmlFor="password_confirmation">Confirm Password</Label>
-                <Input
-                  id="password_confirmation"
-                  type="password"
-                  value={formData.password_confirmation}
-                  onChange={(e) => setFormData({ ...formData, password_confirmation: e.target.value })}
-                  required
-                />
+                <div className="relative">
+                  <Input
+                    id="password_confirmation"
+                    type={showPasswordConfirmation ? "text" : "password"}
+                    value={formData.password_confirmation}
+                    onChange={(e) => setFormData({ ...formData, password_confirmation: e.target.value })}
+                    required
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPasswordConfirmation(!showPasswordConfirmation)}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                    tabIndex={-1}
+                  >
+                    {showPasswordConfirmation ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="role">Role</Label>
-                  <Select value={formData.role} onValueChange={(value) => setFormData({ ...formData, role: value })}>
+                  <Select value={formData.role} onValueChange={(value) => setFormData({ 
+                    ...formData, 
+                    role: value, 
+                    branch_id: value === 'optometrist' ? '' : formData.branch_id,
+                    selected_branches: value === 'optometrist' ? [] : (formData.selected_branches || [])
+                  })}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select role" />
                     </SelectTrigger>
@@ -604,9 +724,13 @@ const AdminUserManagement: React.FC = () => {
                   </Select>
                 </div>
                 
+                {/* Branch Selection - Simple dropdown for all roles */}
                 <div className="space-y-2">
                   <Label htmlFor="branch">Branch</Label>
-                  <Select value={formData.branch_id} onValueChange={(value) => setFormData({ ...formData, branch_id: value })}>
+                  <Select 
+                    value={formData.branch_id} 
+                    onValueChange={(value) => setFormData({ ...formData, branch_id: value })}
+                  >
                     <SelectTrigger>
                       <SelectValue placeholder="Select branch" />
                     </SelectTrigger>
@@ -708,6 +832,7 @@ const AdminUserManagement: React.FC = () => {
                 </TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead>Email</TableHead>
+                <TableHead>Phone</TableHead>
                 <TableHead>Role</TableHead>
                 <TableHead>Branch</TableHead>
                 <TableHead>Status</TableHead>
@@ -732,6 +857,7 @@ const AdminUserManagement: React.FC = () => {
                   </TableCell>
                   <TableCell className="font-medium">{user.name}</TableCell>
                   <TableCell>{user.email}</TableCell>
+                  <TableCell>{user.phone || '-'}</TableCell>
                   <TableCell>
                     <Badge className={getRoleColor(user.role)}>
                       {user.role.charAt(0).toUpperCase() + user.role.slice(1)}
@@ -787,7 +913,7 @@ const AdminUserManagement: React.FC = () => {
           <DialogHeader>
             <DialogTitle>Edit User</DialogTitle>
             <DialogDescription>
-              Update user information, role, and branch assignment.
+              Update user information, role, and branch assignment. Note: Optometrists can select which branches to handle using checkboxes.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleUpdateUser} className="space-y-4">
@@ -812,6 +938,17 @@ const AdminUserManagement: React.FC = () => {
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                   required
                 />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-phone">Contact Number</Label>
+                <Input
+                  id="edit-phone"
+                  type="tel"
+                  value={formData.phone}
+                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                  placeholder="Enter contact number (e.g., 09123456789)"
+                />
+                <p className="text-xs text-gray-500">Optional - Contact number for the user</p>
               </div>
             </div>
             
@@ -840,7 +977,12 @@ const AdminUserManagement: React.FC = () => {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="edit-role">Role</Label>
-                <Select value={formData.role} onValueChange={(value) => setFormData({ ...formData, role: value })}>
+                <Select value={formData.role} onValueChange={(value) => setFormData({ 
+                  ...formData, 
+                  role: value, 
+                  branch_id: value === 'optometrist' ? '' : formData.branch_id,
+                  selected_branches: value === 'optometrist' ? [] : (formData.selected_branches || [])
+                })}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select role" />
                   </SelectTrigger>
@@ -853,21 +995,72 @@ const AdminUserManagement: React.FC = () => {
                 </Select>
               </div>
               
+              {/* Branch Selection - Checkboxes for Optometrists, Dropdown for others */}
               <div className="space-y-2">
-                <Label htmlFor="edit-branch">Branch</Label>
-                <Select value={formData.branch_id} onValueChange={(value) => setFormData({ ...formData, branch_id: value })}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select branch" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">No Branch</SelectItem>
-                    {branches.map((branch) => (
-                      <SelectItem key={branch.id} value={branch.id.toString()}>
-                        {branch.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label htmlFor="edit-branch">
+                  Branch {formData.role === 'optometrist' && <span className="text-blue-500">*</span>}
+                </Label>
+                
+                {formData.role === 'optometrist' ? (
+                  <div className="space-y-3">
+                    <div className="text-sm text-gray-600 mb-2">
+                      Select which branches this optometrist will handle:
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      {branches.map((branch) => (
+                        <div key={branch.id} className="flex items-center space-x-2">
+                          <input
+                            type="checkbox"
+                            id={`edit-branch-${branch.id}`}
+                            checked={(formData.selected_branches || []).includes(branch.id)}
+                            onChange={(e) => {
+                              const currentBranches = formData.selected_branches || [];
+                              if (e.target.checked) {
+                                setFormData({
+                                  ...formData,
+                                  selected_branches: [...currentBranches, branch.id]
+                                });
+                              } else {
+                                setFormData({
+                                  ...formData,
+                                  selected_branches: currentBranches.filter(id => id !== branch.id)
+                                });
+                              }
+                            }}
+                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          <Label htmlFor={`edit-branch-${branch.id}`} className="text-sm">
+                            {branch.name}
+                          </Label>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="text-xs text-blue-600 bg-blue-50 p-2 rounded">
+                      <strong>Selected:</strong> {(formData.selected_branches || []).length} branch(es) - 
+                      {(formData.selected_branches || []).length === 0 && ' None selected'}
+                      {(formData.selected_branches || []).length === 1 && ' 1 branch'}
+                      {(formData.selected_branches || []).length > 1 && ` ${(formData.selected_branches || []).length} branches`}
+                      {(formData.selected_branches || []).length === branches.length && ' (All branches)'}
+                    </div>
+                  </div>
+                ) : (
+                  <Select 
+                    value={formData.branch_id} 
+                    onValueChange={(value) => setFormData({ ...formData, branch_id: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select branch" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">No Branch</SelectItem>
+                      {branches.map((branch) => (
+                        <SelectItem key={branch.id} value={branch.id.toString()}>
+                          {branch.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
             </div>
 

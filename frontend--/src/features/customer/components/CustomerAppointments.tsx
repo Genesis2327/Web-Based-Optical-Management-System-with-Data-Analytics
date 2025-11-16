@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Calendar, Clock, MapPin, User, Phone, Mail, Eye, AlertCircle, Plus } from 'lucide-react';
+import { Calendar, MapPin, User, Phone, Eye, AlertCircle, Plus } from 'lucide-react';
 import { format } from 'date-fns';
 import { useAppointments, useUpdateAppointment, useDeleteAppointment } from '@/features/appointments/hooks/useAppointments';
 import { useAuth } from '@/contexts/AuthContext';
@@ -13,7 +13,6 @@ import AppointmentBooking from '@/components/appoinments/AppointmentBooking';
 import ContactModal from '@/components/contact/ContactModal';
 
 const CustomerAppointments: React.FC = () => {
-  const [selectedAppointment, setSelectedAppointment] = useState<number | null>(null);
   const [showBookingForm, setShowBookingForm] = useState(false);
   const [showContactModal, setShowContactModal] = useState(false);
   const { user } = useAuth();
@@ -128,13 +127,6 @@ const CustomerAppointments: React.FC = () => {
                         {appointment.status}
                       </Badge>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setSelectedAppointment(selectedAppointment === appointment.id ? null : appointment.id)}
-                    >
-                      {selectedAppointment === appointment.id ? 'Hide' : 'View'} Details
-                    </Button>
                   </div>
 
                   <div className="space-y-3">
@@ -152,11 +144,22 @@ const CustomerAppointments: React.FC = () => {
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-2">
-                      <MapPin className="w-4 h-4 text-gray-500" />
-                      <span className="text-sm text-gray-600">
-                        {appointment.branch?.name || 'Branch TBD'}
-                      </span>
+                    <div className="flex items-start gap-2">
+                      <MapPin className="w-4 h-4 text-gray-500 mt-0.5" />
+                      <div className="text-sm text-gray-600 flex-1">
+                        <div className="font-medium">{appointment.branch?.name || 'Branch TBD'}</div>
+                        {appointment.branch?.address && (
+                          <div className="text-gray-600 mt-1">
+                            {appointment.branch.address}
+                          </div>
+                        )}
+                        {appointment.branch?.phone && (
+                          <div className="text-gray-500 mt-1 flex items-center gap-1">
+                            <Phone className="w-3 h-3" />
+                            {appointment.branch.phone}
+                          </div>
+                        )}
+                      </div>
                     </div>
 
                     <div className="flex items-center gap-2">
@@ -165,83 +168,6 @@ const CustomerAppointments: React.FC = () => {
                         {formatText(appointment.type, 'Appointment')}
                       </span>
                     </div>
-
-                    {selectedAppointment === appointment.id && (
-                      <div className="mt-4 space-y-3 pt-3 border-t">
-                        <h4 className="font-medium text-sm mb-3 text-gray-900">Appointment Details:</h4>
-                        
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                          <div className="space-y-2">
-                            <div className="flex items-center gap-2">
-                              <Calendar className="w-4 h-4 text-gray-500" />
-                              <span className="text-gray-600">
-                                <strong>Date:</strong> {format(new Date(appointment.appointment_date), 'EEEE, MMMM d, yyyy')}
-                              </span>
-                            </div>
-                            
-                            <div className="flex items-center gap-2">
-                              <Clock className="w-4 h-4 text-gray-500" />
-                              <span className="text-gray-600">
-                                <strong>Time:</strong> {appointment.start_time} - {appointment.end_time}
-                              </span>
-                            </div>
-                            
-                            <div className="flex items-center gap-2">
-                              <User className="w-4 h-4 text-gray-500" />
-                              <span className="text-gray-600">
-                                <strong>Doctor:</strong> Dr. {appointment.optometrist?.name || 'TBD'}
-                              </span>
-                            </div>
-                          </div>
-                          
-                          <div className="space-y-2">
-                            <div className="flex items-start gap-2">
-                              <MapPin className="w-4 h-4 text-gray-500 mt-0.5" />
-                              <div className="text-gray-600">
-                                <div><strong>Branch:</strong> {appointment.branch?.name || 'Branch TBD'}</div>
-                                {appointment.branch?.address && (
-                                  <div className="text-xs text-gray-500 mt-1">
-                                    📍 {appointment.branch.address}
-                                  </div>
-                                )}
-                                {appointment.branch?.phone && (
-                                  <div className="text-xs text-gray-500 mt-1">
-                                    📞 {appointment.branch.phone}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                            
-                            <div className="flex items-center gap-2">
-                              <Eye className="w-4 h-4 text-gray-500" />
-                              <span className="text-gray-600">
-                                <strong>Type:</strong> {formatText(appointment.type, 'Appointment')}
-                              </span>
-                            </div>
-                            
-                            <div className="flex items-center gap-2">
-                              <AlertCircle className="w-4 h-4 text-gray-500" />
-                              <span className="text-gray-600">
-                                <strong>Status:</strong> 
-                                <Badge className={`ml-2 ${getStatusColor(appointment.status)}`}>
-                                  {formatText(appointment.status, 'Unknown')}
-                                </Badge>
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-
-                        {appointment.notes && (
-                          <div className="mt-4 pt-3 border-t">
-                            <h5 className="font-medium text-sm mb-2 text-gray-900">Special Notes:</h5>
-                            <p className="text-sm text-gray-600 bg-gray-50 p-3 rounded-md">
-                              {appointment.notes}
-                            </p>
-                          </div>
-                        )}
-
-                      </div>
-                    )}
                   </div>
 
                   <div className="mt-4 flex gap-2">

@@ -20,6 +20,10 @@ return new class extends Migration
             $table->unsignedBigInteger('reservation_id')->nullable();
             $table->decimal('total_amount', 10, 2);
             $table->enum('status', ['Pending', 'Completed', 'Cancelled'])->default('Pending');
+            // NOTE: Online payment methods (Credit Card, Debit Card, Online Payment) are mock implementations
+            // for demonstration purposes only. These do not integrate with actual payment gateway providers.
+            // Only Cash payments involve real transaction processing. Online payments are recorded but
+            // do not process real financial transactions through external payment processors.
             $table->enum('payment_method', ['Cash', 'Credit Card', 'Debit Card', 'Online Payment'])->default('Cash');
             $table->text('notes')->nullable();
             $table->timestamp('completed_at')->nullable();
@@ -27,9 +31,8 @@ return new class extends Migration
 
             // Foreign key constraints
             $table->foreign('customer_id')->references('id')->on('users')->onDelete('cascade');
-            $table->foreign('branch_id')->references('id')->on('branches')->onDelete('cascade');
-            $table->foreign('appointment_id')->references('id')->on('appointments')->onDelete('set null');
-            $table->foreign('reservation_id')->references('id')->on('reservations')->onDelete('set null');
+            // Foreign keys for branch_id, appointment_id, and reservation_id will be added later
+            // when the referenced tables are created
 
             // Indexes
             $table->index(['customer_id', 'status']);

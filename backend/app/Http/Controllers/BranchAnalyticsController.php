@@ -53,11 +53,10 @@ class BranchAnalyticsController extends Controller
             ->groupBy('branch_id')
             ->pluck('count', 'branch_id');
             
-        // Get reservations data for all branches
-        $reservationsData = DB::table('reservations')
-            ->select('branch_id', 'total_price')
+        // Get reservations data for all branches (using Eloquent to properly calculate total_price)
+        $reservationsData = \App\Models\Reservation::with('product')
             ->whereIn('branch_id', $branchIds)
-            ->where('status', 'completed')
+            ->whereIn('status', ['approved', 'completed'])
             ->where('created_at', '>=', $thirtyDaysAgo)
             ->get()
             ->groupBy('branch_id');
@@ -81,8 +80,11 @@ class BranchAnalyticsController extends Controller
             $reservations = $reservationsData->get($branchId, collect());
             $inventory = $inventoryData->get($branchId, (object)['total_items' => 0, 'low_stock_items' => 0]);
 
-            // Calculate revenue
-            $revenue = $reservations->sum('total_price') + ($appointments->count() * 500);
+            // Calculate revenue (total_price is a calculated attribute, not a column)
+            $reservationRevenue = $reservations->sum(function ($reservation) {
+                return $reservation->quantity * ($reservation->product->price ?? 0);
+            });
+            $revenue = $reservationRevenue + ($appointments->count() * 500);
 
             // Get unique patients
             $uniquePatients = $appointments->pluck('patient_id')->unique()->count();
@@ -110,11 +112,18 @@ class BranchAnalyticsController extends Controller
             ];
         }
 
+        // Calculate unique patients across ALL branches (not summing branch totals to avoid double-counting)
+        $uniquePatientsTotal = Appointment::whereIn('branch_id', $branchIds)
+            ->where('status', 'completed')
+            ->where('appointment_date', '>=', $thirtyDaysAgo)
+            ->distinct('patient_id')
+            ->count('patient_id');
+
         return response()->json([
             'branches' => $branchPerformance,
             'summary' => [
                 'total_revenue' => collect($branchPerformance)->sum('revenue'),
-                'total_patients' => collect($branchPerformance)->sum('patients'),
+                'total_patients' => $uniquePatientsTotal, // Unique patients across all branches (not summed)
                 'total_appointments' => collect($branchPerformance)->sum('appointments'),
                 'average_growth' => collect($branchPerformance)->avg('growth'),
                 'total_branches' => count($branchPerformance)

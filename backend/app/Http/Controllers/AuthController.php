@@ -3,10 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Models\Notification;
 use App\Models\ConfirmationToken;
+use App\Models\LoginAttempt;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rules\Enum;
 use Laravel\Sanctum\HasApiTokens;
 use App\Helpers\Realtime;
@@ -19,161 +22,611 @@ class AuthController extends Controller
      */
     public function register(Request $request)
     {
-        $validator = Validator::make($request->all(), [
-            'name' => 'required|string|max:255',
-            'email' => 'required|string|email|max:255|unique:users',
-            'password' => 'required|string|min:8',
-            'password_confirmation' => 'nullable|string|same:password',
-            // Allow user to choose desired role; actual account starts as customer
-            'role' => ['required', 'string', new Enum(\App\Enums\UserRole::class)],
-            'branch_id' => 'nullable|exists:branches,id',
-        ]);
+        try {
+            $validator = Validator::make($request->all(), [
+                'name' => 'required|string|max:255',
+                'email' => 'required|string|email|max:255|unique:users',
+                'password' => 'required|string|min:8',
+                'password_confirmation' => 'required|string|same:password',
+                'phone' => 'nullable|string|max:20',
+                // Allow user to choose desired role; actual account starts as customer
+                'role' => ['required', 'string', new Enum(\App\Enums\UserRole::class)],
+                'branch_id' => 'nullable|exists:branches,id',
+            ], [
+                'name.required' => 'Full name is required. Please enter your full name.',
+                'name.string' => 'Full name must contain only text characters.',
+                'name.max' => 'Full name cannot exceed 255 characters. Please use a shorter name.',
+                'email.required' => 'Email address is required. Please enter your email address.',
+                'email.email' => 'Please enter a valid email address format (e.g., example@email.com).',
+                'email.max' => 'Email address cannot exceed 255 characters. Please use a shorter email address.',
+                'email.unique' => 'This email address is already registered. Please use a different email address or try logging in if you already have an account.',
+                'password.required' => 'Password is required. Please enter a password.',
+                'password.string' => 'Password must be a valid text. Please check your password.',
+                'password.min' => 'Password must be at least 8 characters long for security. Please choose a longer password.',
+                'password_confirmation.required' => 'Password confirmation is required. Please confirm your password.',
+                'password_confirmation.same' => 'Passwords do not match. Please ensure both password fields are identical.',
+                'phone.max' => 'Phone number cannot exceed 20 characters. Please enter a shorter phone number.',
+                'phone.string' => 'Phone number must be valid text. Please check your phone number format.',
+                'role.required' => 'Role selection is required. Please select a role.',
+                'role.Enum' => 'Invalid role selected. Please select a valid role from the options.',
+                'branch_id.exists' => 'The selected branch does not exist. Please select a valid branch.',
+            ]);
 
-        if ($validator->fails()) {
+            if ($validator->fails()) {
+                return response()->json([
+                    'message' => 'Validation failed',
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
+            // Check for existing staff per branch if role is staff
+            if ($request->role === \App\Enums\UserRole::STAFF->value) {
+                if (!$request->branch_id) {
+                    return response()->json([
+                        'message' => 'Branch selection is required for staff registration',
+                        'errors' => ['branch_id' => ['Branch selection is required for staff registration']]
+                    ], 422);
+                }
+
+                // Check if there's already a staff member for this branch
+                $existingStaff = User::where('role', \App\Enums\UserRole::STAFF->value)
+                    ->where('branch_id', $request->branch_id)
+                    ->where('is_approved', true)
+                    ->first();
+
+                if ($existingStaff) {
+                    return response()->json([
+                        'message' => 'This branch already has a staff account.',
+                        'errors' => ['branch_id' => ['This branch already has a staff account.']]
+                    ], 422);
+                }
+            }
+
+            $userData = [
+                'name' => $request->name,
+                'email' => $request->email,
+                'password' => Hash::make($request->password),
+                // Always start as customer; admin can approve requested role
+                'role' => \App\Enums\UserRole::CUSTOMER, // Pass enum instance, not value
+                'is_approved' => $request->role === \App\Enums\UserRole::CUSTOMER->value,
+            ];
+
+            // Only add phone if it exists in the request, is not empty, and the column exists in the database
+            if ($request->has('phone') && !empty($request->phone)) {
+                // Check if phone column exists in users table
+                if (Schema::hasColumn('users', 'phone')) {
+                    $userData['phone'] = $request->phone;
+                } else {
+                    \Log::warning('Phone field provided but column does not exist in users table');
+                }
+            }
+
+            $user = User::create($userData);
+
+            // Create notification for user signup (wrapped in try-catch to prevent registration failure)
+            try {
+                NotificationController::createUserSignupNotification($user);
+            } catch (\Exception $e) {
+                \Log::warning('Failed to create signup notification: ' . $e->getMessage());
+                // Continue with registration even if notification fails
+            }
+
+            // Issue token for all users since role requests are removed
+            $token = $user->createToken('auth_token')->plainTextToken;
+
             return response()->json([
-                'message' => 'Validation failed',
-                'errors' => $validator->errors()
-            ], 422);
+                'message' => 'User registered successfully',
+                'user' => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'role' => $user->role->value ?? (string)$user->role,
+                    'phone' => $user->phone ?? null,
+                    'social_media' => $user->social_media ?? null,
+                    'address' => $user->address ?? null,
+                ],
+                'token' => $token
+            ], 201);
+        } catch (\Exception $e) {
+            \Log::error('Registration error: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString(),
+                'request_data' => $request->all()
+            ]);
+            
+            return response()->json([
+                'message' => 'Registration failed',
+                'error' => config('app.debug') ? $e->getMessage() : 'An error occurred during registration. Please try again.'
+            ], 500);
         }
-
-        // Check for existing staff per branch if role is staff
-        if ($request->role === \App\Enums\UserRole::STAFF->value) {
-            if (!$request->branch_id) {
-                return response()->json([
-                    'message' => 'Branch selection is required for staff registration',
-                    'errors' => ['branch_id' => ['Branch selection is required for staff registration']]
-                ], 422);
-            }
-
-            // Check if there's already a staff member for this branch
-            $existingStaff = User::where('role', \App\Enums\UserRole::STAFF->value)
-                ->where('branch_id', $request->branch_id)
-                ->where('is_approved', true)
-                ->first();
-
-            if ($existingStaff) {
-                return response()->json([
-                    'message' => 'This branch already has a staff account.',
-                    'errors' => ['branch_id' => ['This branch already has a staff account.']]
-                ], 422);
-            }
-        }
-
-        $user = User::create([
-            'name' => $request->name,
-            'email' => $request->email,
-            'password' => Hash::make($request->password),
-            // Always start as customer; admin can approve requested role
-            'role' => \App\Enums\UserRole::CUSTOMER->value,
-            'is_approved' => $request->role === \App\Enums\UserRole::CUSTOMER->value,
-        ]);
-
-        // Create notification for user signup
-        NotificationController::createUserSignupNotification($user);
-
-        // Issue token for all users since role requests are removed
-        $token = $user->createToken('auth_token')->plainTextToken;
-
-        return response()->json([
-            'message' => 'User registered successfully',
-            'user' => [
-                'id' => $user->id,
-                'name' => $user->name,
-                'email' => $user->email,
-                'role' => $user->role,
-            ],
-            'token' => $token
-        ], 201);
     }
 
     /**
-     * Login user
+     * Login user with brute force protection
      */
     public function login(Request $request)
     {
+        $ipAddress = $request->ip();
+        $email = $request->email ?? '';
+
         // Debug logging
         \Log::info('Login attempt', [
-            'email' => $request->email,
+            'email' => $email,
             'has_password' => !empty($request->password),
             'role' => $request->role,
-            'all_data' => $request->all()
+            'ip_address' => $ipAddress,
         ]);
 
+        // Validate input
         $validator = Validator::make($request->all(), [
-            'email' => 'required|string|email',
-            'password' => 'required|string',
-            'role' => ['required', 'string', new Enum(\App\Enums\UserRole::class)],
+            'email' => 'required|string|email|max:255',
+            'password' => 'required|string|min:1',
+            'role' => 'required|string|in:admin,customer,optometrist,staff',
+        ], [
+            'email.required' => 'Email address is required. Please enter your email address.',
+            'email.email' => 'Please enter a valid email address format (e.g., example@email.com).',
+            'email.max' => 'Email address cannot exceed 255 characters. Please use a shorter email address.',
+            'password.required' => 'Password is required. Please enter your password.',
+            'password.min' => 'Password cannot be empty. Please enter your password.',
+            'password.string' => 'Password must be valid text. Please check your password.',
+            'role.required' => 'Role selection is required. Please select a role before logging in.',
+            'role.in' => 'Invalid role selected. Please select a valid role from the options (customer, staff, optometrist, or admin).',
         ]);
 
+        // Check for brute force attempts BEFORE proceeding
+        $maxAttempts = 5;
+        $lockoutMinutes = 15;
+        
+        // Helper function to check and enforce lockout after recording a failed attempt
+        $checkLockoutAfterFailedAttempt = function($currentAttempts) use ($email, $ipAddress, $maxAttempts, $lockoutMinutes) {
+            // Re-fetch the count AFTER recording the attempt to get the accurate current count
+            $failedAttemptsAfter = LoginAttempt::getFailedAttempts($email, $ipAddress, $lockoutMinutes);
+            
+            \Log::info('Lockout check after failed attempt', [
+                'email' => $email,
+                'ip_address' => $ipAddress,
+                'attempts_before' => $currentAttempts,
+                'attempts_after' => $failedAttemptsAfter,
+                'max_attempts' => $maxAttempts,
+                'will_lock' => $failedAttemptsAfter >= $maxAttempts
+            ]);
+            
+            // CRITICAL: If we've hit or exceeded the limit (>= 5), lock the account immediately
+            if ($failedAttemptsAfter >= $maxAttempts) {
+                $remainingSeconds = LoginAttempt::getRemainingLockoutTime($email, $ipAddress, $lockoutMinutes);
+                
+                // Even if lockout period expired, if we have 5+ attempts, enforce lockout
+                // Reset lockout period based on the most recent failed attempt
+                if ($remainingSeconds <= 0) {
+                    // Lockout expired, but we have 5+ attempts now, so start a new lockout period
+                    $lastAttempt = LoginAttempt::where('email', $email)
+                        ->where('ip_address', $ipAddress)
+                        ->where('successful', false)
+                        ->orderBy('attempted_at', 'desc')
+                        ->first();
+                    
+                    if ($lastAttempt) {
+                        $lockoutEnd = $lastAttempt->attempted_at->copy()->addMinutes($lockoutMinutes);
+                        $remainingSeconds = max(0, $lockoutEnd->diffInSeconds(now()));
+                        $remainingMinutes = ceil($remainingSeconds / 60);
+                        $remainingMinutes = max(1, $remainingMinutes);
+                    } else {
+                        $remainingSeconds = $lockoutMinutes * 60;
+                        $remainingMinutes = $lockoutMinutes;
+                    }
+                } else {
+                    $remainingMinutes = ceil($remainingSeconds / 60);
+                    $remainingMinutes = max(1, $remainingMinutes);
+                }
+                
+                \Log::warning('Account LOCKED: Too many failed attempts', [
+                    'email' => $email,
+                    'ip_address' => $ipAddress,
+                    'attempts' => $failedAttemptsAfter,
+                    'max_attempts' => $maxAttempts,
+                    'remaining_seconds' => $remainingSeconds,
+                    'remaining_minutes' => $remainingMinutes,
+                    'status' => 'LOCKED'
+                ]);
+                
+                // Display attempt number capped at max for UI
+                $displayAttemptNumber = min($failedAttemptsAfter, $maxAttempts);
+                
+                return [
+                    'locked' => true,
+                    'message' => 'Too many failed login attempts. Your account has been temporarily locked. Please try again in ' . $remainingMinutes . ' minute(s).',
+                    'errors' => [
+                        'email' => ['Account temporarily locked due to multiple failed login attempts (' . $displayAttemptNumber . ' attempts). Please wait ' . $remainingMinutes . ' minute(s) before trying again.'],
+                    ],
+                    'lockout_remaining_seconds' => $remainingSeconds,
+                    'attempt_number' => $displayAttemptNumber,
+                    'max_attempts' => $maxAttempts
+                ];
+            }
+            
+            // Cap attempt number at maxAttempts for display (to avoid showing "30 of 5")
+            $displayAttemptNumber = min($failedAttemptsAfter, $maxAttempts);
+            
+            return ['locked' => false, 'attempt_number' => $displayAttemptNumber];
+        };
+        
         if ($validator->fails()) {
-            \Log::warning('Login validation failed', ['errors' => $validator->errors()]);
+            // Get current attempt count before recording
+            $currentAttempts = LoginAttempt::getFailedAttempts($email, $ipAddress, 15);
+            // Record failed attempt for validation errors
+            LoginAttempt::recordAttempt($email, $ipAddress, false);
+            
+            // Check if this attempt triggered a lockout
+            $lockoutCheck = $checkLockoutAfterFailedAttempt($currentAttempts);
+            if ($lockoutCheck['locked']) {
+                return response()->json($lockoutCheck, 429);
+            }
+            
+            $attemptNumber = $lockoutCheck['attempt_number'];
+            
+            \Log::warning('Login validation failed', [
+                'errors' => $validator->errors(),
+                'attempt_number' => $attemptNumber
+            ]);
             return response()->json([
                 'message' => 'Validation failed',
-                'errors' => $validator->errors()
+                'errors' => $validator->errors(),
+                'attempt_number' => $attemptNumber,
+                'max_attempts' => 5
             ], 422);
         }
-
-        $user = User::where('email', $request->email)->first();
+        
+        // CRITICAL: Check lockout BEFORE any user lookup or processing
+        // This must happen FIRST to block ALL attempts when locked out
+        $currentFailedAttempts = LoginAttempt::getFailedAttempts($email, $ipAddress, $lockoutMinutes);
+        
+        \Log::info('Lockout check before processing', [
+            'email' => $email,
+            'ip_address' => $ipAddress,
+            'failed_attempts' => $currentFailedAttempts,
+            'max_attempts' => $maxAttempts,
+            'will_block' => $currentFailedAttempts >= $maxAttempts
+        ]);
+        
+        if ($currentFailedAttempts >= $maxAttempts) {
+            // Get the 5th failed attempt (the one that triggered lockout)
+            $failedAttempts = LoginAttempt::where('email', $email)
+                ->where('ip_address', $ipAddress)
+                ->where('successful', false)
+                ->where('attempted_at', '>=', now()->subMinutes($lockoutMinutes))
+                ->orderBy('attempted_at', 'asc') // Order from oldest to newest
+                ->get();
+            
+            // Calculate lockout from the 5th attempt (index 4, since it's 0-based)
+            $fifthAttempt = $failedAttempts->get(4); // The 5th attempt (0,1,2,3,4 = 5 attempts)
+            
+            $remainingSeconds = 0;
+            if ($fifthAttempt) {
+                $lockoutEnd = $fifthAttempt->attempted_at->copy()->addMinutes($lockoutMinutes);
+                
+                // If lockout period has expired, check
+                if ($lockoutEnd->isPast()) {
+                    $remainingSeconds = 0;
+                } else {
+                    $remainingSeconds = max(0, $lockoutEnd->diffInSeconds(now()));
+                }
+            } else {
+                // Fallback to standard method
+                $remainingSeconds = LoginAttempt::getRemainingLockoutTime($email, $ipAddress, $lockoutMinutes);
+            }
+            
+            \Log::info('Lockout check result', [
+                'email' => $email,
+                'failed_attempts' => $currentFailedAttempts,
+                'fifth_attempt_time' => $fifthAttempt ? $fifthAttempt->attempted_at->toDateTimeString() : 'none',
+                'remaining_seconds' => $remainingSeconds,
+                'will_block' => $remainingSeconds > 0
+            ]);
+            
+            // CRITICAL: If we have 5+ attempts within the lockout window, ALWAYS block
+            // The lockout period starts from when the 5th attempt was made
+            if ($remainingSeconds > 0 || $fifthAttempt) {
+                // Calculate remaining time more accurately
+                if ($fifthAttempt) {
+                    $lockoutEnd = $fifthAttempt->attempted_at->copy()->addMinutes($lockoutMinutes);
+                    $remainingSeconds = max(0, $lockoutEnd->diffInSeconds(now()));
+                }
+                
+                // Only proceed if lockout has truly expired AND attempts have dropped
+                if ($remainingSeconds <= 0) {
+                    // Lockout period expired - verify attempts have dropped below limit
+                    $recheckAttempts = LoginAttempt::getFailedAttempts($email, $ipAddress, $lockoutMinutes);
+                    if ($recheckAttempts < $maxAttempts) {
+                        // Attempts dropped below limit - allow login
+                        \Log::info('Lockout expired, attempts below limit - allowing login', [
+                            'email' => $email,
+                            'previous_attempts' => $currentFailedAttempts,
+                            'current_attempts' => $recheckAttempts
+                        ]);
+                        // Continue to login processing
+                    } else {
+                        // Still have 5+ attempts - recalculate from most recent
+                        $remainingSeconds = LoginAttempt::getRemainingLockoutTime($email, $ipAddress, $lockoutMinutes);
+                        if ($remainingSeconds > 0) {
+                            // Still locked - block
+                        } else {
+                            // Lockout expired - allow
+                            \Log::info('Lockout expired - allowing login', ['email' => $email]);
+                            // Continue to login processing
+                        }
+                    }
+                } else {
+                    // Lockout is still active - MUST block
+                    // Lockout is active - block ALL attempts
+                    $remainingMinutes = ceil($remainingSeconds / 60);
+                    $remainingMinutes = max(1, $remainingMinutes);
+                    
+                    $displayAttemptNumber = min($currentFailedAttempts, $maxAttempts);
+                    
+                    \Log::warning('Login BLOCKED: Account locked - blocking before any processing', [
+                        'email' => $email,
+                        'ip_address' => $ipAddress,
+                        'failed_attempts' => $currentFailedAttempts,
+                        'remaining_seconds' => $remainingSeconds,
+                        'remaining_minutes' => $remainingMinutes,
+                        'status' => 'COMPLETE_LOCKOUT_BLOCKED'
+                    ]);
+                    
+                    return response()->json([
+                        'message' => 'Too many failed login attempts. Your account has been temporarily locked. Please wait ' . $remainingMinutes . ' minute(s) before trying again.',
+                        'errors' => [
+                            'email' => ['Account temporarily locked due to multiple failed login attempts (' . $displayAttemptNumber . ' attempts). You must wait ' . $remainingMinutes . ' minute(s) before attempting to sign in again, even with the correct password.'],
+                        ],
+                        'lockout_remaining_seconds' => $remainingSeconds,
+                        'attempt_number' => $displayAttemptNumber,
+                        'max_attempts' => $maxAttempts,
+                        'lockout_active' => true
+                    ], 429);
+                }
+            } else {
+                // Lockout period expired - verify attempts have actually dropped below limit
+                // Re-check to make sure old attempts are no longer counted
+                $recheckAttempts = LoginAttempt::getFailedAttempts($email, $ipAddress, $lockoutMinutes);
+                
+                if ($recheckAttempts >= $maxAttempts) {
+                    // Still have 5+ attempts - recalculate lockout from most recent attempt
+                    $lastAttempt = LoginAttempt::where('email', $email)
+                        ->where('ip_address', $ipAddress)
+                        ->where('successful', false)
+                        ->orderBy('attempted_at', 'desc')
+                        ->first();
+                    
+                    if ($lastAttempt) {
+                        $lockoutEnd = $lastAttempt->attempted_at->copy()->addMinutes($lockoutMinutes);
+                        $newRemainingSeconds = max(0, $lockoutEnd->diffInSeconds(now()));
+                        
+                        if ($newRemainingSeconds > 0) {
+                            $remainingMinutes = ceil($newRemainingSeconds / 60);
+                            $remainingMinutes = max(1, $remainingMinutes);
+                            
+                            \Log::warning('Login BLOCKED: Account locked - recalculated lockout', [
+                                'email' => $email,
+                                'failed_attempts' => $recheckAttempts,
+                                'remaining_seconds' => $newRemainingSeconds,
+                                'status' => 'LOCKOUT_RECALCULATED'
+                            ]);
+                            
+                            return response()->json([
+                                'message' => 'Too many failed login attempts. Your account has been temporarily locked. Please wait ' . $remainingMinutes . ' minute(s) before trying again.',
+                                'errors' => [
+                                    'email' => ['Account temporarily locked due to multiple failed login attempts (' . $maxAttempts . ' attempts). You must wait ' . $remainingMinutes . ' minute(s) before attempting to sign in again, even with the correct password.'],
+                                ],
+                                'lockout_remaining_seconds' => $newRemainingSeconds,
+                                'attempt_number' => $maxAttempts,
+                                'max_attempts' => $maxAttempts,
+                                'lockout_active' => true
+                            ], 429);
+                        }
+                    }
+                }
+                
+                // Lockout truly expired and attempts dropped below limit - allow to proceed
+                \Log::info('Lockout expired, allowing login attempt', [
+                    'email' => $email,
+                    'previous_attempts' => $currentFailedAttempts,
+                    'current_attempts' => $recheckAttempts
+                ]);
+            }
+        }
+        
+        // Step 1: Check if email exists in database
+        $user = User::where('email', $email)->first();
 
         if (!$user) {
-            \Log::warning('Login failed: User not found', ['email' => $request->email]);
+            // Get current attempt count before recording
+            $currentAttempts = LoginAttempt::getFailedAttempts($email, $ipAddress, 15);
+            // Record failed attempt
+            LoginAttempt::recordAttempt($email, $ipAddress, false);
+            
+            // Check if this attempt triggered a lockout
+            $lockoutCheck = $checkLockoutAfterFailedAttempt($currentAttempts);
+            if ($lockoutCheck['locked']) {
+                return response()->json($lockoutCheck, 429);
+            }
+            
+            $attemptNumber = $lockoutCheck['attempt_number'];
+            
+            \Log::warning('Login failed: User not found', [
+                'email' => $email,
+                'attempt_number' => $attemptNumber
+            ]);
+            
+            // Email doesn't exist - highlight email field only
+            // This helps users identify if they entered the wrong email address
             return response()->json([
-                'message' => 'Invalid credentials'
+                'message' => 'No account found with this email address. Please check your email or sign up for a new account.',
+                'errors' => [
+                    'email' => ['No account found with this email address. Please check your email or sign up for a new account.'],
+                ],
+                'attempt_number' => $attemptNumber,
+                'max_attempts' => 5
+            ], 401);
+        }
+
+        // Step 2: If email exists, check if the role corresponds to this email
+        $userRoleValue = $user->role->value ?? (string)$user->role;
+        if ($request->role !== $userRoleValue) {
+            // Get current attempt count before recording
+            $currentAttempts = LoginAttempt::getFailedAttempts($email, $ipAddress, 15);
+            // Record failed attempt
+            LoginAttempt::recordAttempt($email, $ipAddress, false);
+            
+            // Check if this attempt triggered a lockout
+            $lockoutCheck = $checkLockoutAfterFailedAttempt($currentAttempts);
+            if ($lockoutCheck['locked']) {
+                return response()->json($lockoutCheck, 429);
+            }
+            
+            $attemptNumber = $lockoutCheck['attempt_number'];
+            
+            \Log::warning('Login failed: Role mismatch', [
+                'email' => $email,
+                'requested_role' => $request->role,
+                'actual_role' => $userRoleValue,
+                'attempt_number' => $attemptNumber
+            ]);
+            
+            // Email exists but role doesn't match - highlight role field only
+            return response()->json([
+                'message' => 'The selected role does not match your account. Please select the correct role: ' . ucfirst($userRoleValue) . '.',
+                'errors' => [
+                    'role' => ['The selected role does not match your account. Please select the correct role: ' . ucfirst($userRoleValue) . '.'],
+                ],
+                'attempt_number' => $attemptNumber,
+                'max_attempts' => 5
             ], 401);
         }
 
         \Log::info('User found for login', [
             'user_id' => $user->id,
             'user_email' => $user->email,
-            'user_role' => $user->role->value ?? (string)$user->role,
+            'user_role' => $userRoleValue,
             'is_approved' => $user->is_approved
         ]);
 
-        // Verify password
-        if (!Hash::check($request->password, $user->password)) {
-            \Log::warning('Login failed: Invalid password', ['email' => $request->email]);
+        // Step 3: Check if account is approved (only after email and role are verified)
+        if (!$user->is_approved) {
+            // Get current attempt count before recording
+            $currentAttempts = LoginAttempt::getFailedAttempts($email, $ipAddress, 15);
+            LoginAttempt::recordAttempt($email, $ipAddress, false);
+            
+            // Check if this attempt triggered a lockout
+            $lockoutCheck = $checkLockoutAfterFailedAttempt($currentAttempts);
+            if ($lockoutCheck['locked']) {
+                return response()->json($lockoutCheck, 429);
+            }
+            
+            $attemptNumber = $lockoutCheck['attempt_number'];
+            
+            \Log::warning('Login failed: Account not approved', [
+                'email' => $email,
+                'attempt_number' => $attemptNumber
+            ]);
+            
             return response()->json([
-                'message' => 'Invalid credentials'
+                'message' => 'Your account is pending admin approval. Please wait for approval before logging in.',
+                'errors' => [
+                    'email' => ['Your account is pending admin approval. Please wait for approval before logging in.'],
+                ],
+                'attempt_number' => $attemptNumber,
+                'max_attempts' => 5
+            ], 403);
+        }
+
+        // Step 4: Verify password (lockout already checked above, so safe to proceed)
+        if (!Hash::check($request->password, $user->password)) {
+            // Password is WRONG - record failed attempt and check if this triggers lockout
+            $currentAttempts = LoginAttempt::getFailedAttempts($email, $ipAddress, 15);
+            LoginAttempt::recordAttempt($email, $ipAddress, false);
+            
+            // Check if this attempt triggered a lockout (5th attempt)
+            $lockoutCheck = $checkLockoutAfterFailedAttempt($currentAttempts);
+            if ($lockoutCheck['locked']) {
+                \Log::warning('Account locked: 5th failed attempt reached', [
+                    'email' => $email,
+                    'ip_address' => $ipAddress,
+                    'status' => 'LOCKOUT_TRIGGERED'
+                ]);
+                return response()->json($lockoutCheck, 429);
+            }
+            
+            $attemptNumber = $lockoutCheck['attempt_number'];
+            
+            \Log::warning('Login failed: Invalid password', [
+                'email' => $email,
+                'attempt_number' => $attemptNumber
+            ]);
+            
+            // Email and role are correct, so only highlight password field
+            return response()->json([
+                'message' => 'Incorrect password. Please check your password and try again.',
+                'errors' => [
+                    'password' => ['The password you entered is incorrect. Please try again.'],
+                ],
+                'attempt_number' => $attemptNumber,
+                'max_attempts' => 5
             ], 401);
         }
-
-        if (!$user->is_approved) {
-            return response()->json([
-                'message' => 'Account pending admin approval'
-            ], 403);
-        }
-
-        // Ensure the requested role matches the user's actual role
-        $userRoleValue = $user->role->value ?? (string)$user->role;
-        if ($request->role !== $userRoleValue) {
-            return response()->json([
-                'message' => 'Role mismatch for this account'
-            ], 403);
+        
+        // Password is CORRECT - record successful login
+        try {
+            LoginAttempt::recordAttempt($email, $ipAddress, true);
+            
+            \Log::info('Login successful', [
+                'email' => $email,
+                'ip_address' => $ipAddress
+            ]);
+        } catch (\Exception $e) {
+            \Log::warning('Failed to record login attempt: ' . $e->getMessage());
+            // Don't block login if recording fails
         }
 
         // Delete old tokens for this user (security: one active session)
-        $user->tokens()->delete();
+        // Use chunk to avoid memory issues with many tokens
+        try {
+            $user->tokens()->limit(100)->get()->each->delete();
+        } catch (\Exception $e) {
+            \Log::warning('Failed to delete old tokens: ' . $e->getMessage());
+            // Continue even if token deletion fails
+        }
 
         // Create new token with expiration
         $expirationMinutes = env('SANCTUM_TOKEN_EXPIRATION', 1440); // 24 hours default
         $expiresAt = now()->addMinutes($expirationMinutes);
         $token = $user->createToken('auth_token', ['*'], $expiresAt)->plainTextToken;
 
-        // Log successful login
-        if (env('ENABLE_AUDIT_LOGGING', true)) {
-            \App\Models\AuditLog::create([
-                'auditable_type' => User::class,
-                'auditable_id' => $user->id,
-                'event' => 'login',
-                'user_id' => $user->id,
-                'user_role' => $user->role->value,
-                'user_email' => $user->email,
-                'ip_address' => $request->ip(),
-                'user_agent' => $request->userAgent(),
-                'description' => "{$user->name} logged in successfully as {$user->role->value}",
-            ]);
+        // Load branch relationship safely (avoid soft delete scope issues)
+        // Use select to only get needed fields for faster query
+        $branchData = null;
+        if ($user->branch_id) {
+            try {
+                $branch = \App\Models\Branch::withoutGlobalScopes()
+                    ->select('id', 'name', 'address')
+                    ->find($user->branch_id);
+                if ($branch) {
+                    $branchData = [
+                        'id' => $branch->id,
+                        'name' => $branch->name,
+                        'address' => $branch->address
+                    ];
+                }
+            } catch (\Exception $e) {
+                \Log::warning('Failed to load branch for user login: ' . $e->getMessage());
+                // Continue without branch data
+            }
         }
 
+        // Return response immediately
+        \Log::info('Login successful', [
+            'user_id' => $user->id,
+            'user_email' => $user->email,
+            'user_role' => $user->role->value ?? (string)$user->role,
+        ]);
+        
         return response()->json([
             'message' => 'Login successful',
             'token' => $token,
@@ -184,11 +637,11 @@ class AuthController extends Controller
                 'name' => $user->name,
                 'email' => $user->email,
                 'role' => $user->role->value ?? (string)$user->role,
-                'branch' => $user->branch ? [
-                    'id' => $user->branch->id,
-                    'name' => $user->branch->name,
-                    'address' => $user->branch->address
-                ] : null
+                'phone' => $user->phone,
+                'social_media' => $user->social_media,
+                'address' => $user->address,
+                'must_change_password' => $user->must_change_password ?? false,
+                'branch' => $branchData
             ]
         ], 200);
     }
@@ -216,11 +669,101 @@ class AuthController extends Controller
             'name' => $user->name,
             'email' => $user->email,
             'role' => ($user->role->value ?? (string) $user->role),
+            'phone' => $user->phone,
+            'social_media' => $user->social_media,
+            'address' => $user->address,
+            'must_change_password' => $user->must_change_password ?? false,
             'branch' => $user->branch ? [
                 'id' => $user->branch->id,
                 'name' => $user->branch->name,
                 'address' => $user->branch->address
             ] : null
+        ], 200);
+    }
+
+    /**
+     * Update user profile (password change for all users)
+     */
+    public function updateProfile(Request $request)
+    {
+        $user = $request->user();
+
+        $validator = Validator::make($request->all(), [
+            'name' => 'sometimes|string|max:255',
+            'email' => 'sometimes|string|email|max:255|unique:users,email,' . $user->id,
+            'phone' => 'sometimes|nullable|string|max:20',
+            'social_media' => 'sometimes|nullable|string|max:255',
+            'address' => 'sometimes|nullable|string|max:500',
+            'current_password' => 'required_with:password|string',
+            'password' => 'sometimes|string|min:8',
+            'password_confirmation' => 'required_with:password|string|same:password',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        // Handle password change
+        if ($request->has('password')) {
+            // Verify current password
+            if (!Hash::check($request->current_password, $user->password)) {
+                return response()->json([
+                    'message' => 'Current password is incorrect'
+                ], 422);
+            }
+
+            // Update password and clear must_change_password flag
+            $user->update([
+                'password' => Hash::make($request->password),
+                'must_change_password' => false, // Clear the flag after password change
+            ]);
+
+            \Log::info('User password changed', [
+                'user_id' => $user->id,
+                'user_email' => $user->email,
+                'ip_address' => $request->ip(),
+            ]);
+
+            return response()->json([
+                'message' => 'Password updated successfully',
+                'must_change_password' => false
+            ], 200);
+        }
+
+        // Handle other profile updates
+        $updateData = [];
+        if ($request->has('name')) {
+            $updateData['name'] = $request->name;
+        }
+        if ($request->has('email')) {
+            $updateData['email'] = $request->email;
+        }
+        if ($request->has('phone')) {
+            $updateData['phone'] = $request->phone;
+        }
+        if ($request->has('social_media')) {
+            $updateData['social_media'] = $request->social_media;
+        }
+        if ($request->has('address')) {
+            $updateData['address'] = $request->address;
+        }
+
+        if (!empty($updateData)) {
+            $user->update($updateData);
+        }
+
+        return response()->json([
+            'message' => 'Profile updated successfully',
+            'user' => [
+                'name' => $user->name,
+                'email' => $user->email,
+                'phone' => $user->phone,
+                'social_media' => $user->social_media,
+                'address' => $user->address,
+            ]
         ], 200);
     }
 
@@ -241,7 +784,7 @@ class AuthController extends Controller
         }
 
         $users = User::where('role', $request->role)
-                    ->select('id', 'name', 'email', 'role')
+                    ->select('id', 'name', 'email', 'phone', 'social_media', 'address', 'role')
                     ->get();
 
         return response()->json([
@@ -274,12 +817,53 @@ class AuthController extends Controller
                 return response()->json(['message' => 'Unauthorized'], 403);
             }
 
-            // Get users with branch relationship
-            $users = User::with('branch')
-                        ->select('id', 'name', 'email', 'role', 'branch_id', 'is_approved', 'created_at', 'updated_at')
-                        ->orderBy('created_at', 'desc')
-                        ->get()
-                        ->map(function ($user) {
+            // Get users with branch relationship (exclude soft-deleted users)
+            // Build select columns dynamically based on what exists in the table
+            $baseColumns = ['id', 'name', 'email', 'role', 'branch_id', 'is_approved', 'created_at', 'updated_at'];
+            $optionalColumns = ['phone', 'social_media', 'address'];
+            $selectColumns = $baseColumns;
+            
+            // Add optional columns only if they exist in the table
+            foreach ($optionalColumns as $col) {
+                if (Schema::hasColumn('users', $col)) {
+                    $selectColumns[] = $col;
+                }
+            }
+            
+            try {
+                $users = User::with(['branch', 'optometristBranches'])
+                            ->select($selectColumns)
+                            ->orderBy('created_at', 'desc')
+                            ->get(); // Soft-deleted users are automatically excluded
+            } catch (\Illuminate\Database\QueryException $e) {
+                // If there's an error with deleted_at column, try loading without branch relationships
+                \Log::warning('Error loading branches with soft deletes, loading users without branch relationships', [
+                    'error' => $e->getMessage()
+                ]);
+                
+                $users = User::withoutGlobalScopes()
+                            ->select($selectColumns)
+                            ->orderBy('created_at', 'desc')
+                            ->get()
+                            ->map(function ($user) {
+                                // Load branch relationships manually to avoid soft delete scope
+                                try {
+                                    $user->setRelation('branch', $user->branch_id ? \App\Models\Branch::withoutGlobalScopes()->find($user->branch_id) : null);
+                                } catch (\Exception $e) {
+                                    $user->setRelation('branch', null);
+                                }
+                                
+                                try {
+                                    $user->setRelation('optometristBranches', collect());
+                                } catch (\Exception $e) {
+                                    $user->setRelation('optometristBranches', collect());
+                                }
+                                
+                                return $user;
+                            });
+            }
+            
+            $users = $users->map(function ($user) {
                             // Handle role format
                             $role = null;
                             if (is_object($user->role)) {
@@ -288,7 +872,7 @@ class AuthController extends Controller
                                 $role = (string)$user->role;
                             }
                             
-                            return [
+                            $userData = [
                                 'id' => $user->id,
                                 'name' => $user->name,
                                 'email' => $user->email,
@@ -302,6 +886,30 @@ class AuthController extends Controller
                                 'created_at' => $user->created_at,
                                 'updated_at' => $user->updated_at,
                             ];
+                            
+                            // Add optional fields only if they exist in the model
+                            if (Schema::hasColumn('users', 'phone')) {
+                                $userData['phone'] = $user->phone ?? null;
+                            }
+                            if (Schema::hasColumn('users', 'social_media')) {
+                                $userData['social_media'] = $user->social_media ?? null;
+                            }
+                            if (Schema::hasColumn('users', 'address')) {
+                                $userData['address'] = $user->address ?? null;
+                            }
+                            
+                            // Add optometrist branches if user is an optometrist
+                            if ($role === 'optometrist' && $user->optometristBranches->count() > 0) {
+                                $userData['optometrist_branches'] = $user->optometristBranches->map(function ($branch) {
+                                    return [
+                                        'id' => $branch->id,
+                                        'name' => $branch->name,
+                                        'address' => $branch->address
+                                    ];
+                                });
+                            }
+                            
+                            return $userData;
                         });
 
             return response()->json([
@@ -342,11 +950,19 @@ class AuthController extends Controller
             'email' => 'required|string|email|max:255|unique:users',
             'password' => 'required|string|min:8',
             'password_confirmation' => 'required|string|same:password',
-            'role' => ['required', 'string', new Enum(\App\Enums\UserRole::class)],
+            'role' => 'required|string|in:admin,customer,optometrist,staff',
             'branch_id' => 'nullable|exists:branches,id',
+            'selected_branches' => 'nullable|array',
+            'selected_branches.*' => 'integer|exists:branches,id',
+            'is_approved' => 'nullable|boolean',
         ]);
 
         if ($validator->fails()) {
+            \Log::error('User creation validation failed', [
+                'errors' => $validator->errors()->toArray(),
+                'input_data' => $request->all()
+            ]);
+            
             return response()->json([
                 'message' => 'Validation failed',
                 'errors' => $validator->errors()
@@ -359,9 +975,56 @@ class AuthController extends Controller
             'password' => Hash::make($request->password),
             'role' => $request->role,
             'branch_id' => $request->branch_id,
-            'is_approved' => true, // Admin-created users are automatically approved
+            'is_approved' => $request->input('is_approved', true), // Use provided value or default to true
             'email_verified_at' => now(), // Admin-created users are email verified
+            'must_change_password' => true, // Force password change on first login for security
         ]);
+
+        // Notify all admins about new user created by admin (except the creator)
+        try {
+            $admins = \App\Models\User::where('role', 'admin')
+                ->where('id', '!=', $user->id)
+                ->get();
+            
+            foreach ($admins as $admin) {
+                Notification::create([
+                    'user_id' => $admin->id,
+                    'role' => 'admin',
+                    'title' => 'New User Created',
+                    'message' => "Admin {$user->name} created a new {$request->role} account: {$newUser->name} ({$newUser->email})",
+                    'type' => 'user_signup',
+                    'data' => json_encode([
+                        'new_user_id' => $newUser->id,
+                        'new_user_name' => $newUser->name,
+                        'new_user_email' => $newUser->email,
+                        'role' => $request->role,
+                        'created_by' => $user->id,
+                        'created_by_name' => $user->name,
+                        'timestamp' => now()->toDateTimeString(),
+                    ]),
+                ]);
+            }
+        } catch (\Exception $e) {
+            \Log::warning('Failed to send user creation notification: ' . $e->getMessage());
+        }
+
+        // Handle multiple branch assignments for optometrists
+        if ($request->role === 'optometrist' && $request->has('selected_branches') && is_array($request->selected_branches)) {
+            $selectedBranches = $request->selected_branches;
+            
+            // Attach all selected branches to the optometrist
+            foreach ($selectedBranches as $branchId) {
+                $newUser->optometristBranches()->attach($branchId, [
+                    'created_at' => now(),
+                    'updated_at' => now()
+                ]);
+            }
+            
+            // Update the main branch_id to the first selected branch for backward compatibility
+            if (!empty($selectedBranches)) {
+                $newUser->update(['branch_id' => $selectedBranches[0]]);
+            }
+        }
 
         return response()->json([
             'message' => 'User created successfully',
@@ -462,6 +1125,8 @@ class AuthController extends Controller
             'password' => 'sometimes|required|string|min:8',
             'role' => ['sometimes', 'required', 'string', new Enum(\App\Enums\UserRole::class)],
             'branch_id' => 'sometimes|nullable|exists:branches,id',
+            'selected_branches' => 'nullable|array',
+            'selected_branches.*' => 'integer|exists:branches,id',
             'is_approved' => 'sometimes|boolean',
         ]);
 
@@ -479,6 +1144,30 @@ class AuthController extends Controller
         }
 
         $targetUser->update($data);
+
+        // Handle multiple branch assignments for optometrists
+        if ($request->role === 'optometrist' && $request->has('selected_branches') && is_array($request->selected_branches)) {
+            $selectedBranches = $request->selected_branches;
+            
+            // Remove all existing branch assignments
+            $targetUser->optometristBranches()->detach();
+            
+            // Attach all selected branches to the optometrist
+            foreach ($selectedBranches as $branchId) {
+                $targetUser->optometristBranches()->attach($branchId, [
+                    'created_at' => now(),
+                    'updated_at' => now()
+                ]);
+            }
+            
+            // Update the main branch_id to the first selected branch for backward compatibility
+            if (!empty($selectedBranches)) {
+                $targetUser->update(['branch_id' => $selectedBranches[0]]);
+            }
+        } elseif ($request->has('role') && $request->role !== 'optometrist') {
+            // If changing from optometrist to another role, remove all optometrist branch assignments
+            $targetUser->optometristBranches()->detach();
+        }
 
         return response()->json([
             'message' => 'User updated successfully',
@@ -602,10 +1291,11 @@ class AuthController extends Controller
             return response()->json(['message' => 'Cannot delete your own account'], 400);
         }
 
+        // Use soft delete instead of force delete to preserve data
         $targetUser->delete();
 
         return response()->json([
-            'message' => 'User deleted successfully'
+            'message' => 'User deleted successfully (soft deleted - data preserved in database)'
         ], 200);
     }
 

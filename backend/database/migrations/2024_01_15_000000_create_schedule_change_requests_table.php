@@ -11,12 +11,16 @@ return new class extends Migration
      */
     public function up(): void
     {
+        if (Schema::hasTable('schedule_change_requests')) {
+            return;
+        }
+        
         Schema::create('schedule_change_requests', function (Blueprint $table) {
             $table->id();
             $table->foreignId('staff_id')->constrained('users')->onDelete('cascade');
             $table->string('staff_role')->default('optometrist');
             $table->integer('day_of_week'); // 1-7 (Monday-Sunday)
-            $table->foreignId('branch_id')->nullable()->constrained('branches')->onDelete('cascade');
+            $table->unsignedBigInteger('branch_id')->nullable(); // Foreign key will be added later after branches table exists
             $table->time('start_time')->nullable();
             $table->time('end_time')->nullable();
             $table->text('reason');

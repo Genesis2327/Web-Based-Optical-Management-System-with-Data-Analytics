@@ -53,26 +53,26 @@ const AppointmentManagement = () => {
   );
 
   return (
-    <div className="max-w-6xl mx-auto p-6">
+    <div className="max-w-6xl mx-auto p-4 sm:p-6">
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>
-              <CardTitle className="flex items-center space-x-2">
-                <Calendar className="h-6 w-6 text-customer" />
+              <CardTitle className="flex items-center space-x-2 text-lg sm:text-xl">
+                <Calendar className="h-5 w-5 sm:h-6 sm:w-6 text-customer" />
                 <span>Appointment Management</span>
               </CardTitle>
-              <CardDescription>
+              <CardDescription className="text-sm sm:text-base mt-1">
                 Manage appointments for {selectedDate}
               </CardDescription>
             </div>
-            <div className="flex items-center space-x-2">
-              <label className="text-sm font-medium">Date:</label>
+            <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-2 sm:space-y-0 sm:space-x-2 w-full sm:w-auto">
+              <label className="text-sm font-medium whitespace-nowrap">Date:</label>
               <input
                 type="date"
                 value={selectedDate}
                 onChange={(e) => setSelectedDate(e.target.value)}
-                className="px-3 py-2 border rounded-md"
+                className="w-full sm:w-auto px-3 py-2 border rounded-md text-sm sm:text-base"
               />
             </div>
           </div>
@@ -90,15 +90,20 @@ const AppointmentManagement = () => {
           ) : (
             <div className="space-y-4">
               {filteredAppointments.map((appointment) => (
-                <div key={appointment.id} className="flex items-center justify-between p-4 border rounded-lg">
-                  <div className="flex items-center space-x-6">
+                <div key={appointment.id} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 border rounded-lg gap-4">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-3 sm:space-y-0 sm:space-x-6 w-full sm:w-auto">
                     <div className="flex items-center space-x-2">
                       <Clock className="h-4 w-4 text-muted-foreground" />
                       <span className="font-medium">{appointment.start_time}</span>
                     </div>
                     <div className="flex items-center space-x-2">
                       <User className="h-4 w-4 text-muted-foreground" />
-                      <span>{appointment.patient?.name || 'Unknown Patient'}</span>
+                      <div>
+                        <div>{appointment.patient?.name || 'Unknown Patient'}</div>
+                        {appointment.patient?.phone && (
+                          <div className="text-xs text-muted-foreground">{appointment.patient.phone}</div>
+                        )}
+                      </div>
                     </div>
                     <div className="flex items-center space-x-2">
                       <span className="text-sm text-muted-foreground">
@@ -116,7 +121,7 @@ const AppointmentManagement = () => {
                       </div>
                     )}
                   </div>
-                  <div className="flex items-center space-x-3">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-2 sm:space-y-0 sm:space-x-3 w-full sm:w-auto">
                     <div className="flex items-center space-x-2">
                       {getStatusIcon(appointment.status)}
                       <span className="text-sm font-medium capitalize">
@@ -128,7 +133,7 @@ const AppointmentManagement = () => {
                       onValueChange={(value) => handleStatusUpdate(appointment.id, value as AppointmentStatus)}
                       disabled={updating}
                     >
-                      <SelectTrigger className="w-40">
+                      <SelectTrigger className="w-full sm:w-40">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>

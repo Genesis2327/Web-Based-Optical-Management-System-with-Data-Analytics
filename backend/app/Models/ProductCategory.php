@@ -4,13 +4,16 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class ProductCategory extends Model
 {
+    use SoftDeletes;
     protected $fillable = [
         'name',
         'slug',
         'description',
+        'image',
         'icon',
         'color',
         'is_active',
@@ -63,10 +66,15 @@ class ProductCategory extends Model
             'id' => $this->id,
             'name' => $this->name,
             'slug' => $this->slug,
-            'description' => $this->description,
-            'icon' => $this->icon,
-            'color' => $this->color,
-            'product_count' => $this->products()->count(),
+            'description' => $this->description ?? null,
+            'image' => $this->image ?? null,
+            'icon' => $this->icon ?? null,
+            'color' => $this->color ?? '#3B82F6',
+            'is_active' => $this->is_active ?? true,
+            'sort_order' => $this->sort_order ?? 0,
+            'product_count' => \Illuminate\Support\Facades\Schema::hasTable('products') && \Illuminate\Support\Facades\Schema::hasColumn('products', 'category_id')
+                ? $this->products()->count()
+                : 0,
         ];
     }
 }

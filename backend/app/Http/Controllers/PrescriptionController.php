@@ -4,10 +4,12 @@ namespace App\Http\Controllers;
 
 use App\Models\Prescription;
 use App\Models\User;
+use App\Http\Resources\PrescriptionResource;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\DB;
 use App\Enums\UserRole;
 use App\Helpers\Realtime;
 
@@ -91,7 +93,7 @@ class PrescriptionController extends Controller
                               ->orderBy('issue_date', 'desc')
                               ->paginate($request->get('per_page', 15));
 
-        return response()->json($prescriptions);
+        return PrescriptionResource::collection($prescriptions)->response();
         
         } catch (\Exception $e) {
             \Log::error('Error in PrescriptionController index: ' . $e->getMessage());
@@ -155,15 +157,31 @@ class PrescriptionController extends Controller
             return response()->json(['error' => 'Can only create prescriptions for appointments in progress'], 422);
         }
 
-        // Create prescription
-        $prescription = Prescription::create([
-            'appointment_id' => $request->appointment_id,
-            'patient_id' => $appointment->patient_id,
-            'optometrist_id' => $user->id,
-            'type' => 'glasses', // Use valid enum value
-            'prescription_data' => [
-                'right_eye' => $request->right_eye,
-                'left_eye' => $request->left_eye,
+        // Use database transaction to ensure data consistency
+        DB::beginTransaction();
+        
+        try {
+            // Ensure eye data is properly formatted as arrays
+            $rightEye = is_array($request->right_eye) ? $request->right_eye : [];
+            $leftEye = is_array($request->left_eye) ? $request->left_eye : [];
+            
+            \Log::info('Creating prescription with eye data', [
+                'right_eye_raw' => $request->right_eye,
+                'left_eye_raw' => $request->left_eye,
+                'right_eye_processed' => $rightEye,
+                'left_eye_processed' => $leftEye,
+            ]);
+            
+            // Create prescription
+            $prescription = Prescription::create([
+                'appointment_id' => $request->appointment_id,
+                'patient_id' => $appointment->patient_id,
+                'optometrist_id' => $user->id,
+                'branch_id' => $appointment->branch_id,
+                'type' => 'glasses', // Use valid enum value
+                'prescription_number' => Prescription::generatePrescriptionNumber(),
+                'right_eye' => $rightEye, // Laravel will auto-encode to JSON via cast
+                'left_eye' => $leftEye, // Laravel will auto-encode to JSON via cast
                 'vision_acuity' => $request->vision_acuity,
                 'additional_notes' => $request->additional_notes,
                 'recommendations' => $request->recommendations,
@@ -171,16 +189,57 @@ class PrescriptionController extends Controller
                 'coating' => $request->coating,
                 'follow_up_date' => $request->follow_up_date,
                 'follow_up_notes' => $request->follow_up_notes,
-                'prescription_number' => Prescription::generatePrescriptionNumber(),
-            ],
-            'issue_date' => now()->toDateString(),
-            'expiry_date' => now()->addYear()->toDateString(),
-            'status' => 'active',
-            'notes' => $request->additional_notes, // Store additional notes in the notes field
-        ]);
+                'prescription_data' => [
+                    'prescription_number' => Prescription::generatePrescriptionNumber(),
+                    // Also store in prescription_data as backup
+                    'right_eye' => $rightEye,
+                    'left_eye' => $leftEye,
+                ],
+                'issue_date' => now()->toDateString(),
+                'expiry_date' => now()->addYear()->toDateString(),
+                'status' => 'active',
+                'notes' => $request->additional_notes, // Store additional notes in the notes field
+            ]);
+            
+            \Log::info('Prescription created with eye data', [
+                'prescription_id' => $prescription->id,
+                'right_eye' => $prescription->right_eye,
+                'left_eye' => $prescription->left_eye,
+                'right_eye_type' => gettype($prescription->right_eye),
+                'left_eye_type' => gettype($prescription->left_eye),
+                'right_eye_is_array' => is_array($prescription->right_eye),
+                'left_eye_is_array' => is_array($prescription->left_eye),
+            ]);
 
-        // Update appointment status to completed
-        $appointment->update(['status' => 'completed']);
+            // Verify prescription was created successfully
+            if (!$prescription || !$prescription->id) {
+                throw new \Exception('Failed to create prescription record');
+            }
+
+            \Log::info('Prescription created successfully', [
+                'prescription_id' => $prescription->id,
+                'patient_id' => $prescription->patient_id,
+                'appointment_id' => $prescription->appointment_id,
+                'branch_id' => $prescription->branch_id,
+                'optometrist_id' => $prescription->optometrist_id
+            ]);
+
+            // Update appointment status to completed
+            $appointment->update(['status' => 'completed']);
+
+            // Commit transaction
+            DB::commit();
+        } catch (\Exception $e) {
+            DB::rollBack();
+            \Log::error('Failed to create prescription in transaction', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            throw $e;
+        }
+
+        // Load prescription with all relationships for notifications and events
+        $prescription->load(['patient', 'optometrist', 'appointment', 'branch']);
 
         // Create notifications
         try {
@@ -193,16 +252,70 @@ class PrescriptionController extends Controller
             \Log::error('Failed to create prescription notification: ' . $e->getMessage());
         }
 
-        // Emit realtime event
+        // Emit realtime events for all relevant roles
         try {
+            // Emit to patient (customer) - user-specific event
             Realtime::emit('prescription.created', [
-                'prescription' => $prescription->load(['patient:id,name', 'optometrist:id,name', 'appointment:id']),
-            ], null, $prescription->patient_id);
+                'id' => $prescription->id,
+                'type' => 'prescription.created',
+                'message' => "Your prescription has been created",
+                'prescription' => [
+                    'id' => $prescription->id,
+                    'patient_id' => $prescription->patient_id,
+                    'appointment_id' => $prescription->appointment_id,
+                    'prescription_number' => $prescription->prescription_number,
+                    'status' => $prescription->status,
+                    'issue_date' => $prescription->issue_date,
+                ],
+                'patient' => $prescription->patient ? [
+                    'id' => $prescription->patient->id,
+                    'name' => $prescription->patient->name,
+                ] : null,
+                'optometrist' => $prescription->optometrist ? [
+                    'id' => $prescription->optometrist->id,
+                    'name' => $prescription->optometrist->name,
+                ] : null,
+                'timestamp' => now()->toISOString(),
+            ], $prescription->branch_id, $prescription->patient_id);
+
+            \Log::info('Realtime event emitted for prescription', [
+                'prescription_id' => $prescription->id,
+                'patient_id' => $prescription->patient_id,
+                'branch_id' => $prescription->branch_id
+            ]);
         } catch (\Exception $e) {
             \Log::error('Failed to emit realtime event: ' . $e->getMessage());
+            // Don't fail the request if realtime fails
         }
 
-        return response()->json($prescription->load(['patient', 'optometrist', 'appointment']), 201);
+        \Log::info('Prescription creation completed successfully', [
+            'prescription_id' => $prescription->id,
+            'patient_id' => $prescription->patient_id,
+            'branch_id' => $prescription->branch_id,
+            'optometrist_id' => $prescription->optometrist_id,
+            'will_be_visible_to' => [
+                'patient' => true,
+                'staff_at_branch' => $prescription->branch_id ? true : false,
+                'admin' => true,
+                'optometrist' => true,
+            ]
+        ]);
+
+        // Ensure all relationships are loaded before returning
+        $prescription->load(['patient', 'optometrist', 'appointment', 'branch']);
+        
+        // Refresh the prescription to ensure we get the latest data from database
+        $prescription->refresh();
+        
+        \Log::info('Returning prescription response', [
+            'prescription_id' => $prescription->id,
+            'right_eye' => $prescription->right_eye,
+            'left_eye' => $prescription->left_eye,
+            'right_eye_raw' => $prescription->getAttribute('right_eye'),
+            'left_eye_raw' => $prescription->getAttribute('left_eye'),
+        ]);
+        
+        return (new PrescriptionResource($prescription))->response()->setStatusCode(201);
         
         } catch (\Exception $e) {
             \Log::error('Prescription store error: ' . $e->getMessage(), [
@@ -225,7 +338,7 @@ class PrescriptionController extends Controller
             return response()->json(['error' => 'Unauthorized'], 403);
         }
 
-        return response()->json($prescription->load(['patient', 'optometrist', 'appointment']));
+        return new PrescriptionResource($prescription->load(['patient', 'optometrist', 'appointment']));
     }
 
     /**
@@ -255,7 +368,7 @@ class PrescriptionController extends Controller
 
         $prescription->update($validator->validated());
 
-        return response()->json($prescription->load(['patient', 'optometrist', 'appointment']));
+        return new PrescriptionResource($prescription->load(['patient', 'optometrist', 'appointment']));
     }
 
     /**
@@ -272,7 +385,7 @@ class PrescriptionController extends Controller
 
         $prescription->delete();
 
-        return response()->json(['message' => 'Prescription deleted successfully']);
+        return response()->json(['message' => 'Prescription deleted successfully (soft deleted - data preserved in database)']);
     }
 
     /**
@@ -280,19 +393,57 @@ class PrescriptionController extends Controller
      */
     public function getPatientPrescriptions(Request $request, $patientId): JsonResponse
     {
-        $user = Auth::user();
+        try {
+            $user = Auth::user();
+            
+            if (!$user) {
+                \Log::error('No authenticated user in getPatientPrescriptions');
+                return response()->json(['error' => 'User not authenticated'], 401);
+            }
+            
+            if (!$user->role) {
+                \Log::error('User role not found for user: ' . $user->id);
+                return response()->json(['error' => 'User role not found'], 400);
+            }
+            
+            \Log::info('getPatientPrescriptions called', [
+                'user_id' => $user->id,
+                'user_role' => $user->role->value,
+                'patient_id' => $patientId,
+                'match' => $patientId == $user->id
+            ]);
 
-        // Check if user has permission to view patient prescriptions
-        if (!$this->canViewPatientPrescriptions($user, $patientId)) {
-            return response()->json(['error' => 'Unauthorized'], 403);
+            // Check if user has permission to view patient prescriptions
+            if (!$this->canViewPatientPrescriptions($user, $patientId)) {
+                \Log::warning('Access denied to patient prescriptions', [
+                    'user_id' => $user->id,
+                    'user_role' => $user->role->value,
+                    'requested_patient_id' => $patientId
+                ]);
+                return response()->json(['error' => 'Unauthorized'], 403);
+            }
+
+            $prescriptions = Prescription::with(['patient', 'optometrist', 'appointment', 'branch'])
+                ->where('patient_id', $patientId)
+                ->orderBy('issue_date', 'desc')
+                ->get();
+            
+            \Log::info('Prescriptions fetched successfully', [
+                'count' => $prescriptions->count(),
+                'patient_id' => $patientId
+            ]);
+
+            $resource = PrescriptionResource::collection($prescriptions);
+            \Log::info('PrescriptionResource created', ['resource_type' => get_class($resource)]);
+            
+            return $resource->response();
+            
+        } catch (\Exception $e) {
+            \Log::error('Error in getPatientPrescriptions: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString()
+            ]);
+            return response()->json(['error' => 'Internal server error'], 500);
         }
-
-        $prescriptions = Prescription::with(['patient', 'optometrist', 'appointment'])
-            ->where('patient_id', $patientId)
-            ->orderBy('issue_date', 'desc')
-            ->get();
-
-        return response()->json($prescriptions);
     }
 
     /**
@@ -363,9 +514,21 @@ class PrescriptionController extends Controller
      */
     private function canViewPatientPrescriptions(User $user, $patientId): bool
     {
+        if (!$user || !$user->role) {
+            \Log::error('Invalid user or role in canViewPatientPrescriptions');
+            return false;
+        }
+        
         switch ($user->role->value) {
             case UserRole::CUSTOMER->value:
-                return $patientId == $user->id;
+                // Use strict comparison after type casting to ensure proper comparison
+                $result = (int)$patientId === (int)$user->id;
+                \Log::info('Customer prescription access check', [
+                    'patient_id' => $patientId,
+                    'user_id' => $user->id,
+                    'result' => $result
+                ]);
+                return $result;
 
             case UserRole::OPTOMETRIST->value:
             case UserRole::STAFF->value:
@@ -373,6 +536,9 @@ class PrescriptionController extends Controller
                 return true;
 
             default:
+                \Log::warning('Unknown role in canViewPatientPrescriptions', [
+                    'role' => $user->role->value
+                ]);
                 return false;
         }
     }

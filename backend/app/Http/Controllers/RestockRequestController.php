@@ -203,7 +203,7 @@ class RestockRequestController extends Controller
         $restockRequest->delete();
 
         return response()->json([
-            'message' => 'Restock request deleted successfully'
+            'message' => 'Restock request deleted successfully (soft deleted - data preserved in database)'
         ]);
     }
 

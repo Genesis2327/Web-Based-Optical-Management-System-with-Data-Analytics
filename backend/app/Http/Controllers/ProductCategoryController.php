@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 class ProductCategoryController extends Controller
@@ -17,66 +18,118 @@ class ProductCategoryController extends Controller
     public function index(): JsonResponse
     {
         try {
-            $categories = ProductCategory::all();
+            // Check if table exists first
+            if (!Schema::hasTable('product_categories')) {
+                \Log::warning('product_categories table does not exist');
+                return $this->getFallbackCategories();
+            }
+            
+            // Build query safely
+            $query = ProductCategory::query();
+            
+            // Only filter by is_active if column exists
+            if (Schema::hasColumn('product_categories', 'is_active')) {
+                $query->where('is_active', true);
+            }
+            
+            // Only order by sort_order if column exists
+            if (Schema::hasColumn('product_categories', 'sort_order')) {
+                $query->orderBy('sort_order');
+            } else {
+                $query->orderBy('name');
+            }
+            
+            $categories = $query->get();
 
+            $categoriesData = $categories->map(function ($category) {
+                return [
+                    'id' => $category->id ?? null,
+                    'name' => $category->name ?? 'Unnamed Category',
+                    'slug' => $category->slug ?? '',
+                    'description' => $category->description ?? null,
+                    'image' => $category->image ?? null,
+                    'icon' => $category->icon ?? null,
+                    'color' => $category->color ?? '#3B82F6',
+                    'is_active' => $category->is_active ?? true,
+                    'sort_order' => $category->sort_order ?? 0,
+                    'product_count' => Schema::hasTable('products') && Schema::hasColumn('products', 'category_id') 
+                        ? $category->products()->count() 
+                        : 0,
+                ];
+            })->values(); // Use values() to reset array keys and ensure JSON array format
+            
             return response()->json([
-                'categories' => $categories->map(function ($category) {
-                    return [
-                        'id' => $category->id,
-                        'name' => $category->name,
-                        'slug' => $category->slug,
-                        'description' => $category->description,
-                        'icon' => $category->icon,
-                        'color' => $category->color,
-                        'product_count' => 0,
-                    ];
-                })
+                'data' => $categoriesData, // Frontend expects 'data' or direct array
+                'categories' => $categoriesData, // Also include 'categories' for backward compatibility
             ]);
         } catch (\Exception $e) {
-            \Log::error('Error in ProductCategoryController::index: ' . $e->getMessage());
-            
-            // Return fallback categories if table doesn't exist
-            return response()->json([
-                'categories' => [
-                    [
-                        'id' => 1,
-                        'name' => 'Eyeglasses',
-                        'slug' => 'eyeglasses',
-                        'description' => 'Prescription eyeglasses and frames',
-                        'icon' => 'glasses',
-                        'color' => '#3B82F6',
-                        'product_count' => 0,
-                    ],
-                    [
-                        'id' => 2,
-                        'name' => 'Contact Lenses',
-                        'slug' => 'contact-lenses',
-                        'description' => 'Contact lenses and accessories',
-                        'icon' => 'eye',
-                        'color' => '#10B981',
-                        'product_count' => 0,
-                    ],
-                    [
-                        'id' => 3,
-                        'name' => 'Sunglasses',
-                        'slug' => 'sunglasses',
-                        'description' => 'Sunglasses and protective eyewear',
-                        'icon' => 'sun',
-                        'color' => '#F59E0B',
-                        'product_count' => 0,
-                    ],
-                    [
-                        'id' => 4,
-                        'name' => 'Accessories',
-                        'slug' => 'accessories',
-                        'description' => 'Eyewear accessories and cleaning supplies',
-                        'icon' => 'tools',
-                        'color' => '#8B5CF6',
-                        'product_count' => 0,
-                    ]
-                ]
+            \Log::error('Error in ProductCategoryController::index: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine()
             ]);
+            
+            return $this->getFallbackCategories();
         }
+    }
+    
+    /**
+     * Get fallback categories when database query fails
+     */
+    private function getFallbackCategories(): JsonResponse
+    {
+        // Return fallback categories if table doesn't exist
+        $fallbackCategories = [
+            [
+                'id' => 1,
+                'name' => 'Frames',
+                'slug' => 'frames',
+                'description' => 'Eyeglass frames and prescription frames',
+                'icon' => null,
+                'color' => '#3B82F6',
+                'is_active' => true,
+                'sort_order' => 1,
+                'product_count' => 0,
+            ],
+            [
+                'id' => 2,
+                'name' => 'Contact Lenses',
+                'slug' => 'contact-lenses',
+                'description' => 'Various types of contact lenses',
+                'icon' => null,
+                'color' => '#3B82F6',
+                'is_active' => true,
+                'sort_order' => 2,
+                'product_count' => 0,
+            ],
+            [
+                'id' => 3,
+                'name' => 'Eye Care Products',
+                'slug' => 'eye-care-products',
+                'description' => 'Eye care solutions, cleaning products, and accessories',
+                'icon' => null,
+                'color' => '#3B82F6',
+                'is_active' => true,
+                'sort_order' => 3,
+                'product_count' => 0,
+            ],
+            [
+                'id' => 4,
+                'name' => 'Sunglasses',
+                'slug' => 'sunglasses',
+                'description' => 'UV protection sunglasses and protective eyewear',
+                'icon' => null,
+                'color' => '#3B82F6',
+                'is_active' => true,
+                'sort_order' => 4,
+                'product_count' => 0,
+            ]
+        ];
+        
+        return response()->json([
+            'data' => $fallbackCategories, // Frontend expects 'data' or direct array
+            'categories' => $fallbackCategories, // Also include 'categories' for backward compatibility
+        ]);
     }
 
     /**
@@ -96,7 +149,11 @@ class ProductCategoryController extends Controller
     {
         $user = Auth::user();
 
-        if (!$user || $user->role->value !== 'admin') {
+        $userRole = $user && isset($user->role) 
+            ? (is_object($user->role) && isset($user->role->value) ? $user->role->value : (is_string($user->role) ? $user->role : null))
+            : null;
+        
+        if (!$user || $userRole !== 'admin') {
             return response()->json([
                 'message' => 'Unauthorized. Only Admin can create categories.'
             ], 403);
@@ -139,7 +196,11 @@ class ProductCategoryController extends Controller
     {
         $user = Auth::user();
 
-        if (!$user || $user->role->value !== 'admin') {
+        $userRole = $user && isset($user->role) 
+            ? (is_object($user->role) && isset($user->role->value) ? $user->role->value : (is_string($user->role) ? $user->role : null))
+            : null;
+        
+        if (!$user || $userRole !== 'admin') {
             return response()->json([
                 'message' => 'Unauthorized. Only Admin can update categories.'
             ], 403);
@@ -183,7 +244,11 @@ class ProductCategoryController extends Controller
     {
         $user = Auth::user();
 
-        if (!$user || $user->role->value !== 'admin') {
+        $userRole = $user && isset($user->role) 
+            ? (is_object($user->role) && isset($user->role->value) ? $user->role->value : (is_string($user->role) ? $user->role : null))
+            : null;
+        
+        if (!$user || $userRole !== 'admin') {
             return response()->json([
                 'message' => 'Unauthorized. Only Admin can delete categories.'
             ], 403);
@@ -199,7 +264,7 @@ class ProductCategoryController extends Controller
         $category->delete();
 
         return response()->json([
-            'message' => 'Category deleted successfully'
+            'message' => 'Category deleted successfully (soft deleted - data preserved in database)'
         ]);
     }
 
@@ -213,7 +278,11 @@ class ProductCategoryController extends Controller
         $query = $category->products()->with(['creator', 'branch']);
 
         // Filter by approval status for customers
-        if ($user && $user->role && $user->role->value === 'customer') {
+        $userRole = $user && isset($user->role) 
+            ? (is_object($user->role) && isset($user->role->value) ? $user->role->value : (is_string($user->role) ? $user->role : null))
+            : null;
+        
+        if ($userRole === 'customer') {
             $query->where('is_active', true)
                   ->where('approval_status', 'approved');
         }

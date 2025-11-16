@@ -51,14 +51,16 @@ const StockUpdateModal: React.FC<StockUpdateModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!newQuantity.trim() || !reason.trim()) {
+    // Check if quantity field is empty (but allow 0)
+    if (newQuantity.trim() === '' || !reason.trim()) {
       setError('Please fill in all required fields');
       return;
     }
 
-    const quantityNum = parseInt(newQuantity);
+    const quantityNum = parseInt(newQuantity, 10);
+    // Allow 0 as a valid quantity value
     if (isNaN(quantityNum) || quantityNum < 0) {
-      setError('Quantity must be a non-negative number');
+      setError('Quantity must be a non-negative number (0 or greater)');
       return;
     }
 
@@ -66,16 +68,36 @@ const StockUpdateModal: React.FC<StockUpdateModalProps> = ({
     setError(null);
 
     try {
-      await inventoryApiService.updateStockQuantity(item.id, {
+      console.log('Attempting to update stock:', {
+        itemId: item.id,
+        newQuantity: quantityNum,
+        currentQuantity: currentQuantity,
+        reason: reason.trim()
+      });
+
+      const response = await inventoryApiService.updateStockQuantity(item.id, {
         stock_quantity: quantityNum,
         reason: reason.trim()
       });
+
+      console.log('Stock update response:', response);
+      console.log('Updated stock quantity:', response.branch_stock?.stock?.stock_quantity || response.branch_stock?.stock_quantity);
+
+      if (response.branch_stock) {
+        const updatedQuantity = response.branch_stock.stock?.stock_quantity || response.branch_stock.stock_quantity;
+        console.log('Successfully updated to:', updatedQuantity);
+      }
+
+      // Ensure we wait a moment for cache to clear before refreshing
+      await new Promise(resolve => setTimeout(resolve, 200));
 
       onStockUpdated();
       onClose();
     } catch (err: any) {
       console.error('Error updating stock:', err);
-      setError(err.response?.data?.message || 'Failed to update stock quantity');
+      console.error('Error response:', err.response?.data);
+      console.error('Error status:', err.response?.status);
+      setError(err.response?.data?.message || err.response?.data?.error || err.message || 'Failed to update stock quantity');
     } finally {
       setLoading(false);
     }

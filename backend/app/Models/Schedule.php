@@ -5,16 +5,18 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Schedule extends Model
 {
-    use HasFactory;
+    use HasFactory, SoftDeletes;
 
     protected $fillable = [
         'staff_id',
         'staff_role',
         'branch_id',
-        'day_of_week',
+        'day_of_week', // Keep for backward compatibility
+        'days_of_week', // New field for multiple days
         'start_time',
         'end_time',
         'is_active',
@@ -23,7 +25,8 @@ class Schedule extends Model
     ];
 
     protected $casts = [
-        'day_of_week' => 'integer',
+        'day_of_week' => 'integer', // Keep for backward compatibility
+        'days_of_week' => 'array', // New field for multiple days
         'is_active' => 'boolean',
     ];
 

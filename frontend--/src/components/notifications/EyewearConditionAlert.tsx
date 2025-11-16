@@ -141,13 +141,13 @@ const EyewearConditionAlert: React.FC<EyewearConditionAlertProps> = ({
               </CardTitle>
               <p className="text-sm text-gray-600 flex items-center gap-1">
                 <Clock className="h-3 w-3" />
-                Assessed by {notification.assessed_by} • {formatDistanceToNow(new Date(notification.assessment_date), { addSuffix: true })}
+                Assessed by {notification.assessed_by || 'Staff'} • {notification.assessment_date ? formatDistanceToNow(new Date(notification.assessment_date), { addSuffix: true }) : 'Recently'}
               </p>
             </div>
           </div>
           <div className="flex items-center space-x-2">
             <Badge className={getPriorityColor(notification.priority)}>
-              {notification.priority.toUpperCase()}
+              {notification.priority?.toUpperCase() || 'MEDIUM'}
             </Badge>
             <Button variant="ghost" size="sm" onClick={handleDismiss}>
               <X className="h-4 w-4" />
@@ -160,7 +160,7 @@ const EyewearConditionAlert: React.FC<EyewearConditionAlertProps> = ({
         <div className="space-y-3">
           <div className="flex items-center space-x-2">
             <Eye className="h-4 w-4 text-gray-500" />
-            <span className="font-medium">{notification.eyewear_label}</span>
+            <span className="font-medium">{notification.eyewear_label || 'Eyewear'}</span>
           </div>
 
           <div className="text-sm text-gray-700 bg-white p-3 rounded-md border">
@@ -197,10 +197,10 @@ const EyewearConditionAlert: React.FC<EyewearConditionAlertProps> = ({
             <div className="mt-3 p-3 bg-white rounded-md border">
               <h4 className="font-medium mb-2">Assessment Details</h4>
               <div className="text-sm space-y-1">
-                <p><strong>Assessment Date:</strong> {new Date(notification.assessment_date).toLocaleString()}</p>
+                <p><strong>Assessment Date:</strong> {notification.assessment_date ? new Date(notification.assessment_date).toLocaleString() : 'N/A'}</p>
                 <p><strong>Condition:</strong> {getConditionText(notification.condition)}</p>
-                <p><strong>Priority:</strong> {notification.priority}</p>
-                <p><strong>Assessed By:</strong> {notification.assessed_by}</p>
+                <p><strong>Priority:</strong> {notification.priority || 'Medium'}</p>
+                <p><strong>Assessed By:</strong> {notification.assessed_by || 'Staff'}</p>
                 {notification.next_check_date && (
                   <p><strong>Next Check:</strong> {new Date(notification.next_check_date).toLocaleDateString()}</p>
                 )}

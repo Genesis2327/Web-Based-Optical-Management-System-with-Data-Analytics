@@ -6,6 +6,7 @@ use App\Models\Product;
 use App\Models\BranchStock;
 use App\Models\Branch;
 use App\Models\Notification;
+use App\Models\InventoryTransaction;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Validator;
@@ -30,7 +31,7 @@ class BranchInventoryController extends Controller
             return response()->json(['message' => 'Unauthorized'], 401);
         }
 
-        $query = BranchStock::with(['branch:id,name,code', 'product:id,name,sku,description,price,image_paths,is_active,brand,model']);
+        $query = BranchStock::with(['branch:id,name,code', 'product:id,name,description,price,image_paths,is_active']);
 
         // Staff can only view their own branch inventory
         if ($user->role->value === 'staff') {
@@ -54,13 +55,11 @@ class BranchInventoryController extends Controller
             $query->where('status', $request->status);
         }
 
-        // Search by product name or SKU
+        // Search by product name
         if ($request->has('search')) {
             $search = $request->search;
             $query->whereHas('product', function ($q) use ($search) {
-                $q->where('name', 'like', "%{$search}%")
-                  ->orWhere('sku', 'like', "%{$search}%")
-                  ->orWhere('brand', 'like', "%{$search}%");
+                $q->where('name', 'like', "%{$search}%");
             });
         }
 
@@ -73,13 +72,22 @@ class BranchInventoryController extends Controller
             ->orderBy('created_at', 'desc')
             ->get();
 
-        // Transform data
+        // Transform data and filter out null values (unknown stocks)
         $transformedInventories = $inventories->map(function ($item) {
             return $this->transformInventoryItem($item);
-        });
+        })->filter(function ($item) {
+            // Remove null values (stocks with missing branch/product relationships)
+            return $item !== null;
+        })->values();
 
-        // Calculate summary
-        $summary = $this->calculateSummary($inventories);
+        // Calculate summary using only valid inventories
+        $validInventories = $inventories->filter(function($item) {
+            $product = $item->product ?? null;
+            $branch = $item->branch ?? null;
+            return $product && $product->name && $product->name !== 'Unknown Product' &&
+                   $branch && $branch->name && $branch->name !== 'Unknown' && $branch->name !== 'Unknown Branch';
+        });
+        $summary = $this->calculateSummary($validInventories);
 
         return response()->json([
             'inventories' => $transformedInventories,
@@ -117,9 +125,6 @@ class BranchInventoryController extends Controller
             'price' => 'required|numeric|min:0',
             'stock_quantity' => 'required|integer|min:0',
             'min_stock_threshold' => 'nullable|integer|min:0',
-            'sku' => 'required|string|max:100|unique:products,sku',
-            'brand' => 'nullable|string|max:255',
-            'model' => 'nullable|string|max:255',
             'category_id' => 'nullable|exists:product_categories,id',
             'images' => 'nullable|array|max:4',
             'images.*' => 'image|mimes:jpeg,png,jpg,gif|max:2048',
@@ -151,9 +156,6 @@ class BranchInventoryController extends Controller
                 'description' => $request->description,
                 'price' => $request->price,
                 'stock_quantity' => $request->stock_quantity,
-                'sku' => $request->sku,
-                'brand' => $request->brand,
-                'model' => $request->model,
                 'category_id' => $request->category_id,
                 'image_paths' => $imagePaths,
                 'primary_image' => $imagePaths[0] ?? null,
@@ -168,6 +170,7 @@ class BranchInventoryController extends Controller
             // Create branch stock entry
             $minThreshold = $request->min_stock_threshold ?? 5;
             $stockQuantity = $request->stock_quantity;
+            $availableQuantity = $stockQuantity - 0; // No reserved quantity for new items
             
             $branchStock = BranchStock::create([
                 'product_id' => $product->id,
@@ -175,7 +178,7 @@ class BranchInventoryController extends Controller
                 'stock_quantity' => $stockQuantity,
                 'reserved_quantity' => 0,
                 'min_stock_threshold' => $minThreshold,
-                'status' => $this->calculateStatus($stockQuantity, $minThreshold),
+                'status' => $this->calculateStatus($availableQuantity, $minThreshold),
                 'price_override' => $request->price_override ?? null,
                 'expiry_date' => $request->expiry_date,
                 'auto_restock_enabled' => $request->auto_restock_enabled ?? false,
@@ -188,9 +191,18 @@ class BranchInventoryController extends Controller
             // Load relationships
             $branchStock->load(['product', 'branch']);
 
+            // Transform inventory item, return null if invalid
+            $inventoryItem = $this->transformInventoryItem($branchStock);
+            if (!$inventoryItem) {
+                return response()->json([
+                    'message' => 'Product added to inventory successfully, but branch or product relationship is missing',
+                    'inventory' => null
+                ], 201);
+            }
+
             return response()->json([
                 'message' => 'Product added to inventory successfully',
-                'inventory' => $this->transformInventoryItem($branchStock)
+                'inventory' => $inventoryItem
             ], 201);
 
         } catch (\Exception $e) {
@@ -239,6 +251,11 @@ class BranchInventoryController extends Controller
             'expiry_date' => 'nullable|date',
             'auto_restock_enabled' => 'boolean',
             'auto_restock_quantity' => 'nullable|integer|min:0',
+            'adjustment_reason' => 'nullable|in:damage,theft,found,cycle_count,expired,quality_issue,other',
+            'adjustment_notes' => 'nullable|string|max:1000',
+            'cost_per_unit' => 'nullable|numeric|min:0',
+            'location_code' => 'nullable|string|max:50',
+            'bin_number' => 'nullable|string|max:20',
         ]);
 
         if ($validator->fails()) {
@@ -253,11 +270,28 @@ class BranchInventoryController extends Controller
 
             $oldQuantity = $branchStock->stock_quantity;
 
+            $oldCostPerUnit = $branchStock->cost_per_unit ?? 0;
+
             // Update branch stock
             $updateData = [];
+            // Always include stock_quantity if it's in the request, even if it's 0
             if ($request->has('stock_quantity')) {
-                $updateData['stock_quantity'] = $request->stock_quantity;
+                $updateData['stock_quantity'] = (int) $request->stock_quantity; // Explicitly cast to int
                 $updateData['last_restock_date'] = now();
+            }
+            if ($request->has('cost_per_unit')) {
+                $updateData['cost_per_unit'] = $request->cost_per_unit;
+                // Update average cost using weighted average
+                $this->updateAverageCost($branchStock, $request->cost_per_unit, $request->stock_quantity ?? $oldQuantity);
+            }
+            if ($request->has('location_code')) {
+                $updateData['location_code'] = $request->location_code;
+            }
+            if ($request->has('bin_number')) {
+                $updateData['bin_number'] = $request->bin_number;
+            }
+            if ($request->has('adjustment_notes')) {
+                $updateData['adjustment_notes'] = $request->adjustment_notes;
             }
             if ($request->has('min_stock_threshold')) {
                 $updateData['min_stock_threshold'] = $request->min_stock_threshold;
@@ -275,18 +309,48 @@ class BranchInventoryController extends Controller
                 $updateData['auto_restock_quantity'] = $request->auto_restock_quantity;
             }
 
-            // Calculate new status
-            $newQuantity = $request->stock_quantity ?? $branchStock->stock_quantity;
-            $newThreshold = $request->min_stock_threshold ?? $branchStock->min_stock_threshold;
-            $updateData['status'] = $this->calculateStatus($newQuantity, $newThreshold);
+            // Calculate new status based on available quantity (not just stock quantity)
+            // Use the value from updateData if stock_quantity was provided, otherwise use current value
+            $newStockQuantity = $request->has('stock_quantity') ? (int) $request->stock_quantity : $branchStock->stock_quantity;
+            $newThreshold = $request->min_stock_threshold ?? ($branchStock->min_stock_threshold ?? 5);
+            $availableQuantity = $newStockQuantity - $branchStock->reserved_quantity;
+            $updateData['status'] = $this->calculateStatus($availableQuantity, $newThreshold);
 
             $branchStock->update($updateData);
+            $branchStock->refresh();
+
+            // Log inventory transaction if quantity changed
+            // Check if stock_quantity was provided and changed (including from non-zero to zero)
+            if ($request->has('stock_quantity') && $newStockQuantity != $oldQuantity) {
+                $quantityChange = $newStockQuantity - $oldQuantity;
+                $transactionType = $quantityChange > 0 ? 'adjustment' : 'adjustment';
+                
+                $this->createInventoryTransaction([
+                    'branch_stock_id' => $branchStock->id,
+                    'product_id' => $branchStock->product_id,
+                    'branch_id' => $branchStock->branch_id,
+                    'transaction_type' => $transactionType,
+                    'quantity_change' => $quantityChange,
+                    'previous_quantity' => $oldQuantity,
+                    'new_quantity' => $newStockQuantity,
+                    'adjustment_reason' => $request->adjustment_reason ?? ($quantityChange > 0 ? 'found' : 'other'),
+                    'notes' => $request->adjustment_notes ?? ($request->notes ?? null),
+                    'reason' => $request->adjustment_notes ?? ($request->notes ?? null),
+                    'performed_by' => $user->id,
+                    'performed_by_role' => $user->role->value,
+                    'cost_per_unit' => $request->cost_per_unit ?? $oldCostPerUnit,
+                    'total_cost' => ($request->cost_per_unit ?? $oldCostPerUnit) * abs($quantityChange),
+                ]);
+
+                // Update total cost value
+                $this->updateTotalCostValue($branchStock);
+            }
 
             // Update product's total stock quantity
             $this->syncProductStockQuantity($branchStock->product_id);
 
             // Check and send alerts if stock is low
-            if ($newQuantity <= $newThreshold && $oldQuantity > $newThreshold) {
+            if ($newStockQuantity <= $newThreshold && $oldQuantity > $newThreshold) {
                 $this->sendLowStockAlert($branchStock);
             }
 
@@ -295,9 +359,18 @@ class BranchInventoryController extends Controller
             // Load relationships
             $branchStock->load(['product', 'branch']);
 
+            // Transform inventory item, return null if invalid
+            $inventoryItem = $this->transformInventoryItem($branchStock);
+            if (!$inventoryItem) {
+                return response()->json([
+                    'message' => 'Inventory updated successfully, but branch or product relationship is missing',
+                    'inventory' => null
+                ]);
+            }
+
             return response()->json([
                 'message' => 'Inventory updated successfully',
-                'inventory' => $this->transformInventoryItem($branchStock)
+                'inventory' => $inventoryItem
             ]);
 
         } catch (\Exception $e) {
@@ -397,11 +470,162 @@ class BranchInventoryController extends Controller
             ->get()
             ->map(function ($item) {
                 return $this->transformInventoryItem($item);
-            });
+            })
+            ->filter(function ($item) {
+                // Remove null values (stocks with missing branch/product relationships)
+                return $item !== null;
+            })
+            ->values();
 
         return response()->json([
             'alerts' => $alerts,
             'count' => $alerts->count()
+        ]);
+    }
+
+    /**
+     * Get detailed low stock analysis
+     */
+    public function getLowStockAnalysis(Request $request): JsonResponse
+    {
+        $user = Auth::user();
+
+        if (!$user) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+
+        $query = BranchStock::with(['product:id,name', 'branch:id,name,code'])
+            ->whereHas('product', function($q) {
+                $q->where('is_active', true);
+            });
+
+        // Staff can only see their branch
+        if ($user->role->value === 'staff' && $user->branch_id) {
+            $query->where('branch_id', $user->branch_id);
+        }
+
+        // Admin can filter by branch
+        if ($user->role->value === 'admin' && $request->has('branch_id')) {
+            $query->where('branch_id', $request->branch_id);
+        }
+
+        $items = $query->get();
+
+        $lowStockItems = $items->filter(function ($item) {
+            // Filter out items with missing relationships first
+            if (!$item->product || !$item->product->name || $item->product->name === 'Unknown Product' ||
+                !$item->branch || !$item->branch->name || $item->branch->name === 'Unknown' || $item->branch->name === 'Unknown Branch') {
+                return false;
+            }
+            
+            $availableQty = $item->available_quantity;
+            $threshold = $item->min_stock_threshold ?? 5;
+            return $availableQty > 0 && $availableQty <= $threshold;
+        })->map(function ($item) {
+            $availableQty = $item->available_quantity;
+            $threshold = $item->min_stock_threshold ?? 5;
+            $percentage = $threshold > 0 ? round(($availableQty / $threshold) * 100, 2) : 0;
+            
+            return [
+                'id' => $item->id,
+                'product_id' => $item->product_id,
+                'product_name' => $item->product->name,
+                'branch_id' => $item->branch_id,
+                'branch_name' => $item->branch->name,
+                'branch_code' => $item->branch->code ?? '',
+                'stock_quantity' => $item->stock_quantity,
+                'reserved_quantity' => $item->reserved_quantity,
+                'available_quantity' => $availableQty,
+                'min_threshold' => $threshold,
+                'percentage_of_threshold' => $percentage,
+                'needs_restock' => $availableQty < $threshold,
+                'can_sell_quantity' => max(0, $availableQty),
+                'status' => $item->status,
+                'last_restock_date' => $item->last_restock_date,
+                'auto_restock_enabled' => $item->auto_restock_enabled,
+                'auto_restock_quantity' => $item->auto_restock_quantity,
+            ];
+        });
+
+        // Group by branch
+        $byBranch = $lowStockItems->groupBy('branch_id')->map(function ($branchItems, $branchId) {
+            $branch = $branchItems->first();
+            return [
+                'branch_id' => $branchId,
+                'branch_name' => $branch['branch_name'],
+                'branch_code' => $branch['branch_code'],
+                'count' => $branchItems->count(),
+                'items' => $branchItems->values(),
+            ];
+        })->values();
+
+        // Statistics
+        $stats = [
+            'total_low_stock_items' => $lowStockItems->count(),
+            'by_branch' => $byBranch,
+            'threshold_issues' => $items->whereNull('min_stock_threshold')->count(),
+            'average_percentage' => $lowStockItems->avg('percentage_of_threshold') ?? 0,
+            'most_critical' => $lowStockItems->sortBy('percentage_of_threshold')->take(5)->values(),
+        ];
+
+        return response()->json([
+            'analysis' => $stats,
+            'all_items' => $lowStockItems->values(),
+        ]);
+    }
+
+    /**
+     * Get inventory transaction history
+     */
+    public function getTransactionHistory(Request $request): JsonResponse
+    {
+        $user = Auth::user();
+
+        if (!$user) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+
+        $query = InventoryTransaction::with(['product:id,name', 'branch:id,name', 'performedBy:id,name,email']);
+
+        // Staff can only see transactions for their branch
+        if ($user->role->value === 'staff' && $user->branch_id) {
+            $query->where('branch_id', $user->branch_id);
+        }
+
+        // Filter by product
+        if ($request->has('product_id')) {
+            $query->where('product_id', $request->product_id);
+        }
+
+        // Filter by branch (admin only)
+        if ($user->role->value === 'admin' && $request->has('branch_id')) {
+            $query->where('branch_id', $request->branch_id);
+        }
+
+        // Filter by transaction type
+        if ($request->has('transaction_type')) {
+            $query->where('transaction_type', $request->transaction_type);
+        }
+
+        // Filter by date range
+        if ($request->has('start_date')) {
+            $query->whereDate('created_at', '>=', $request->start_date);
+        }
+        if ($request->has('end_date')) {
+            $query->whereDate('created_at', '<=', $request->end_date);
+        }
+
+        $transactions = $query->orderBy('created_at', 'desc')
+            ->paginate($request->get('per_page', 20));
+
+        return response()->json([
+            'transactions' => $transactions->items(),
+            'pagination' => [
+                'current_page' => $transactions->currentPage(),
+                'last_page' => $transactions->lastPage(),
+                'per_page' => $transactions->perPage(),
+                'total' => $transactions->total(),
+            ]
         ]);
     }
 
@@ -419,37 +643,43 @@ class BranchInventoryController extends Controller
         }
 
         // Get all products with their branch stock information
+        // Filter out products/branches with unknown names
         $products = Product::with(['branchStock.branch'])
             ->where('is_active', true)
             ->get()
             ->map(function ($product) {
-                $totalStock = $product->branchStock->sum('stock_quantity');
-                $totalReserved = $product->branchStock->sum('reserved_quantity');
+                // Filter out branch stocks with missing or unknown branch relationships
+                $validBranchStocks = $product->branchStock->filter(function ($stock) {
+                    return $stock->branch && 
+                           $stock->branch->name && 
+                           $stock->branch->name !== 'Unknown' && 
+                           $stock->branch->name !== 'Unknown Branch';
+                });
+                
+                $totalStock = $validBranchStocks->sum('stock_quantity');
+                $totalReserved = $validBranchStocks->sum('reserved_quantity');
                 $availableStock = $totalStock - $totalReserved;
 
                 return [
                     'id' => $product->id,
                     'name' => $product->name,
-                    'sku' => $product->sku,
-                    'brand' => $product->brand,
-                    'model' => $product->model,
                     'price' => $product->price,
                     'total_stock' => $totalStock,
                     'total_reserved' => $totalReserved,
                     'available_stock' => $availableStock,
-                    'branches_count' => $product->branchStock->count(),
-                    'branch_availability' => $product->branchStock->map(function ($stock) {
+                    'branches_count' => $validBranchStocks->count(),
+                    'branch_availability' => $validBranchStocks->map(function ($stock) {
                         return [
                             'branch_id' => $stock->branch_id,
                             'branch_name' => $stock->branch->name,
-                            'branch_code' => $stock->branch->code,
+                            'branch_code' => $stock->branch->code ?? '',
                             'stock_quantity' => $stock->stock_quantity,
                             'reserved_quantity' => $stock->reserved_quantity,
                             'available_quantity' => $stock->available_quantity,
                             'status' => $stock->status,
                             'price_override' => $stock->price_override,
                         ];
-                    }),
+                    })->values(),
                     'image' => $product->primary_image ?? ($product->image_paths[0] ?? null),
                 ];
             });
@@ -475,34 +705,40 @@ class BranchInventoryController extends Controller
 
     private function transformInventoryItem($branchStock): array
     {
+        $product = $branchStock->product ?? null;
+        $branch = $branchStock->branch ?? null;
+        
+        // Only return data if both product and branch exist and have valid names
+        if (!$product || !$product->name || $product->name === 'Unknown Product' ||
+            !$branch || !$branch->name || $branch->name === 'Unknown' || $branch->name === 'Unknown Branch') {
+            return null; // Will be filtered out
+        }
+        
         return [
             'id' => $branchStock->id,
             'branch_id' => $branchStock->branch_id,
             'product_id' => $branchStock->product_id,
-            'product_name' => $branchStock->product->name,
-            'sku' => $branchStock->product->sku,
-            'brand' => $branchStock->product->brand,
-            'model' => $branchStock->product->model,
-            'description' => $branchStock->product->description,
-            'stock_quantity' => $branchStock->stock_quantity,
-            'reserved_quantity' => $branchStock->reserved_quantity,
-            'available_quantity' => $branchStock->available_quantity,
-            'min_threshold' => $branchStock->min_stock_threshold,
-            'status' => strtolower(str_replace(' ', '_', $branchStock->status)),
-            'price' => $branchStock->product->price,
-            'price_override' => $branchStock->price_override,
-            'effective_price' => $branchStock->price_override ?? $branchStock->product->price,
-            'expiry_date' => $branchStock->expiry_date,
-            'last_restock_date' => $branchStock->last_restock_date,
-            'auto_restock_enabled' => $branchStock->auto_restock_enabled,
-            'auto_restock_quantity' => $branchStock->auto_restock_quantity,
-            'is_active' => $branchStock->product->is_active,
-            'images' => $branchStock->product->image_paths,
-            'primary_image' => $branchStock->product->primary_image,
+            'product_name' => $product->name,
+            'description' => $product->description ?? '',
+            'stock_quantity' => $branchStock->stock_quantity ?? 0,
+            'reserved_quantity' => $branchStock->reserved_quantity ?? 0,
+            'available_quantity' => $branchStock->available_quantity ?? 0,
+            'min_threshold' => $branchStock->min_stock_threshold ?? 5,
+            'status' => strtolower(str_replace(' ', '_', $branchStock->status ?? 'out_of_stock')),
+            'price' => $product->price ?? 0,
+            'price_override' => $branchStock->price_override ?? null,
+            'effective_price' => $branchStock->price_override ?? ($product->price ?? 0),
+            'expiry_date' => $branchStock->expiry_date ?? null,
+            'last_restock_date' => $branchStock->last_restock_date ?? null,
+            'auto_restock_enabled' => $branchStock->auto_restock_enabled ?? false,
+            'auto_restock_quantity' => $branchStock->auto_restock_quantity ?? null,
+            'is_active' => $product->is_active ?? true,
+            'images' => $product->image_paths ?? [],
+            'primary_image' => $product->primary_image ?? null,
             'branch' => [
-                'id' => $branchStock->branch->id,
-                'name' => $branchStock->branch->name,
-                'code' => $branchStock->branch->code,
+                'id' => $branch->id,
+                'name' => $branch->name,
+                'code' => $branch->code ?? '',
             ],
             'created_at' => $branchStock->created_at,
             'updated_at' => $branchStock->updated_at,
@@ -513,14 +749,23 @@ class BranchInventoryController extends Controller
     {
         return [
             'total_items' => $inventories->count(),
-            'in_stock' => $inventories->where('status', 'In Stock')->count(),
-            'low_stock' => $inventories->where('status', 'Low Stock')->count(),
-            'out_of_stock' => $inventories->where('status', 'Out of Stock')->count(),
+            'in_stock' => $inventories->filter(function($item) {
+                $status = is_object($item) ? ($item->status ?? 'Out of Stock') : 'Out of Stock';
+                return $status === 'In Stock';
+            })->count(),
+            'low_stock' => $inventories->filter(function($item) {
+                $status = is_object($item) ? ($item->status ?? 'Out of Stock') : 'Out of Stock';
+                return $status === 'Low Stock';
+            })->count(),
+            'out_of_stock' => $inventories->filter(function($item) {
+                $status = is_object($item) ? ($item->status ?? 'Out of Stock') : 'Out of Stock';
+                return $status === 'Out of Stock';
+            })->count(),
             'total_value' => $inventories->sum(function ($item) {
-                $effectivePrice = $item->price_override !== null 
-                    ? (float) $item->price_override 
-                    : (float) $item->product->price;
-                return $item->stock_quantity * $effectivePrice;
+                $product = $item->product ?? null;
+                $effectivePrice = $item->price_override ?? ($product->price ?? 0);
+                $quantity = $item->stock_quantity ?? 0;
+                return $quantity * (float) $effectivePrice;
             }),
             'branches_count' => $inventories->pluck('branch_id')->unique()->count(),
         ];
@@ -540,9 +785,11 @@ class BranchInventoryController extends Controller
 
     private function calculateStatus($quantity, $minThreshold): string
     {
+        $threshold = $minThreshold ?? 5; // Default to 5 if NULL
+        
         if ($quantity <= 0) {
             return 'Out of Stock';
-        } elseif ($quantity <= $minThreshold) {
+        } elseif ($quantity <= $threshold) {
             return 'Low Stock';
         } else {
             return 'In Stock';
@@ -585,6 +832,48 @@ class BranchInventoryController extends Controller
             // Log error but don't fail the update
             \Log::warning('Failed to send low stock alert: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Create an inventory transaction record
+     */
+    private function createInventoryTransaction(array $data): InventoryTransaction
+    {
+        return InventoryTransaction::create($data);
+    }
+
+    /**
+     * Update average cost using weighted average method
+     */
+    private function updateAverageCost(BranchStock $branchStock, $newCostPerUnit, $newQuantity): void
+    {
+        if ($newQuantity <= 0) {
+            return;
+        }
+
+        $oldQuantity = $branchStock->getOriginal('stock_quantity');
+        $oldAverageCost = $branchStock->average_cost ?? 0;
+
+        if ($oldQuantity <= 0) {
+            // First stock entry
+            $branchStock->average_cost = $newCostPerUnit;
+        } else {
+            // Weighted average: (old_qty * old_avg_cost + new_qty * new_cost) / total_qty
+            $totalCost = ($oldQuantity * $oldAverageCost) + ($newQuantity * $newCostPerUnit);
+            $branchStock->average_cost = $totalCost / ($oldQuantity + $newQuantity);
+        }
+
+        $branchStock->save();
+    }
+
+    /**
+     * Update total cost value for branch stock
+     */
+    private function updateTotalCostValue(BranchStock $branchStock): void
+    {
+        $averageCost = $branchStock->average_cost ?? $branchStock->cost_per_unit ?? 0;
+        $branchStock->total_cost_value = $branchStock->stock_quantity * $averageCost;
+        $branchStock->saveQuietly();
     }
 }
 

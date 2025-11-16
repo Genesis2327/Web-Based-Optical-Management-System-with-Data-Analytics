@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { useToast } from '@/hooks/use-toast';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getBranches } from '@/services/branchApi';
+import { API_BASE_URL } from '@/config/api';
 
 interface Branch {
   id: number;
@@ -52,19 +53,49 @@ const BranchManagement: React.FC = () => {
     try {
       setLoading(true);
       const token = sessionStorage.getItem('auth_token');
-      const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api-mysql.php';
-      const response = await fetch(`${apiBaseUrl}/branches`, {
+      
+      // Prepare data - convert empty strings to null for optional fields
+      const requestData = {
+        ...formData,
+        phone: formData.phone?.trim() || null,
+        email: formData.email?.trim() || null,
+      };
+      
+      const response = await fetch(`${API_BASE_URL}/branches`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
           'Accept': 'application/json',
         },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(requestData),
       });
 
       if (!response.ok) {
         const errorData = await response.json();
+        
+        // Extract validation errors if they exist
+        if (errorData.errors) {
+          // Format validation errors nicely
+          const errorMessages: string[] = [];
+          Object.keys(errorData.errors).forEach((field) => {
+            const fieldErrors = errorData.errors[field];
+            if (Array.isArray(fieldErrors)) {
+              fieldErrors.forEach((error: string) => {
+                errorMessages.push(`${field.charAt(0).toUpperCase() + field.slice(1)}: ${error}`);
+              });
+            } else {
+              errorMessages.push(`${field}: ${fieldErrors}`);
+            }
+          });
+          
+          const errorMessage = errorMessages.length > 0 
+            ? errorMessages.join('. ') 
+            : errorData.message || 'Failed to create branch';
+          
+          throw new Error(errorMessage);
+        }
+        
         throw new Error(errorData.message || 'Failed to create branch');
       }
 
@@ -94,21 +125,29 @@ const BranchManagement: React.FC = () => {
     try {
       setLoading(true);
       const token = sessionStorage.getItem('auth_token');
-      const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api-mysql.php';
       
-      
-      const response = await fetch(`${apiBaseUrl}/branches/${selectedBranch.id}`, {
+      const response = await fetch(`${API_BASE_URL}/branches/${selectedBranch.id}`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
           'Accept': 'application/json',
         },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({
+          ...formData,
+          // Convert empty strings to null for optional fields
+          phone: formData.phone || null,
+          email: formData.email || null,
+        }),
       });
 
       if (!response.ok) {
         const errorData = await response.json();
+        // Extract validation errors if they exist
+        if (errorData.errors) {
+          const errorMessages = Object.values(errorData.errors).flat().join(', ');
+          throw new Error(errorMessages || errorData.message || 'Failed to update branch');
+        }
         throw new Error(errorData.message || 'Failed to update branch');
       }
 
@@ -138,10 +177,8 @@ const BranchManagement: React.FC = () => {
     try {
       setLoading(true);
       const token = sessionStorage.getItem('auth_token');
-      const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api-mysql.php';
       
-      
-      const response = await fetch(`${apiBaseUrl}/branches/${branchId}`, {
+      const response = await fetch(`${API_BASE_URL}/branches/${branchId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -254,10 +291,15 @@ const BranchManagement: React.FC = () => {
                   <Input
                     id="code"
                     value={formData.code}
-                    onChange={(e) => setFormData({ ...formData, code: e.target.value.toUpperCase() })}
-                    placeholder="e.g., MAIN, STA_ROSA"
+                    onChange={(e) => {
+                      const value = e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '').slice(0, 10);
+                      setFormData({ ...formData, code: value });
+                    }}
+                    placeholder="e.g., MAIN, STA_ROSA (max 10 chars)"
+                    maxLength={10}
                     required
                   />
+                  <p className="text-xs text-gray-500">Maximum 10 characters. Only letters, numbers, and underscores.</p>
                 </div>
               </div>
               
@@ -460,9 +502,15 @@ const BranchManagement: React.FC = () => {
                 <Input
                   id="edit-code"
                   value={formData.code}
-                  onChange={(e) => setFormData({ ...formData, code: e.target.value.toUpperCase() })}
+                  onChange={(e) => {
+                    const value = e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '').slice(0, 10);
+                    setFormData({ ...formData, code: value });
+                  }}
+                  placeholder="e.g., MAIN, STA_ROSA (max 10 chars)"
+                  maxLength={10}
                   required
                 />
+                <p className="text-xs text-gray-500">Maximum 10 characters. Only letters, numbers, and underscores.</p>
               </div>
             </div>
             

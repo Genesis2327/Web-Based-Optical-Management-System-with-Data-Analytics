@@ -1,3 +1,11 @@
+/**
+ * PaymentModal Component
+ * 
+ * ⚠️ LIMITATION: This component uses mock/simulated payment processing.
+ * Online payment options (GCash, PayMaya, Credit/Debit Card) are for demonstration
+ * purposes only and do not integrate with actual payment gateway providers.
+ * Transactions are recorded in the database but do not process real financial transactions.
+ */
 import React, { useState, useEffect } from 'react';
 import { CreditCard, Smartphone, Banknote, CheckCircle, X, AlertCircle, QrCode } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';

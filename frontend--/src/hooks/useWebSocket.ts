@@ -2,6 +2,26 @@ import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import websocketService, { NotificationData, AppointmentNotification, InventoryNotification } from '@/services/websocketService';
 
+interface PrescriptionNotification {
+  id: number;
+  type: string;
+  message: string;
+  prescription: {
+    id: number;
+    patient_id: number;
+    appointment_id: number;
+  };
+  patient?: {
+    id: number;
+    name: string;
+  };
+  optometrist?: {
+    id: number;
+    name: string;
+  };
+  timestamp: string;
+}
+
 interface UseWebSocketOptions {
   onAppointmentCreated?: (data: AppointmentNotification) => void;
   onAppointmentUpdated?: (data: AppointmentNotification) => void;
@@ -13,6 +33,7 @@ interface UseWebSocketOptions {
   onGeneralNotification?: (data: NotificationData) => void;
   onAlertNotification?: (data: NotificationData) => void;
   onUrgentNotification?: (data: NotificationData) => void;
+  onPrescriptionCreated?: (data: PrescriptionNotification) => void;
 }
 
 export const useWebSocket = (options: UseWebSocketOptions = {}) => {
@@ -130,6 +151,17 @@ export const useWebSocket = (options: UseWebSocketOptions = {}) => {
       optionsRef.current.onUrgentNotification?.(data);
     };
 
+    const handlePrescriptionCreated = (data: PrescriptionNotification) => {
+      setLastNotification({
+        id: data.id.toString(),
+        type: 'prescription-created',
+        message: data.message || 'Your prescription has been created',
+        timestamp: data.timestamp,
+        data
+      });
+      optionsRef.current.onPrescriptionCreated?.(data);
+    };
+
     // Register event listeners
     websocketService.on('appointment-created', handleAppointmentCreated);
     websocketService.on('appointment-updated', handleAppointmentUpdated);
@@ -141,6 +173,7 @@ export const useWebSocket = (options: UseWebSocketOptions = {}) => {
     websocketService.on('general-notification', handleGeneralNotification);
     websocketService.on('alert-notification', handleAlertNotification);
     websocketService.on('urgent-notification', handleUrgentNotification);
+    websocketService.on('prescription-created', handlePrescriptionCreated);
 
     // Join user-specific and role-specific channels
     if (user) {
@@ -170,6 +203,7 @@ export const useWebSocket = (options: UseWebSocketOptions = {}) => {
       websocketService.off('general-notification', handleGeneralNotification);
       websocketService.off('alert-notification', handleAlertNotification);
       websocketService.off('urgent-notification', handleUrgentNotification);
+      websocketService.off('prescription-created', handlePrescriptionCreated);
 
       // Leave channels
       if (user) {

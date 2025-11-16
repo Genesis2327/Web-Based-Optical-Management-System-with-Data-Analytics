@@ -11,6 +11,7 @@ use App\Models\BranchStock;
 use App\Models\Product;
 use App\Models\Receipt;
 use App\Models\Transaction;
+use App\Models\Feedback;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
@@ -228,14 +229,29 @@ class AnalyticsController extends Controller
      */
     public function getAdminAnalytics(Request $request): JsonResponse
     {
-        $user = Auth::user();
+        $user = $request->user();
         
         if (!$user || $user->role->value !== 'admin') {
             return response()->json(['message' => 'Unauthorized. Admin access required.'], 403);
         }
 
         $period = $request->get('period', '30'); // days
-        $startDate = Carbon::now()->subDays($period);
+        $startDate = Carbon::now()->subDays((int)$period)->startOfDay();
+        
+        \Log::info('Admin Analytics Query', [
+            'period' => $period,
+            'startDate' => $startDate->format('Y-m-d H:i:s'),
+            'endDate' => Carbon::now()->format('Y-m-d H:i:s'),
+            'total_appointments_all_time' => Appointment::count(),
+            'completed_appointments_all_time' => Appointment::where('status', 'completed')->count(),
+            'appointments_in_period' => Appointment::whereDate('appointment_date', '>=', $startDate->format('Y-m-d'))
+                ->whereDate('appointment_date', '<=', Carbon::now()->format('Y-m-d'))
+                ->count(),
+            'completed_in_period' => Appointment::whereDate('appointment_date', '>=', $startDate->format('Y-m-d'))
+                ->whereDate('appointment_date', '<=', Carbon::now()->format('Y-m-d'))
+                ->where('status', 'completed')
+                ->count()
+        ]);
 
         // Get comparison of branch performance
         $branchPerformance = $this->getBranchPerformanceComparison($startDate);
@@ -401,19 +417,20 @@ class AnalyticsController extends Controller
                 return $appointment->appointment_date->format('Y-m-d');
             });
 
-        $reservations = Reservation::where('branch_id', $branchId)
+        $reservations = Reservation::with('product')
+            ->where('branch_id', $branchId)
             ->where('created_at', '>=', $startDate)
             ->get()
             ->groupBy(function ($reservation) {
                 return $reservation->created_at->format('Y-m-d');
             });
             
-        $receipts = Receipt::whereHas('appointment', function($q) use ($branchId) {
+            $receipts = Receipt::whereHas('appointment', function($q) use ($branchId) {
             $q->where('branch_id', $branchId);
-        })->where('created_at', '>=', $startDate)
+        })->where('date', '>=', $startDate->format('Y-m-d'))
             ->get()
             ->groupBy(function ($receipt) {
-                return $receipt->created_at->format('Y-m-d');
+                return $receipt->date->format('Y-m-d');
             });
 
         $transactions = Transaction::where('branch_id', $branchId)
@@ -433,8 +450,16 @@ class AnalyticsController extends Controller
             $dayReceipts = $receipts->get($dateStr, collect());
             $dayTransactions = $transactions->get($dateStr, collect());
 
-            $reservationRevenue = $dayReservations->where('status', 'completed')->sum('total_price');
+            // Calculate reservation revenue properly (total_price is a calculated attribute, not a column)
+            $reservationRevenue = $dayReservations->whereIn('status', ['approved', 'completed'])
+                ->sum(function ($reservation) {
+                    return $reservation->quantity * ($reservation->product->price ?? 0);
+                });
+            
+            // Receipt revenue uses 'total_due' field
             $receiptRevenue = $dayReceipts->sum('total_due');
+            
+            // Transaction revenue
             $transactionRevenue = $dayTransactions->where('status', 'Completed')->sum('total_amount');
             $totalRevenue = $reservationRevenue + $receiptRevenue + $transactionRevenue;
 
@@ -466,20 +491,46 @@ class AnalyticsController extends Controller
         $branchPerformance = [];
 
         foreach ($branches as $branch) {
+            // Use whereDate for proper date comparison
+            $startDateFormatted = $startDate instanceof Carbon ? $startDate->format('Y-m-d') : $startDate;
             $appointments = Appointment::where('branch_id', $branch->id)
-                ->where('appointment_date', '>=', $startDate)
+                ->whereDate('appointment_date', '>=', $startDateFormatted)
+                ->whereDate('appointment_date', '<=', Carbon::now()->format('Y-m-d'))
                 ->get();
 
-            $reservations = Reservation::where('branch_id', $branch->id)
-                ->where('created_at', '>=', $startDate)
+            // Use proper date filtering for reservations (with product loaded for revenue calculation)
+            $reservations = Reservation::with('product')
+                ->where('branch_id', $branch->id)
+                ->whereDate('created_at', '>=', $startDateFormatted)
+                ->whereDate('created_at', '<=', Carbon::now()->format('Y-m-d'))
                 ->get();
                 
-            // Get receipts for this branch through appointments
-            $receipts = Receipt::whereHas('appointment', function($q) use ($branch) {
-                $q->where('branch_id', $branch->id);
-            })->where('created_at', '>=', $startDate)->get();
+            // Get receipts for this branch - try direct branch_id first, then through appointments
+            $receipts = collect();
+            try {
+                // Try direct branch_id if column exists (use 'date' field, not 'created_at')
+                $receipts = Receipt::where('branch_id', $branch->id)
+                    ->whereDate('date', '>=', $startDateFormatted)
+                    ->whereDate('date', '<=', Carbon::now()->format('Y-m-d'))
+                    ->get();
+            } catch (\Exception $e) {
+                // Fallback to through appointments
+                try {
+                    $receipts = Receipt::whereHas('appointment', function($q) use ($branch) {
+                        $q->where('branch_id', $branch->id);
+                    })->whereDate('date', '>=', $startDateFormatted)
+                      ->whereDate('date', '<=', Carbon::now()->format('Y-m-d'))
+                      ->get();
+                } catch (\Exception $e2) {
+                    \Log::warning('Receipt query failed for branch: ' . $e2->getMessage());
+                }
+            }
 
-            $reservationRevenue = $reservations->where('status', 'completed')->sum('total_price');
+            // Calculate reservation revenue properly (total_price is a calculated attribute, not a column)
+            $reservationRevenue = $reservations->whereIn('status', ['approved', 'completed'])
+                ->sum(function ($reservation) {
+                    return $reservation->quantity * ($reservation->product->price ?? 0);
+                });
             $receiptRevenue = $receipts->sum('total_due');
             $totalRevenue = $reservationRevenue + $receiptRevenue;
 
@@ -507,8 +558,11 @@ class AnalyticsController extends Controller
         $workloadReport = [];
 
         foreach ($optometrists as $optometrist) {
+            // Use whereDate for proper date comparison
+            $startDateFormatted = $startDate instanceof Carbon ? $startDate->format('Y-m-d') : $startDate;
             $appointments = Appointment::where('optometrist_id', $optometrist->id)
-                ->where('appointment_date', '>=', $startDate)
+                ->whereDate('appointment_date', '>=', $startDateFormatted)
+                ->whereDate('appointment_date', '<=', Carbon::now()->format('Y-m-d'))
                 ->get();
 
             $prescriptions = Prescription::where('optometrist_id', $optometrist->id)
@@ -539,20 +593,27 @@ class AnalyticsController extends Controller
         foreach ($staff as $staffMember) {
             if (!$staffMember->branch_id) continue;
 
+            // Use whereDate for proper date comparison
             $appointments = Appointment::where('branch_id', $staffMember->branch_id)
-                ->where('appointment_date', '>=', $startDate)
+                ->whereDate('appointment_date', '>=', $startDate instanceof Carbon ? $startDate->format('Y-m-d') : $startDate)
+                ->whereDate('appointment_date', '<=', Carbon::now()->format('Y-m-d'))
                 ->get();
 
-            $reservations = Reservation::where('branch_id', $staffMember->branch_id)
+            $reservations = Reservation::with('product')
+                ->where('branch_id', $staffMember->branch_id)
                 ->where('created_at', '>=', $startDate)
                 ->get();
                 
-            // Get receipts for this branch through appointments
+            // Get receipts for this branch through appointments (use 'date' field)
             $receipts = Receipt::whereHas('appointment', function($q) use ($staffMember) {
                 $q->where('branch_id', $staffMember->branch_id);
-            })->where('created_at', '>=', $startDate)->get();
+            })->where('date', '>=', $startDate instanceof Carbon ? $startDate->format('Y-m-d') : $startDate)->get();
 
-            $reservationRevenue = $reservations->where('status', 'completed')->sum('total_price');
+            // Calculate reservation revenue properly (total_price is a calculated attribute, not a column)
+            $reservationRevenue = $reservations->whereIn('status', ['approved', 'completed'])
+                ->sum(function ($reservation) {
+                    return $reservation->quantity * ($reservation->product->price ?? 0);
+                });
             $receiptRevenue = $receipts->sum('total_due');
             $totalRevenue = $reservationRevenue + $receiptRevenue;
 
@@ -577,22 +638,71 @@ class AnalyticsController extends Controller
      */
     private function getSystemWideStats($startDate)
     {
-        $totalAppointments = Appointment::where('appointment_date', '>=', $startDate)->count();
-        $totalReservations = Reservation::where('created_at', '>=', $startDate)->count();
+        // Ensure startDate is properly formatted for date comparison
+        $startDateFormatted = $startDate instanceof Carbon ? $startDate->format('Y-m-d') : $startDate;
+        $totalAppointments = Appointment::whereDate('appointment_date', '>=', $startDateFormatted)
+            ->whereDate('appointment_date', '<=', Carbon::now()->format('Y-m-d'))
+            ->count();
         
-        // Calculate total revenue from reservations, receipts, and transactions
-        $reservationRevenue = Reservation::where('created_at', '>=', $startDate)
-            ->where('status', 'completed')
-            ->sum('total_price');
+        \Log::info('System-wide appointments query', [
+            'startDate' => $startDateFormatted,
+            'endDate' => Carbon::now()->format('Y-m-d'),
+            'total_appointments' => $totalAppointments,
+            'completed' => Appointment::whereDate('appointment_date', '>=', $startDateFormatted)
+                ->whereDate('appointment_date', '<=', Carbon::now()->format('Y-m-d'))
+                ->where('status', 'completed')
+                ->count()
+        ]);
+        // Use proper date filtering for reservations
+        $totalReservations = 0;
+        $reservationRevenue = 0;
+        try {
+            $reservations = Reservation::with('product')
+                ->whereDate('created_at', '>=', $startDateFormatted)
+                ->whereDate('created_at', '<=', Carbon::now()->format('Y-m-d'))
+                ->get();
             
-        $receiptRevenue = Receipt::where('created_at', '>=', $startDate)
-            ->sum('total_due');
+            $totalReservations = $reservations->count();
             
-        $transactionRevenue = Transaction::where('created_at', '>=', $startDate)
-            ->where('status', 'Completed')
-            ->sum('total_amount');
+            // Calculate reservation revenue properly (total_price is a calculated attribute, not a column)
+            $reservationRevenue = $reservations->whereIn('status', ['approved', 'completed'])
+                ->sum(function ($reservation) {
+                    return $reservation->quantity * ($reservation->product->price ?? 0);
+                });
+        } catch (\Exception $e) {
+            \Log::warning('Reservation query failed: ' . $e->getMessage());
+        }
+        
+        // Calculate total revenue from receipts (use 'date' field, not 'created_at')
+        $receiptRevenue = 0;
+        try {
+            $receiptRevenue = Receipt::whereDate('date', '>=', $startDateFormatted)
+                ->whereDate('date', '<=', Carbon::now()->format('Y-m-d'))
+                ->sum('total_due') ?? 0;
+        } catch (\Exception $e) {
+            \Log::warning('Receipt query failed: ' . $e->getMessage());
+        }
+            
+        // Calculate total revenue from transactions
+        $transactionRevenue = 0;
+        try {
+            $transactionRevenue = Transaction::whereDate('created_at', '>=', $startDateFormatted)
+                ->whereDate('created_at', '<=', Carbon::now()->format('Y-m-d'))
+                ->where('status', 'Completed')
+                ->sum('total_amount') ?? 0;
+        } catch (\Exception $e) {
+            \Log::warning('Transaction query failed: ' . $e->getMessage());
+        }
             
         $totalRevenue = $reservationRevenue + $receiptRevenue + $transactionRevenue;
+        
+        \Log::info('Revenue calculation', [
+            'startDate' => $startDateFormatted,
+            'reservationRevenue' => $reservationRevenue,
+            'receiptRevenue' => $receiptRevenue,
+            'transactionRevenue' => $transactionRevenue,
+            'totalRevenue' => $totalRevenue
+        ]);
 
         $totalProducts = Product::count();
         $totalBranches = Branch::where('is_active', true)->count();
@@ -635,51 +745,82 @@ class AnalyticsController extends Controller
      */
     public function getRealTimeAnalytics(): JsonResponse
     {
-        $user = Auth::user();
+        try {
+            $user = Auth::user();
+            
+            if (!$user) {
+                return response()->json(['message' => 'Unauthorized'], 401);
+            }
+
+            $today = Carbon::today();
+            
+            // Get today's appointments
+            $totalAppointmentsToday = Appointment::whereDate('appointment_date', $today)->count();
+            
+            // Get today's revenue from completed reservations AND receipts
+            $reservationRevenueToday = 0;
+            try {
+                $reservations = Reservation::with('product')
+                    ->whereDate('created_at', $today)
+                    ->whereIn('status', ['approved', 'completed'])
+                    ->get();
+                
+                $reservationRevenueToday = $reservations->sum(function ($reservation) {
+                    return $reservation->quantity * ($reservation->product->price ?? 0);
+                });
+            } catch (\Exception $e) {
+                // Reservations table might not exist
+                \Log::warning('Could not fetch reservation revenue: ' . $e->getMessage());
+            }
+                
+            $receiptRevenueToday = 0;
+            try {
+                $receiptRevenueToday = Receipt::whereDate('date', $today)
+                    ->sum('total_due') ?? 0;
+            } catch (\Exception $e) {
+                \Log::warning('Could not fetch receipt revenue: ' . $e->getMessage());
+            }
+                
+            $totalRevenueToday = $reservationRevenueToday + $receiptRevenueToday;
+            
+            // Get active users (use updated_at as proxy for last login if last_login_at doesn't exist)
+            try {
+                $activeUsers = User::where('updated_at', '>=', Carbon::now()->subDay())->count();
+            } catch (\Exception $e) {
+                $activeUsers = User::count(); // Fallback to total users
+            }
+            
+            // Get low stock alerts
+            $lowStockAlerts = BranchStock::where('stock_quantity', '<=', DB::raw('min_stock_threshold'))->count();
         
-        if (!$user) {
-            return response()->json(['message' => 'Unauthorized'], 401);
+            // Get upcoming appointments (next 7 days)
+            $upcomingAppointments = Appointment::whereBetween('appointment_date', [
+                Carbon::now(),
+                Carbon::now()->addDays(7)
+            ])->count();
+
+            return response()->json([
+                'total_appointments_today' => $totalAppointmentsToday,
+                'total_revenue_today' => $totalRevenueToday,
+                'active_users' => $activeUsers,
+                'low_stock_alerts' => $lowStockAlerts,
+                'upcoming_appointments' => $upcomingAppointments,
+                'system_health' => [
+                    'database_status' => 'healthy',
+                    'api_response_time' => microtime(true) - ($_SERVER['REQUEST_TIME_FLOAT'] ?? microtime(true)),
+                    'last_backup' => Carbon::now()->subHours(6)->format('Y-m-d H:i:s'),
+                ],
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Real-time analytics error: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return response()->json([
+                'error' => 'Failed to fetch analytics',
+                'message' => $e->getMessage()
+            ], 500);
         }
-
-        $today = Carbon::today();
-        
-        // Get today's appointments
-        $totalAppointmentsToday = Appointment::whereDate('appointment_date', $today)->count();
-        
-        // Get today's revenue from completed reservations AND receipts
-        $reservationRevenueToday = Reservation::whereDate('created_at', $today)
-            ->where('status', 'completed')
-            ->sum('total_price');
-            
-        $receiptRevenueToday = Receipt::whereDate('created_at', $today)
-            ->sum('total_due');
-            
-        $totalRevenueToday = $reservationRevenueToday + $receiptRevenueToday;
-        
-        // Get active users (logged in within last 24 hours)
-        $activeUsers = User::where('last_login_at', '>=', Carbon::now()->subDay())->count();
-        
-        // Get low stock alerts
-        $lowStockAlerts = BranchStock::whereRaw('stock_quantity <= min_stock_threshold')->count();
-        
-        // Get upcoming appointments (next 7 days)
-        $upcomingAppointments = Appointment::whereBetween('appointment_date', [
-            Carbon::now(),
-            Carbon::now()->addDays(7)
-        ])->count();
-
-        return response()->json([
-            'total_appointments_today' => $totalAppointmentsToday,
-            'total_revenue_today' => $totalRevenueToday,
-            'active_users' => $activeUsers,
-            'low_stock_alerts' => $lowStockAlerts,
-            'upcoming_appointments' => $upcomingAppointments,
-            'system_health' => [
-                'database_status' => 'healthy',
-                'api_response_time' => microtime(true) - $_SERVER['REQUEST_TIME_FLOAT'],
-                'last_backup' => Carbon::now()->subHours(6)->format('Y-m-d H:i:s'),
-            ],
-        ]);
     }
 
     /**
@@ -688,13 +829,14 @@ class AnalyticsController extends Controller
      */
     public function getAnalyticsTrends(Request $request): JsonResponse
     {
-        $user = Auth::user();
-        
-        if (!$user) {
-            return response()->json(['message' => 'Unauthorized'], 401);
-        }
+        try {
+            $user = Auth::user();
+            
+            if (!$user) {
+                return response()->json(['message' => 'Unauthorized'], 401);
+            }
 
-        $period = $request->get('period', 30); // days
+            $period = $request->get('period', 30); // days
         $startDate = Carbon::now()->subDays($period);
         $branchId = $request->get('branch_id');
 
@@ -703,44 +845,72 @@ class AnalyticsController extends Controller
         for ($i = $period; $i >= 0; $i--) {
             $date = Carbon::now()->subDays($i);
             
-            // Get reservation revenue
-            $reservationQuery = Reservation::whereDate('created_at', $date)
-                ->where('status', 'completed');
-            
-            if ($branchId) {
-                $reservationQuery->where('branch_id', $branchId);
-            }
-            
-            $reservationRevenue = $reservationQuery->sum('total_price');
-            
-            // Get receipt revenue
-            $receiptQuery = Receipt::whereDate('created_at', $date);
-            
-            if ($branchId) {
-                // Filter receipts by branch through appointments
-                $receiptQuery->whereHas('appointment', function($q) use ($branchId) {
-                    $q->where('branch_id', $branchId);
+            // Get reservation revenue (calculate properly using quantity * product price)
+            $reservationRevenue = 0;
+            try {
+                $reservationQuery = Reservation::with('product')
+                    ->whereDate('created_at', $date)
+                    ->whereIn('status', ['approved', 'completed']);
+                
+                if ($branchId) {
+                    $reservationQuery->where('branch_id', $branchId);
+                }
+                
+                $reservations = $reservationQuery->get();
+                $reservationRevenue = $reservations->sum(function ($reservation) {
+                    return $reservation->quantity * ($reservation->product->price ?? 0);
                 });
+            } catch (\Exception $e) {
+                // Reservations table might not exist
+                \Log::debug('Reservation revenue query failed: ' . $e->getMessage());
             }
             
-            $receiptRevenue = $receiptQuery->sum('total_due');
+            // Get receipt revenue (use 'date' field, not 'created_at')
+            $receiptRevenue = 0;
+            try {
+                $receiptQuery = Receipt::whereDate('date', $date);
+                
+                if ($branchId) {
+                    // Filter receipts by branch_id directly
+                    $receiptQuery->where('branch_id', $branchId);
+                }
+                
+                $receiptRevenue = $receiptQuery->sum('total_due') ?? 0;
+            } catch (\Exception $e) {
+                // Receipts table might not exist or have different schema
+                \Log::debug('Receipt revenue query failed: ' . $e->getMessage());
+            }
             
             // Get transaction revenue
-            $transactionQuery = Transaction::whereDate('created_at', $date)
-                ->where('status', 'Completed');
-            
-            if ($branchId) {
-                $transactionQuery->where('branch_id', $branchId);
+            $transactionRevenue = 0;
+            try {
+                $transactionQuery = Transaction::whereDate('created_at', $date)
+                    ->where('status', 'Completed');
+                
+                if ($branchId) {
+                    $transactionQuery->where('branch_id', $branchId);
+                }
+                
+                $transactionRevenue = $transactionQuery->sum('total_amount') ?? 0;
+            } catch (\Exception $e) {
+                // Transactions table might not exist
             }
-            
-            $transactionRevenue = $transactionQuery->sum('total_amount');
             
             $totalRevenue = $reservationRevenue + $receiptRevenue + $transactionRevenue;
             
-            $appointments = Appointment::whereDate('appointment_date', $date)->count();
-            $patients = Appointment::whereDate('appointment_date', $date)
-                ->distinct('patient_id')
-                ->count();
+            // Get appointments count
+            $appointmentQuery = Appointment::whereDate('appointment_date', $date);
+            if ($branchId) {
+                $appointmentQuery->where('branch_id', $branchId);
+            }
+            $appointments = $appointmentQuery->count();
+            
+            // Get patients count
+            $patientQuery = Appointment::whereDate('appointment_date', $date);
+            if ($branchId) {
+                $patientQuery->where('branch_id', $branchId);
+            }
+            $patients = $patientQuery->distinct('patient_id')->count();
 
             $revenueTrend[] = [
                 'date' => $date->format('Y-m-d'),
@@ -749,27 +919,56 @@ class AnalyticsController extends Controller
                 'receipt_revenue' => $receiptRevenue,
                 'transaction_revenue' => $transactionRevenue,
                 'appointments' => $appointments,
-                'patients' => $patients,
+                'patients' => $patients, // Daily patient count (for charts)
             ];
         }
+
+        // Calculate unique patients across entire period (not summing daily counts)
+        $uniquePatientsQuery = Appointment::whereBetween('appointment_date', [
+            $startDate->format('Y-m-d'),
+            Carbon::now()->format('Y-m-d')
+        ]);
+        if ($branchId) {
+            $uniquePatientsQuery->where('branch_id', $branchId);
+        }
+        $uniquePatientsTotal = $uniquePatientsQuery->distinct('patient_id')->count('patient_id');
 
         // Appointment trend
         $appointmentTrend = [];
         for ($i = $period; $i >= 0; $i--) {
             $date = Carbon::now()->subDays($i);
-            $query = Appointment::whereDate('appointment_date', $date);
+            $dateString = $date->format('Y-m-d');
+            
+            // Build base query for the date
+            $baseQuery = Appointment::whereDate('appointment_date', $dateString);
             
             if ($branchId) {
-                $query->where('branch_id', $branchId);
+                $baseQuery->where('branch_id', $branchId);
             }
             
+            // Get total count (clone to preserve base query)
+            $total = (clone $baseQuery)->count();
+            
+            // Get completed count (clone to avoid modifying base query)
+            $completed = (clone $baseQuery)->where('status', 'completed')->count();
+            
+            // Get cancelled count (clone to avoid modifying base query)
+            $cancelled = (clone $baseQuery)->where('status', 'cancelled')->count();
+            
             $appointmentTrend[] = [
-                'date' => $date->format('Y-m-d'),
-                'total' => $query->count(),
-                'completed' => $query->where('status', 'completed')->count(),
-                'cancelled' => $query->where('status', 'cancelled')->count(),
+                'date' => $dateString,
+                'total' => $total,
+                'completed' => $completed,
+                'cancelled' => $cancelled,
             ];
         }
+        
+        \Log::debug('Appointment trend data generated', [
+            'period' => $period,
+            'branch_id' => $branchId,
+            'trend_count' => count($appointmentTrend),
+            'sample_data' => array_slice($appointmentTrend, 0, 3),
+        ]);
 
         // Inventory trend
         $inventoryTrend = [];
@@ -805,12 +1004,31 @@ class AnalyticsController extends Controller
                 ];
             });
 
-        return response()->json([
-            'revenue_trend' => $revenueTrend,
-            'appointment_trend' => $appointmentTrend,
-            'inventory_trend' => $inventoryTrend,
-            'appointment_types' => $appointmentTypes,
-        ]);
+            return response()->json([
+                'revenue_trend' => $revenueTrend,
+                'appointment_trend' => $appointmentTrend,
+                'inventory_trend' => $inventoryTrend,
+                'appointment_types' => $appointmentTypes,
+                'unique_patients_total' => $uniquePatientsTotal, // Unique patients across entire period
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Analytics trends error: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString(),
+                'period' => $period,
+                'branch_id' => $branchId,
+            ]);
+            
+            // Return empty arrays on error to prevent frontend crashes
+            return response()->json([
+                'error' => 'Failed to fetch analytics trends',
+                'message' => $e->getMessage(),
+                'revenue_trend' => [],
+                'appointment_trend' => [],
+                'inventory_trend' => [],
+                'appointment_types' => [],
+                'unique_patients_total' => 0,
+            ], 500);
+        }
     }
 
     /**
@@ -916,5 +1134,236 @@ class AnalyticsController extends Controller
                 'low_stock_items' => $lowStockItems,
             ],
         ]);
+    }
+
+    /**
+     * Get branch performance analytics
+     */
+    public function getBranchPerformance(): JsonResponse
+    {
+        try {
+            $startDate = Carbon::now()->subDays(30);
+            $branches = Branch::with(['appointments', 'reservations'])->get();
+            
+            $branchPerformance = $branches->map(function ($branch) use ($startDate) {
+                // Get appointments in the last 30 days
+                $appointments = $branch->appointments()
+                    ->where('appointment_date', '>=', $startDate->format('Y-m-d'))
+                    ->get();
+                $appointmentCount = $appointments->count();
+                
+                // Get unique patients (patient count)
+                $uniquePatients = $appointments->pluck('patient_id')->unique()->count();
+                
+                // Get reservations in the last 30 days (with product loaded for revenue calculation)
+                $reservations = $branch->reservations()
+                    ->with('product')
+                    ->where('created_at', '>=', $startDate)
+                    ->get();
+                
+                // Calculate revenue from receipts (use 'date' field, not 'created_at')
+                $receiptRevenue = 0;
+                try {
+                    $receiptRevenue = Receipt::where('branch_id', $branch->id)
+                        ->where('date', '>=', $startDate->format('Y-m-d'))
+                        ->sum('total_due') ?? 0;
+                } catch (\Exception $e) {
+                    // Fallback to through appointments if branch_id doesn't exist
+                    try {
+                        $receiptRevenue = Receipt::whereHas('appointment', function($q) use ($branch) {
+                            $q->where('branch_id', $branch->id);
+                        })->where('date', '>=', $startDate->format('Y-m-d'))
+                          ->sum('total_due') ?? 0;
+                    } catch (\Exception $e2) {
+                        \Log::warning('Receipt query failed for branch: ' . $e2->getMessage());
+                    }
+                }
+                
+                // Calculate revenue from reservations (total_price is a calculated attribute, not a column)
+                $reservationRevenue = $reservations->whereIn('status', ['approved', 'completed'])
+                    ->sum(function ($reservation) {
+                        return $reservation->quantity * ($reservation->product->price ?? 0);
+                    });
+                $totalRevenue = $receiptRevenue + $reservationRevenue;
+                
+                // Calculate growth percentage (compare with previous 30 days)
+                $previousStartDate = $startDate->copy()->subDays(30);
+                $previousAppointments = $branch->appointments()
+                    ->whereBetween('appointment_date', [$previousStartDate->format('Y-m-d'), $startDate->format('Y-m-d')])
+                    ->count();
+                $growth = $previousAppointments > 0 
+                    ? round((($appointmentCount - $previousAppointments) / $previousAppointments) * 100, 1)
+                    : ($appointmentCount > 0 ? 100 : 0);
+                
+                // Get inventory items count
+                $inventoryItems = 0;
+                try {
+                    $inventoryItems = \App\Models\BranchStock::where('branch_id', $branch->id)->count();
+                } catch (\Exception $e) {
+                    \Log::warning('Inventory count query failed for branch: ' . $e->getMessage());
+                }
+                
+                // Get low stock alerts count
+                $lowStockAlerts = 0;
+                try {
+                    $lowStockAlerts = \App\Models\BranchStock::where('branch_id', $branch->id)
+                        ->whereIn('status', ['Low Stock', 'Out of Stock'])
+                        ->count();
+                } catch (\Exception $e) {
+                    \Log::warning('Low stock query failed for branch: ' . $e->getMessage());
+                }
+                
+                // Calculate average satisfaction from feedback
+                $satisfaction = 0;
+                try {
+                    $feedback = \App\Models\Feedback::where('branch_id', $branch->id)
+                        ->where('created_at', '>=', $startDate)
+                        ->avg('rating');
+                    $satisfaction = round($feedback ?? 0, 1);
+                } catch (\Exception $e) {
+                    \Log::warning('Feedback query failed for branch: ' . $e->getMessage());
+                }
+                
+                return [
+                    'id' => $branch->id,
+                    'name' => $branch->name,
+                    'code' => $branch->code,
+                    'address' => $branch->address,
+                    'revenue' => round($totalRevenue, 2),
+                    'patients' => $uniquePatients, // Unique patients at this branch
+                    'patient_visits' => $appointmentCount, // Total patient visits (appointments) at this branch
+                    'appointments' => $appointmentCount, // Keep for backward compatibility
+                    'growth' => $growth,
+                    'inventory_items' => $inventoryItems,
+                    'low_stock_alerts' => $lowStockAlerts,
+                    'satisfaction' => $satisfaction,
+                    'is_active' => $branch->is_active,
+                ];
+            });
+
+            // Calculate unique patients across ALL branches (not summing branch totals to avoid double-counting)
+            $branchIds = $branches->pluck('id');
+            $allAppointments = Appointment::whereIn('branch_id', $branchIds)
+                ->where('appointment_date', '>=', $startDate->format('Y-m-d'))
+                ->where('appointment_date', '<=', Carbon::now()->format('Y-m-d'))
+                ->get();
+            
+            $uniquePatientsTotal = $allAppointments->pluck('patient_id')->unique()->count();
+            $totalPatientVisits = $allAppointments->count();
+
+            // Calculate summary totals
+            $summary = [
+                'total_branches' => $branches->count(),
+                'active_branches' => $branches->where('is_active', true)->count(),
+                'total_appointments' => $branchPerformance->sum('appointments'),
+                'total_patient_visits' => $totalPatientVisits, // Total appointment count (includes repeat visits)
+                'total_revenue' => $branchPerformance->sum('revenue'),
+                'total_patients' => $uniquePatientsTotal, // Unique patients across all branches (not summed)
+                'average_growth' => $branchPerformance->avg('growth') ?? 0,
+            ];
+
+            return response()->json([
+                'branches' => $branchPerformance,
+                'summary' => $summary
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Error fetching branch performance',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get product analytics for admin
+     */
+    public function getProductAnalytics(Request $request): JsonResponse
+    {
+        try {
+            $period = $request->get('period', 30);
+            $limit = $request->get('limit', 10);
+            $branchId = $request->get('branch_id');
+            
+            $startDate = Carbon::now()->subDays($period);
+            
+            // Get top-selling products from reservations
+            $reservationsQuery = Reservation::where('created_at', '>=', $startDate)
+                ->where('status', 'completed');
+            
+            if ($branchId) {
+                $reservationsQuery->where('branch_id', $branchId);
+            }
+            
+            // Group by product_id and calculate total units sold and revenue
+            $productSales = $reservationsQuery->selectRaw('
+                    product_id,
+                    SUM(quantity) as units_sold,
+                    SUM(quantity * (SELECT price FROM products WHERE id = reservations.product_id)) as total_revenue
+                ')
+                ->groupBy('product_id')
+                ->orderBy('units_sold', 'desc')
+                ->limit($limit)
+                ->get();
+            
+            // Get previous period for trend calculation
+            $previousStartDate = $startDate->copy()->subDays($period);
+            $previousProductSales = Reservation::where('created_at', '>=', $previousStartDate)
+                ->where('created_at', '<', $startDate)
+                ->where('status', 'completed')
+                ->when($branchId, function($q) use ($branchId) {
+                    $q->where('branch_id', $branchId);
+                })
+                ->selectRaw('product_id, SUM(quantity) as units_sold')
+                ->groupBy('product_id')
+                ->get()
+                ->keyBy('product_id');
+            
+            // Load products and build response
+            $productIds = $productSales->pluck('product_id');
+            $products = Product::with(['category'])->whereIn('id', $productIds)->get()->keyBy('id');
+            
+            $topProducts = $productSales->map(function ($sale) use ($products, $previousProductSales) {
+                $product = $products->get($sale->product_id);
+                if (!$product) return null;
+                
+                $previousUnits = $previousProductSales->get($sale->product_id)?->units_sold ?? 0;
+                $currentUnits = $sale->units_sold;
+                $trendPercentage = $previousUnits > 0 
+                    ? round((($currentUnits - $previousUnits) / $previousUnits) * 100, 1)
+                    : ($currentUnits > 0 ? 100 : 0);
+                
+                return [
+                    'id' => $product->id,
+                    'name' => $product->name,
+                    'category' => $product->category ? $product->category->name : 'No Category',
+                    'price' => $product->price,
+                    'units_sold' => (int)$currentUnits,
+                    'revenue' => round($sale->total_revenue ?? 0, 2),
+                    'trend_percentage' => $trendPercentage,
+                    'previous_units' => (int)$previousUnits,
+                    'reservation_units' => (int)$currentUnits,
+                    'receipt_units' => 0, // TODO: Add if receipt_items table exists
+                ];
+            })->filter()->values();
+
+            return response()->json([
+                'top_products' => $topProducts,
+                'summary' => [
+                    'total_products_sold' => $topProducts->count(),
+                    'total_units_sold' => $topProducts->sum('units_sold'),
+                    'total_revenue' => round($topProducts->sum('revenue'), 2),
+                ],
+                'period' => [
+                    'days' => $period,
+                    'start_date' => $startDate->format('Y-m-d'),
+                    'end_date' => Carbon::now()->format('Y-m-d'),
+                ]
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Error fetching product analytics',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 }

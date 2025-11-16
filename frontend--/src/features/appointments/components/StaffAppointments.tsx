@@ -292,9 +292,14 @@ const StaffAppointments = () => {
               {appointments.map((appointment) => (
                 <TableRow key={appointment.id}>
                   <TableCell>
-                    <div className="flex items-center space-x-2">
-                      <User className="h-4 w-4 text-gray-400" />
-                      <span className="font-medium">{appointment.patient?.name || 'Unknown Patient'}</span>
+                    <div className="space-y-1">
+                      <div className="flex items-center space-x-2">
+                        <User className="h-4 w-4 text-gray-400" />
+                        <span className="font-medium">{appointment.patient?.name || 'Unknown Patient'}</span>
+                      </div>
+                      {appointment.patient?.phone && (
+                        <div className="text-xs text-gray-500 ml-6">{appointment.patient.phone}</div>
+                      )}
                     </div>
                   </TableCell>
                   <TableCell>{appointment.optometrist?.name || 'Unknown Optometrist'}</TableCell>

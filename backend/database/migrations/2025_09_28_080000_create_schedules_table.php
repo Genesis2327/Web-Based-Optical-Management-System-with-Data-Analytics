@@ -11,11 +11,16 @@ return new class extends Migration
      */
     public function up(): void
     {
+        // Skip if table already exists
+        if (Schema::hasTable('schedules')) {
+            return;
+        }
+        
         Schema::create('schedules', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('staff_id')->constrained('users')->onDelete('cascade');
+            $table->unsignedBigInteger('staff_id');
             $table->string('staff_role')->default('optometrist');
-            $table->foreignId('branch_id')->constrained('branches')->onDelete('cascade');
+            $table->unsignedBigInteger('branch_id');
             $table->integer('day_of_week'); // 1 = Monday, 2 = Tuesday, ..., 7 = Sunday
             $table->time('start_time');
             $table->time('end_time');
@@ -31,9 +36,16 @@ return new class extends Migration
             $table->index(['day_of_week', 'is_active']);
             $table->index(['staff_id', 'is_active']);
             
-            // Foreign keys for audit trail
-            $table->foreign('created_by')->references('id')->on('users')->onDelete('set null');
-            $table->foreign('updated_by')->references('id')->on('users')->onDelete('set null');
+            // Add foreign keys only if referenced tables exist
+            if (Schema::hasTable('users')) {
+                $table->foreign('staff_id')->references('id')->on('users')->onDelete('cascade');
+                $table->foreign('created_by')->references('id')->on('users')->onDelete('set null');
+                $table->foreign('updated_by')->references('id')->on('users')->onDelete('set null');
+            }
+            
+            if (Schema::hasTable('branches')) {
+                $table->foreign('branch_id')->references('id')->on('branches')->onDelete('cascade');
+            }
         });
     }
 

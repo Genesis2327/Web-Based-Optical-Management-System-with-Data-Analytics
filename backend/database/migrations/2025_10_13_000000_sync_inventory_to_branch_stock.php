@@ -13,7 +13,7 @@ return new class extends Migration
      */
     public function up(): void
     {
-        // First, ensure all products have SKU (SQLite compatible)
+        // First, ensure all products have SKU (MySQL/MariaDB compatible)
         // Commented out: Products table doesn't have sku column
         // DB::statement("
         //     UPDATE products 

@@ -122,11 +122,11 @@ const InventoryManagement = () => {
   const lowStockItems = inventory.filter(item => item.quantity <= item.minStock);
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
+    <div className="p-4 sm:p-6 max-w-7xl mx-auto">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 sm:mb-6 gap-4">
         <div className="flex items-center space-x-2">
-          <Package className="h-6 w-6 text-staff" />
-          <h1 className="text-2xl font-bold">Inventory Management</h1>
+          <Package className="h-5 w-5 sm:h-6 sm:w-6 text-staff" />
+          <h1 className="text-xl sm:text-2xl font-bold">Inventory Management</h1>
         </div>
         <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
           <DialogTrigger asChild>
@@ -143,7 +143,7 @@ const InventoryManagement = () => {
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="name">Item Name</Label>
                   <Input id="name" placeholder="Product name" />
@@ -153,7 +153,7 @@ const InventoryManagement = () => {
                   <Input id="sku" placeholder="Stock keeping unit" />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="category">Category</Label>
                   <Select>
@@ -173,7 +173,7 @@ const InventoryManagement = () => {
                   <Input id="brand" placeholder="Brand name" />
                 </div>
               </div>
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <Label htmlFor="quantity">Quantity</Label>
                   <Input id="quantity" type="number" placeholder="0" />
@@ -225,9 +225,9 @@ const InventoryManagement = () => {
       )}
 
       {/* Filters */}
-      <Card className="mb-6">
-        <CardContent className="pt-6">
-          <div className="flex space-x-4">
+      <Card className="mb-4 sm:mb-6">
+        <CardContent className="pt-4 sm:pt-6">
+          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
             <div className="flex-1">
               <div className="relative">
                 <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
@@ -240,7 +240,7 @@ const InventoryManagement = () => {
               </div>
             </div>
             <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-              <SelectTrigger className="w-48">
+              <SelectTrigger className="w-full sm:w-48">
                 <SelectValue placeholder="Filter by category" />
               </SelectTrigger>
               <SelectContent>
@@ -264,8 +264,9 @@ const InventoryManagement = () => {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
               <TableRow>
                 <TableHead>Item Details</TableHead>
                 <TableHead>Category</TableHead>
@@ -322,6 +323,7 @@ const InventoryManagement = () => {
               })}
             </TableBody>
           </Table>
+          </div>
         </CardContent>
       </Card>
     </div>

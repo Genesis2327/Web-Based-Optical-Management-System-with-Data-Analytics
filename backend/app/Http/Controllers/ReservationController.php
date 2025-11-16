@@ -49,84 +49,174 @@ class ReservationController extends Controller
      */
     public function store(Request $request): JsonResponse
     {
-        $user = Auth::user();
+        try {
+            $user = Auth::user();
+            
+            if (!$user) {
+                \Log::error('Reservation creation: No authenticated user');
+                return response()->json([
+                    'message' => 'You must be logged in to create a reservation'
+                ], 401);
+            }
 
-        // Only customers can create reservations
-        $userRole = $user->role->value ?? (string)$user->role;
-        if ($userRole !== 'customer') {
+            \Log::info('Reservation creation attempt', [
+                'user_id' => $user->id,
+                'user_role' => $user->role->value ?? (string)$user->role,
+                'request_data' => $request->all()
+            ]);
+
+            // Only customers can create reservations
+            $userRole = $user->role->value ?? (string)$user->role;
+            if ($userRole !== 'customer') {
+                \Log::warning('Reservation creation: Non-customer attempt', [
+                    'user_id' => $user->id,
+                    'role' => $userRole
+                ]);
+                return response()->json([
+                    'message' => 'Only customers can create reservations'
+                ], 403);
+            }
+
+            $validator = Validator::make($request->all(), [
+                'product_id' => 'required|exists:products,id',
+                'branch_id' => 'required|exists:branches,id',
+                'quantity' => 'required|integer|min:1',
+                'notes' => 'nullable|string|max:500',
+            ]);
+
+            if ($validator->fails()) {
+                \Log::warning('Reservation creation: Validation failed', [
+                    'errors' => $validator->errors()->toArray(),
+                    'request_data' => $request->all()
+                ]);
+                return response()->json([
+                    'message' => 'Validation failed',
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
+            $product = Product::find($request->product_id);
+            
+            if (!$product) {
+                \Log::warning('Reservation creation: Product not found', [
+                    'product_id' => $request->product_id
+                ]);
+                return response()->json([
+                    'message' => 'Product not found'
+                ], 404);
+            }
+
+            // Check if product is active and approved (for customers)
+            if (!$product->is_active || $product->approval_status !== 'approved') {
+                \Log::info('Reservation creation: Product not active', [
+                    'product_id' => $product->id,
+                    'is_active' => $product->is_active
+                ]);
+                return response()->json([
+                    'message' => 'Product is not available for reservation'
+                ], 400);
+            }
+
+            // Check branch stock availability
+            $branchStock = \App\Models\BranchStock::where('product_id', $request->product_id)
+                ->where('branch_id', $request->branch_id)
+                ->first();
+
+            \Log::info('Branch stock check', [
+                'product_id' => $request->product_id,
+                'branch_id' => $request->branch_id,
+                'branch_stock_exists' => $branchStock !== null,
+                'branch_stock_data' => $branchStock ? [
+                    'stock_quantity' => $branchStock->stock_quantity,
+                    'reserved_quantity' => $branchStock->reserved_quantity,
+                    'available_quantity' => $branchStock->available_quantity
+                ] : null
+            ]);
+
+            if (!$branchStock) {
+                \Log::warning('Reservation creation: Branch stock not found', [
+                    'product_id' => $request->product_id,
+                    'branch_id' => $request->branch_id
+                ]);
+                return response()->json([
+                    'message' => 'Product is not available at the selected branch'
+                ], 400);
+            }
+
+            $availableQuantity = $branchStock->available_quantity;
+            
+            if ($availableQuantity < $request->quantity) {
+                \Log::info('Reservation creation: Insufficient stock', [
+                    'product_id' => $request->product_id,
+                    'branch_id' => $request->branch_id,
+                    'requested_quantity' => $request->quantity,
+                    'available_quantity' => $availableQuantity
+                ]);
+                return response()->json([
+                    'message' => "Insufficient stock available. Only {$availableQuantity} items available at selected branch"
+                ], 400);
+            }
+
+            // Check if user already has a pending reservation for this product
+            $existingReservation = Reservation::where('user_id', $user->id)
+                ->where('product_id', $request->product_id)
+                ->where('status', 'pending')
+                ->first();
+
+            if ($existingReservation) {
+                \Log::info('Reservation creation: Duplicate pending reservation', [
+                    'user_id' => $user->id,
+                    'product_id' => $request->product_id,
+                    'existing_reservation_id' => $existingReservation->id
+                ]);
+                return response()->json([
+                    'message' => 'You already have a pending reservation for this product'
+                ], 400);
+            }
+
+            // Auto-assign customer to branch if they don't have one
+            if (!$user->branch_id) {
+                $user->update(['branch_id' => $request->branch_id]);
+            }
+
+            $reservation = Reservation::create([
+                'user_id' => $user->id,
+                'product_id' => $request->product_id,
+                'branch_id' => $request->branch_id,
+                'quantity' => $request->quantity,
+                'notes' => $request->notes,
+                'status' => 'pending',
+                'reserved_at' => now(),
+            ]);
+
+            // Update reserved quantity in branch stock
+            $branchStock->increment('reserved_quantity', $request->quantity);
+
+            \Log::info('Reservation created successfully', [
+                'reservation_id' => $reservation->id,
+                'user_id' => $user->id,
+                'product_id' => $request->product_id,
+                'branch_id' => $request->branch_id,
+                'quantity' => $request->quantity
+            ]);
+
             return response()->json([
-                'message' => 'Only customers can create reservations'
-            ], 403);
-        }
-
-        $validator = Validator::make($request->all(), [
-            'product_id' => 'required|exists:products,id',
-            'branch_id' => 'required|exists:branches,id',
-            'quantity' => 'required|integer|min:1',
-            'notes' => 'nullable|string|max:500',
-        ]);
-
-        if ($validator->fails()) {
+                'message' => 'Reservation created successfully',
+                'reservation' => $reservation->load(['product', 'user', 'branch'])
+            ], 201);
+            
+        } catch (\Exception $e) {
+            \Log::error('Reservation creation error', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'request_data' => $request->all()
+            ]);
+            
             return response()->json([
-                'message' => 'Validation failed',
-                'errors' => $validator->errors()
-            ], 422);
+                'message' => 'Failed to create reservation',
+                'error' => $e->getMessage()
+            ], 500);
         }
-
-        $product = Product::findOrFail($request->product_id);
-
-        // Check if product is active
-        if (!$product->is_active) {
-            return response()->json([
-                'message' => 'Product is not available for reservation'
-            ], 400);
-        }
-
-        // Check branch stock availability
-        $branchStock = \App\Models\BranchStock::where('product_id', $request->product_id)
-            ->where('branch_id', $request->branch_id)
-            ->first();
-
-        if (!$branchStock || $branchStock->available_quantity < $request->quantity) {
-            return response()->json([
-                'message' => 'Insufficient stock available at selected branch'
-            ], 400);
-        }
-
-        // Check if user already has a pending reservation for this product
-        $existingReservation = Reservation::where('user_id', $user->id)
-            ->where('product_id', $request->product_id)
-            ->where('status', 'pending')
-            ->first();
-
-        if ($existingReservation) {
-            return response()->json([
-                'message' => 'You already have a pending reservation for this product'
-            ], 400);
-        }
-
-        // Auto-assign customer to branch if they don't have one
-        if (!$user->branch_id) {
-            $user->update(['branch_id' => $request->branch_id]);
-        }
-
-        $reservation = Reservation::create([
-            'user_id' => $user->id,
-            'product_id' => $request->product_id,
-            'branch_id' => $request->branch_id,
-            'quantity' => $request->quantity,
-            'notes' => $request->notes,
-            'status' => 'pending',
-            'reserved_at' => now(),
-        ]);
-
-        // Update reserved quantity in branch stock
-        $branchStock->increment('reserved_quantity', $request->quantity);
-
-        return response()->json([
-            'message' => 'Reservation created successfully',
-            'reservation' => $reservation->load(['product', 'user', 'branch'])
-        ], 201);
     }
 
     /**
@@ -234,7 +324,7 @@ class ReservationController extends Controller
         $reservation->delete();
 
         return response()->json([
-            'message' => 'Reservation deleted successfully'
+            'message' => 'Reservation deleted successfully (soft deleted - data preserved in database)'
         ]);
     }
 

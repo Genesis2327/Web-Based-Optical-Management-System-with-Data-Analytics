@@ -107,9 +107,20 @@ const CustomerFeedback = () => {
       await fetchData();
     } catch (error: any) {
       console.error('Error submitting feedback:', error);
+      console.error('Error response:', error.response?.data);
+      
+      const errorMessage = error.response?.data?.message || 
+                          error.response?.data?.error ||
+                          error.message || 
+                          "Failed to submit feedback";
+      
+      const errorDetails = error.response?.data?.errors ? 
+                          Object.values(error.response.data.errors).flat().join(', ') : 
+                          '';
+      
       toast({
         title: "Error",
-        description: error.message || "Failed to submit feedback",
+        description: errorMessage + (errorDetails ? `: ${errorDetails}` : ''),
         variant: "destructive",
       });
     } finally {

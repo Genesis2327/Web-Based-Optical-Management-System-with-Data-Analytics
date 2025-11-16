@@ -17,8 +17,9 @@ return Application::configure(basePath: dirname(__DIR__))
             \App\Http\Middleware\DisableSessions::class,
         ]);
 
+        // Enable CORS middleware for API routes
         $middleware->api(prepend: [
-            // \App\Http\Middleware\HandleCors::class,
+            \App\Http\Middleware\HandleCors::class,
         ]);
 
         $middleware->alias([
@@ -26,6 +27,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
             'role' => \App\Http\Middleware\CheckRole::class,
             'rate.api' => \App\Http\Middleware\RateLimitApi::class,
+            'admin' => \App\Http\Middleware\EnsureAdmin::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

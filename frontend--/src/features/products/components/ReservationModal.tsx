@@ -1,14 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../../contexts/AuthContext';
-import { Product } from '../types/product.types';
-
-interface Branch {
-  id: number;
-  name: string;
-  code: string;
-  address: string;
-  phone: string;
-}
+import { Product, BranchAvailability } from '../types/product.types';
 
 interface ProductWithAvailability extends Product {
   // Product interface remains the same
@@ -44,7 +36,12 @@ const ReservationModal: React.FC<ReservationModalProps> = ({
     }
   }, [isOpen]);
 
-  const availableBranches = product.branch_availability?.filter(ba => ba.is_available) || [];
+  const availableBranches = product.branch_availability?.filter(ba => 
+    ba.is_available && 
+    ba.branch && 
+    ba.branch.id && 
+    ba.branch.name
+  ) || [];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -63,7 +60,8 @@ const ReservationModal: React.FC<ReservationModalProps> = ({
     setError(null);
 
     try {
-      const res = await fetch((import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api') + '/reservations', {
+      const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api';
+      const res = await fetch(`${API_BASE_URL}/reservations`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -79,7 +77,15 @@ const ReservationModal: React.FC<ReservationModalProps> = ({
 
       if (!res.ok) {
         const data = await res.json().catch(() => null);
-        throw new Error((data && data.message) || 'Failed to create reservation');
+        const errorMessage = data?.message || data?.error || 'Failed to create reservation';
+        
+        // Extract validation errors if present
+        if (data?.errors) {
+          const validationErrors = Object.values(data.errors).flat().join(', ');
+          throw new Error(validationErrors || errorMessage);
+        }
+        
+        throw new Error(errorMessage);
       }
 
       onReservationSuccess();
@@ -98,12 +104,48 @@ const ReservationModal: React.FC<ReservationModalProps> = ({
   const getMaxQuantity = () => {
     if (!selectedBranch) return 1;
     const branchAvailability = product.branch_availability?.find(
-      ba => ba.branch.id === selectedBranch
+      ba => ba.branch && ba.branch.id === selectedBranch
     );
     return branchAvailability?.available_quantity || 1;
   };
 
   if (!isOpen) return null;
+
+  // Show error if no branches are available
+  if (availableBranches.length === 0) {
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-lg max-w-md w-full p-6">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-bold">Reserve Product</h2>
+            <button
+              onClick={onClose}
+              className="text-gray-500 hover:text-gray-700 text-2xl"
+            >
+              ×
+            </button>
+          </div>
+          <div className="text-center py-8">
+            <div className="text-red-600 mb-4">
+              <svg className="w-16 h-16 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-semibold text-gray-800 mb-2">Product Not Available</h3>
+            <p className="text-gray-600 mb-6">
+              This product is currently not available at any branch for reservation.
+            </p>
+            <button
+              onClick={onClose}
+              className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -146,9 +188,11 @@ const ReservationModal: React.FC<ReservationModalProps> = ({
               >
                 <option value="">Choose a branch...</option>
                 {availableBranches.map(branch => (
-                  <option key={branch.branch.id} value={branch.branch.id}>
-                    {branch.branch.name} - {branch.available_quantity} available
-                  </option>
+                  branch.branch && (
+                    <option key={branch.branch.id} value={branch.branch.id}>
+                      {branch.branch.name} - {branch.available_quantity} available
+                    </option>
+                  )
                 ))}
               </select>
             </div>
@@ -191,7 +235,7 @@ const ReservationModal: React.FC<ReservationModalProps> = ({
               <div className="p-3 bg-blue-50 rounded-lg">
                 {(() => {
                   const branchAvailability = product.branch_availability?.find(
-                    ba => ba.branch.id === selectedBranch
+                    ba => ba.branch && ba.branch.id === selectedBranch
                   );
                   const branch = branchAvailability?.branch;
                   

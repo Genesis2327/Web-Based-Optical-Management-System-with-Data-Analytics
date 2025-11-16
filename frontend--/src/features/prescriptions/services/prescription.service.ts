@@ -1,6 +1,13 @@
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+// Get API base URL and ensure it doesn't end with /api to avoid double /api/api
+const getApiBaseUrl = (): string => {
+  const envUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+  // Remove trailing /api if present to avoid double /api/api in endpoints
+  return envUrl.replace(/\/api\/?$/, '');
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 // Create axios instance with default config
 const apiClient = axios.create({
@@ -19,6 +26,29 @@ apiClient.interceptors.request.use((config) => {
   }
   return config;
 });
+
+// Add response interceptor to handle errors gracefully
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    // Suppress 404 errors in console (they're expected for some endpoints)
+    if (error.response?.status === 404) {
+      // Only log 404s in development mode
+      if (!import.meta.env.DEV) {
+        // Suppress in production
+        return Promise.reject(error);
+      }
+    }
+    // Handle 401 Unauthorized - clear session and redirect to login
+    if (error.response?.status === 401) {
+      sessionStorage.removeItem('auth_token');
+      sessionStorage.removeItem('user');
+      window.location.href = '/login';
+      return Promise.reject(error);
+    }
+    return Promise.reject(error);
+  }
+);
 
 export interface Prescription {
   id: number;
@@ -102,32 +132,32 @@ export interface UpdatePrescriptionRequest extends Partial<CreatePrescriptionReq
 }
 
 export const getPrescriptions = (params?: any) => {
-  return apiClient.get<{ data: Prescription[] }>('/api-mysql.php/prescriptions', { params });
+  return apiClient.get<{ data: Prescription[] }>('/api/prescriptions', { params });
 };
 
 export const getPrescription = (id: string) => {
-  return apiClient.get<Prescription>(`/api-mysql.php/prescriptions/${id}`);
+  return apiClient.get<Prescription>(`/api/prescriptions/${id}`);
 };
 
 export const createPrescription = (data: CreatePrescriptionRequest) => {
-  return apiClient.post<Prescription>('/api-mysql.php/prescriptions', data);
+  return apiClient.post<Prescription>('/api/prescriptions', data);
 };
 
 export const updatePrescription = (id: string, data: UpdatePrescriptionRequest) => {
-  return apiClient.put<Prescription>(`/api-mysql.php/prescriptions/${id}`, data);
+  return apiClient.put<Prescription>(`/api/prescriptions/${id}`, data);
 };
 
 export const deletePrescription = (id: string) => {
-  return apiClient.delete(`/api-mysql.php/prescriptions/${id}`);
+  return apiClient.delete(`/api/prescriptions/${id}`);
 };
 
 export const getPatientPrescriptions = (patientId: number) => {
-  return apiClient.get<Prescription[]>(`/api-mysql.php/prescriptions/patient/${patientId}`);
+  return apiClient.get<Prescription[]>(`/api/prescriptions/patient/${patientId}`);
 };
 
 export const downloadPrescriptionPdf = async (prescriptionId: number) => {
   const token = sessionStorage.getItem('auth_token');
-  const url = `${API_BASE_URL}/api-mysql.php/pdf/prescriptions/${prescriptionId}`;
+  const url = `${API_BASE_URL}/api/pdf/prescriptions/${prescriptionId}`;
   const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
   const blob = await resp.blob();
   const href = window.URL.createObjectURL(blob);
@@ -141,12 +171,12 @@ export const downloadPrescriptionPdf = async (prescriptionId: number) => {
 };
 
 export const listCustomerReceipts = async () => {
-  return apiClient.get(`${API_BASE_URL}/api-mysql.php/pdf/receipts/customer`);
+  return apiClient.get(`${API_BASE_URL}/api/pdf/receipts/customer`);
 };
 
 export const downloadReceiptPdf = async (appointmentId: number) => {
   const token = sessionStorage.getItem('auth_token');
-  const url = `${API_BASE_URL}/api-mysql.php/pdf/receipts/${appointmentId}`;
+  const url = `${API_BASE_URL}/api/pdf/receipts/${appointmentId}`;
   const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
   const blob = await resp.blob();
   const href = window.URL.createObjectURL(blob);

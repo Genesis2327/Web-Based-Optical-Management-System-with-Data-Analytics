@@ -1,6 +1,5 @@
 import axios from 'axios';
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api';
+import { API_BASE_URL } from '../config/api';
 
 // Create axios instance with default config
 const api = axios.create({
@@ -149,7 +148,7 @@ export const getCustomerFeedback = async (customerId: number): Promise<{ data: F
     throw new Error('No authentication token found');
   }
 
-  const response = await api.get(`/customers/${customerId}/feedback`, {
+  const response = await api.get(`/customer-feedback/${customerId}`, {
     headers: {
       'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json',

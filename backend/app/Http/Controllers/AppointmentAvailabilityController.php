@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Schedule;
+use App\Models\OptometristRotation;
 use App\Models\Appointment;
 use App\Models\User;
 use App\Models\Branch;
@@ -24,13 +24,41 @@ class AppointmentAvailabilityController extends Controller
         $date = Carbon::parse($request->date);
         $dayOfWeek = $date->dayOfWeekIso; // 1 = Monday, 7 = Sunday
 
-        // Find all schedules for this day
-        $schedules = Schedule::with(['optometrist', 'branch'])
+        // Find all optometrist rotations for this day
+        $rotations = OptometristRotation::with(['optometrist'])
             ->where('is_active', true)
-            ->where('day_of_week', $dayOfWeek)
             ->get();
 
-        if ($schedules->isEmpty()) {
+        $availableOptometrists = [];
+        
+        foreach ($rotations as $rotation) {
+            foreach ($rotation->rotation_schedule as $schedule) {
+                if ($schedule['day'] === $dayOfWeek) {
+                    // Get already booked appointments for this optometrist on this date
+                    $bookedAppointments = Appointment::where('optometrist_id', $rotation->optometrist_id)
+                        ->where('appointment_date', $date->toDateString())
+                        ->whereIn('status', ['scheduled', 'confirmed'])
+                        ->get(['start_time', 'end_time']);
+
+                    $availableTimeSlots = $this->generateTimeSlots(
+                        $schedule['start_time'],
+                        $schedule['end_time'],
+                        $bookedAppointments
+                    );
+
+                    $availableOptometrists[] = [
+                        'optometrist_id' => $rotation->optometrist_id,
+                        'optometrist_name' => $rotation->optometrist->name,
+                        'branch_id' => $schedule['branch_id'],
+                        'start_time' => $schedule['start_time'],
+                        'end_time' => $schedule['end_time'],
+                        'available_times' => $availableTimeSlots,
+                    ];
+                }
+            }
+        }
+
+        if (empty($availableOptometrists)) {
             return response()->json([
                 'date' => $date->format('Y-m-d'),
                 'available' => false,
@@ -38,28 +66,9 @@ class AppointmentAvailabilityController extends Controller
             ]);
         }
 
-        // For now, we'll return the first available schedule (single optometrist rotation)
-        $schedule = $schedules->first();
-        
-        // Get already booked appointments for this optometrist on this date
-        $bookedAppointments = Appointment::where('optometrist_id', $schedule->optometrist_id)
-            ->where('appointment_date', $date->toDateString())
-            ->whereIn('status', ['scheduled', 'confirmed'])
-            ->get(['start_time', 'end_time']);
-
-        $availableTimeSlots = $this->generateTimeSlots(
-            $schedule->start_time,
-            $schedule->end_time,
-            $bookedAppointments
-        );
-
         return response()->json([
             'date' => $date->format('Y-m-d'),
-            'branch' => $schedule->branch->name,
-            'branch_id' => $schedule->branch->id,
-            'optometrist' => $schedule->optometrist->name,
-            'optometrist_id' => $schedule->optometrist->id,
-            'available_times' => $availableTimeSlots,
+            'available_optometrists' => $availableOptometrists,
         ]);
     }
 
@@ -68,18 +77,21 @@ class AppointmentAvailabilityController extends Controller
      */
     public function getWeeklySchedule(): JsonResponse
     {
-        $schedules = Schedule::with(['optometrist', 'branch'])
+        $rotations = OptometristRotation::with(['optometrist'])
             ->where('is_active', true)
-            ->orderBy('day_of_week')
-            ->get()
-            ->groupBy('optometrist_id');
+            ->get();
 
         $weeklySchedule = [];
         $days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
-        foreach ($schedules as $optometristId => $optometristSchedules) {
-            $optometrist = $optometristSchedules->first()->optometrist;
-            $scheduleByDay = $optometristSchedules->keyBy('day_of_week');
+        foreach ($rotations as $rotation) {
+            $optometrist = $rotation->optometrist;
+            $scheduleByDay = [];
+            
+            // Group rotation schedule by day
+            foreach ($rotation->rotation_schedule as $schedule) {
+                $scheduleByDay[$schedule['day']] = $schedule;
+            }
 
             $weeklySchedule[] = [
                 'optometrist' => [
@@ -88,20 +100,19 @@ class AppointmentAvailabilityController extends Controller
                 ],
                 'schedule' => collect($days)->map(function ($day, $index) use ($scheduleByDay) {
                     $dayNumber = $index + 1;
-                    $schedule = $scheduleByDay->get($dayNumber);
+                    $schedule = $scheduleByDay[$dayNumber] ?? null;
                     
                     return [
                         'day' => $day,
                         'day_number' => $dayNumber,
                         'available' => $schedule ? true : false,
                         'branch' => $schedule ? [
-                            'id' => $schedule->branch->id,
-                            'name' => $schedule->branch->name,
-                            'code' => $schedule->branch->code,
+                            'id' => $schedule['branch_id'],
+                            'name' => 'Branch ' . $schedule['branch_id'], // You might want to load branch details
                         ] : null,
                         'schedule' => $schedule ? [
-                            'start_time' => $schedule->formatted_start_time,
-                            'end_time' => $schedule->formatted_end_time,
+                            'start_time' => $schedule['start_time'],
+                            'end_time' => $schedule['end_time'],
                         ] : null,
                     ];
                 })

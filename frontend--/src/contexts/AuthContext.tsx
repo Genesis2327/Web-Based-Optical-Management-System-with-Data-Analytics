@@ -8,7 +8,7 @@ interface AuthContextType {
   user: User | null;
   login: (email: string, password: string, role: UserRole) => Promise<User>;
   logout: () => void;
-  register: (name: string, email: string, password: string, confirmPassword: string, role: UserRole, branchId?: string) => Promise<void>;
+  register: (name: string, email: string, password: string, confirmPassword: string, role: UserRole, phone?: string, branchId?: string) => Promise<void>;
   isLoading: boolean;
 }
 
@@ -121,21 +121,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return normalizedUser;
     } catch (error: any) {
       console.error('AuthContext: Login error:', error);
-      // Handle API errors
-      if (error.response?.data?.message) {
-        throw new Error(error.response.data.message);
-      } else if (error.message) {
-        throw new Error(error.message);
-      } else {
-        throw new Error('Login failed. Please try again.');
-      }
+      console.error('AuthContext: Error details:', {
+        message: error?.message,
+        code: error?.code,
+        response: error?.response,
+        status: error?.response?.status,
+        data: error?.response?.data
+      });
+      
+      // Preserve the original error for better error handling in Login component
+      // Re-throw the error so Login component can handle it appropriately
+      throw error;
     } finally {
       console.log('AuthContext: Setting isLoading to false');
       setIsLoading(false);
     }
   };
 
-  const register = async (name: string, email: string, password: string, confirmPassword: string, role: UserRole, branchId?: string) => {
+  const register = async (name: string, email: string, password: string, confirmPassword: string, role: UserRole, phone?: string, branchId?: string) => {
     try {
       setIsLoading(true);
 
@@ -156,6 +159,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         password,
         password_confirmation: confirmPassword,
         role,
+        ...(phone ? { phone: phone.trim() } : {}),
         ...(branchId ? { branch_id: parseInt(branchId) } : {}),
       });
 

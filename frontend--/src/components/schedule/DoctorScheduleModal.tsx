@@ -6,7 +6,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { getDoctorSchedule, DoctorScheduleResponse } from '@/services/scheduleApi';
+import { optometristRotationApi } from '@/services/optometristRotationApi';
+import { getActiveBranches } from '@/services/branchApi';
 import { useToast } from '@/hooks/use-toast';
 
 interface DoctorScheduleModalProps {
@@ -21,15 +22,47 @@ export const DoctorScheduleModal: React.FC<DoctorScheduleModalProps> = ({
   children
 }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [schedule, setSchedule] = useState<DoctorScheduleResponse | null>(null);
+  const [schedule, setSchedule] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
+
+  const getDayNameFromNumber = (dayNumber: number): string => {
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    return days[dayNumber === 7 ? 0 : dayNumber - 1];
+  };
 
   const fetchSchedule = async () => {
     setLoading(true);
     try {
-      const data = await getDoctorSchedule(doctorId);
-      setSchedule(data);
+      // Fetch branches and rotations
+      const [branchesData, rotationsData] = await Promise.all([
+        getActiveBranches(),
+        optometristRotationApi.getAllRotations()
+      ]);
+
+      // Find the rotation for this doctor
+      const rotation = rotationsData?.rotations?.find((r: any) => r.optometrist_id === doctorId);
+      
+      if (rotation && rotation.rotation_schedule) {
+        const scheduleItems = rotation.rotation_schedule.map((scheduleItem: any) => {
+          const branch = branchesData.find((b: any) => b.id === scheduleItem.branch_id);
+          return {
+            day: getDayNameFromNumber(scheduleItem.day),
+            branch: branch?.name || `Branch ${scheduleItem.branch_id}`,
+            time: `${scheduleItem.start_time} - ${scheduleItem.end_time}`
+          };
+        });
+
+        setSchedule({
+          doctor: {
+            name: doctorName,
+            email: rotation.optometrist?.email || ''
+          },
+          schedule: scheduleItems
+        });
+      } else {
+        setSchedule(null);
+      }
     } catch (error) {
       console.error('Error fetching schedule:', error);
       toast({

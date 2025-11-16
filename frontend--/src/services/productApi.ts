@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { Product, ProductFormData, ProductCategory } from '@/features/products/types/product.types';
+import { API_BASE_URL } from '../config/api';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api';
 const API_BASE = `${API_BASE_URL}`;
 
 // Include auth token if present
@@ -13,10 +13,26 @@ axios.interceptors.request.use((config) => {
   return config;
 });
 
+// Add response interceptor to suppress 404 errors
+axios.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    // Suppress 404 errors in console (they're expected for some endpoints)
+    if (error.response?.status === 404) {
+      // Only log 404s in development mode, and only as debug
+      if (import.meta.env.DEV) {
+        console.debug(`API 404: ${error.config?.url}`);
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
 /**
  * Get all products with optional filters
  */
 export const getProducts = async (search = '', categoryId?: number, isActive?: boolean): Promise<Product[]> => {
+  console.log('getProducts called with:', { search, categoryId, isActive });
   const response = await axios.get(`${API_BASE}/products`, {
     params: { 
       search,
@@ -24,14 +40,32 @@ export const getProducts = async (search = '', categoryId?: number, isActive?: b
       active: isActive,
     },
   });
-  return response.data.data || response.data; // Handle both response formats
+  
+  console.log('getProducts response:', response.data);
+  console.log('Response data type:', typeof response.data);
+  console.log('Response data is array:', Array.isArray(response.data));
+  
+  // Handle different response formats
+  if (Array.isArray(response.data)) {
+    console.log('Returning direct array with', response.data.length, 'items');
+    return response.data;
+  } else if (response.data && Array.isArray(response.data.value)) {
+    console.log('Returning value array with', response.data.value.length, 'items');
+    return response.data.value;
+  } else if (response.data && Array.isArray(response.data.data)) {
+    console.log('Returning data array with', response.data.data.length, 'items');
+    return response.data.data;
+  } else {
+    console.warn('Unexpected products response format:', response.data);
+    return [];
+  }
 };
 
 /**
  * Get a single product by ID
  */
 export const getProduct = async (id: string | number): Promise<Product> => {
-  const response = await axios.get(`${API_BASE}/${id}`);
+  const response = await axios.get(`${API_BASE}/products/${id}`);
   return response.data;
 };
 
@@ -129,17 +163,46 @@ export const updateProduct = async (id: string | number, productData: ProductFor
     return fd;
   })();
   
-  const response = await axios.put(`${API_BASE}/products?id=${id}`, formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  });
-  return response.data;
+  // For FormData, let axios set Content-Type automatically (with boundary)
+  // Don't set it manually as it needs the boundary parameter
+  try {
+    // Log FormData before sending
+    console.log('=== SENDING UPDATE REQUEST ===');
+    console.log('URL:', `${API_BASE}/products/${id}`);
+    console.log('Method: PUT');
+    const formDataEntries: any = {};
+    for (let [key, value] of formData.entries()) {
+      if (value instanceof File) {
+        formDataEntries[key] = `[File: ${value.name}, ${value.size} bytes]`;
+      } else {
+        formDataEntries[key] = value;
+      }
+    }
+    console.log('FormData entries:', formDataEntries);
+    
+    const response = await axios.put(`${API_BASE}/products/${id}`, formData, {
+      headers: {
+        // Let axios handle Content-Type automatically for FormData (with boundary)
+        // DO NOT set Content-Type manually - axios needs to add the boundary parameter
+        'Accept': 'application/json',
+      },
+    });
+    // Return the product from the response, handling both response formats
+    console.log('Update API response:', response.data);
+    return response.data.product || response.data;
+  } catch (error: any) {
+    console.error('Update product API error:', error);
+    console.error('Error response:', error?.response?.data);
+    console.error('Error status:', error?.response?.status);
+    throw error;
+  }
 };
 
 /**
  * Delete a product (soft delete)
  */
 export const deleteProduct = async (id: string | number): Promise<void> => {
-  const response = await axios.delete(`${API_BASE}/products?id=${id}`);
+  const response = await axios.delete(`${API_BASE}/products/${id}`);
   return response.data;
 };
 
@@ -148,5 +211,25 @@ export const deleteProduct = async (id: string | number): Promise<void> => {
  */
 export const getProductCategories = async (): Promise<ProductCategory[]> => {
   const response = await axios.get(`${API_BASE}/product-categories`);
-  return response.data.data || response.data; // Handle both response formats
+  // Handle both response formats: {data: [...]} or {categories: [...]} or [...]
+  if (response.data.data && Array.isArray(response.data.data)) {
+    return response.data.data;
+  }
+  if (response.data.categories && Array.isArray(response.data.categories)) {
+    return response.data.categories;
+  }
+  if (Array.isArray(response.data)) {
+    return response.data;
+  }
+  return [];
+};
+
+/**
+ * Reorder images for a product
+ */
+export const reorderProductImages = async (productId: string | number, imageOrder: string[]): Promise<Product> => {
+  const response = await axios.put(`${API_BASE}/products/${productId}/reorder-images`, {
+    image_order: imageOrder
+  });
+  return response.data.product;
 };

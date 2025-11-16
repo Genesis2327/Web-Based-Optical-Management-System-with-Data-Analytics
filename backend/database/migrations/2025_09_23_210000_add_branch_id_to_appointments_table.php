@@ -11,10 +11,12 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('appointments', function (Blueprint $table) {
-            $table->foreignId('branch_id')->after('optometrist_id')->constrained()->onDelete('cascade');
-            $table->index('branch_id');
-        });
+        if (!Schema::hasColumn('appointments', 'branch_id')) {
+            Schema::table('appointments', function (Blueprint $table) {
+                $table->foreignId('branch_id')->nullable()->after('optometrist_id')->constrained()->onDelete('cascade');
+                $table->index('branch_id');
+            });
+        }
     }
 
     /**

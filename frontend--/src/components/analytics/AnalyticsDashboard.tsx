@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { BarChart3, TrendingUp, Users, Calendar, Banknote, RefreshCw, Activity, Download, AlertTriangle, Star, MessageSquare } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
@@ -9,7 +9,7 @@ import { Button } from '../ui/button';
 import { useQuery } from '@tanstack/react-query';
 import { analyticsApi, AdminAnalytics, AnalyticsTrends } from '@/services/analyticsApi';
 import { getFeedbackAnalytics, FeedbackAnalytics } from '@/services/feedbackApi';
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area } from 'recharts';
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, ComposedChart } from 'recharts';
 import { useBranch } from '@/contexts/BranchContext';
 import { useAuth } from '@/contexts/AuthContext';
 import BranchFilter from '../common/BranchFilter';
@@ -30,7 +30,7 @@ const AnalyticsDashboard = () => {
 
 
   // Fetch admin analytics data
-  const { data: adminAnalytics, isLoading: adminLoading, error: adminError, refetch: refetchAdminData } = useQuery({
+  const { data: adminAnalytics, isLoading: adminLoading, error: adminError, refetch: refetchAdminData } = useQuery<AdminAnalytics>({
     queryKey: ['admin-analytics', timeRange, selectedBranchId],
     queryFn: () => {
       console.log('Fetching admin analytics...');
@@ -40,25 +40,44 @@ const AnalyticsDashboard = () => {
       });
     },
     refetchInterval: 60000, // Refetch every minute
-    retry: 3,
-    onError: (error) => {
-      console.error('Admin analytics error:', error);
-    }
+    retry: 3
   });
 
+  // Log errors for debugging
+  useEffect(() => {
+    if (adminError) {
+      console.error('Admin analytics error:', adminError);
+    }
+  }, [adminError]);
+
   // Fetch real-time analytics
-  const { data: realTimeData, isLoading: realTimeLoading, error: realTimeError, refetch: refetchRealTime } = useQuery({
+  const { data: realTimeData, isLoading: realTimeLoading, error: realTimeError, refetch: refetchRealTime } = useQuery<{
+    total_appointments_today: number;
+    total_revenue_today: number;
+    active_users: number;
+    low_stock_alerts: number;
+    upcoming_appointments: number;
+    system_health: {
+      database_status: string;
+      api_response_time: number;
+      last_backup: string;
+    };
+  }>({
     queryKey: ['realtime-analytics'],
     queryFn: () => {
       console.log('Fetching real-time analytics...');
       return analyticsApi.getRealTimeAnalytics();
     },
     refetchInterval: 10000, // Refetch every 10 seconds
-    retry: 3,
-    onError: (error) => {
-      console.error('Real-time analytics error:', error);
-    }
+    retry: 3
   });
+
+  // Log errors for debugging
+  useEffect(() => {
+    if (realTimeError) {
+      console.error('Real-time analytics error:', realTimeError);
+    }
+  }, [realTimeError]);
 
   // Fetch trends data
   const { data: trendsData, isLoading: trendsLoading, error: trendsError } = useQuery<AnalyticsTrends>({
@@ -71,11 +90,15 @@ const AnalyticsDashboard = () => {
       });
     },
     refetchInterval: 300000, // Refetch every 5 minutes
-    retry: 3,
-    onError: (error) => {
-      console.error('Analytics trends error:', error);
-    }
+    retry: 3
   });
+
+  // Log errors for debugging
+  useEffect(() => {
+    if (trendsError) {
+      console.error('Analytics trends error:', trendsError);
+    }
+  }, [trendsError]);
 
   // Fetch feedback analytics data
   const { data: feedbackData, isLoading: feedbackLoading, error: feedbackError, refetch: refetchFeedbackData } = useQuery<FeedbackAnalytics>({
@@ -90,11 +113,15 @@ const AnalyticsDashboard = () => {
     },
     refetchInterval: 300000, // Refetch every 5 minutes
     enabled: true, // Always execute - let the backend handle authorization
-    retry: 3, // Retry on failure
-    onError: (error) => {
-      console.error('Feedback analytics error:', error);
-    }
+    retry: 3 // Retry on failure
   });
+
+  // Log errors for debugging
+  useEffect(() => {
+    if (feedbackError) {
+      console.error('Feedback analytics error:', feedbackError);
+    }
+  }, [feedbackError]);
 
   // Debug logging
   console.log('Feedback Analytics Debug:', {
@@ -136,11 +163,12 @@ const AnalyticsDashboard = () => {
   const kpis = [
     {
       title: 'Total Revenue',
-      value: realTimeData?.total_revenue_today ? `₱${realTimeData.total_revenue_today.toLocaleString()}` : '₱0',
-      change: adminAnalytics?.system_wide_stats?.revenue ? `₱${adminAnalytics.system_wide_stats.revenue.toLocaleString()}` : '₱0',
+      value: adminAnalytics?.system_wide_stats?.revenue ? `₱${adminAnalytics.system_wide_stats.revenue.toLocaleString()}` : '₱0',
+      change: realTimeData?.total_revenue_today ? `₱${realTimeData.total_revenue_today.toLocaleString()}` : '₱0',
+      changeLabel: 'Today: ',
       trend: 'up',
       icon: Banknote,
-      description: 'today / period total'
+      description: 'Period: Last 30 days'
     },
     {
       title: 'Active Users',
@@ -148,7 +176,7 @@ const AnalyticsDashboard = () => {
       change: adminAnalytics?.system_wide_stats?.users ? adminAnalytics.system_wide_stats.users.toString() : '0',
       trend: 'up',
       icon: Users,
-      description: 'active / total users'
+      description: 'Total registered'
     },
     {
       title: 'Appointments Today',
@@ -156,7 +184,7 @@ const AnalyticsDashboard = () => {
       change: adminAnalytics?.system_wide_stats?.appointments ? adminAnalytics.system_wide_stats.appointments.toString() : '0',
       trend: 'up',
       icon: Calendar,
-      description: 'today / period total'
+      description: 'Last 30 days'
     },
     {
       title: 'Low Stock Alerts',
@@ -164,7 +192,7 @@ const AnalyticsDashboard = () => {
       change: realTimeData?.upcoming_appointments ? realTimeData.upcoming_appointments.toString() : '0',
       trend: (realTimeData?.low_stock_alerts && realTimeData.low_stock_alerts > 0) ? 'down' : 'up',
       icon: AlertTriangle,
-      description: 'alerts / upcoming appointments'
+      description: 'Needs attention'
     }
   ];
 
@@ -249,20 +277,25 @@ const AnalyticsDashboard = () => {
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-4 sm:mb-6">
         {kpis.map((kpi, index) => (
-          <Card key={index}>
+          <Card key={index} className="hover:shadow-md transition-shadow">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">{kpi.title}</CardTitle>
               <kpi.icon className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{kpi.value}</div>
-              <div className="flex items-center space-x-2">
-                <Badge className={kpi.trend === 'up' ? 'bg-green-500 text-white' : 'bg-red-500 text-white'}>
-                  {kpi.change}
-                </Badge>
-                <p className="text-xs text-muted-foreground">{kpi.description}</p>
+              <div className="text-3xl font-bold mb-2">{kpi.value}</div>
+              <div className="flex flex-col space-y-1">
+                <div className="flex items-center space-x-2">
+                  {(kpi as any).changeLabel && (
+                    <span className="text-xs text-muted-foreground font-medium">{(kpi as any).changeLabel}</span>
+                  )}
+                  <Badge className={kpi.trend === 'up' ? 'bg-green-500 text-white text-xs' : 'bg-red-500 text-white text-xs'}>
+                    {kpi.change}
+                  </Badge>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">{kpi.description}</p>
               </div>
             </CardContent>
           </Card>
@@ -290,73 +323,115 @@ const AnalyticsDashboard = () => {
                   <RefreshCw className="h-6 w-6 animate-spin mr-2" />
                   <span>Loading trends data...</span>
                 </div>
+              ) : revenueData.length > 0 ? (
+                <div className="space-y-6">
+                  {/* Summary Stats */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+                    <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg p-3 sm:p-4 text-white shadow-lg">
+                      <div className="text-xs sm:text-sm opacity-90 mb-1">Total Revenue</div>
+                      <div className="text-xl sm:text-2xl font-bold">
+                        ₱{revenueData.reduce((sum, item) => sum + (item.revenue || 0), 0).toLocaleString()}
+                      </div>
+                    </div>
+                    <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-lg p-3 sm:p-4 text-white shadow-lg">
+                      <div className="text-xs sm:text-sm opacity-90 mb-1">Total Patients</div>
+                      <div className="text-xl sm:text-2xl font-bold">
+                        {(trendsData?.unique_patients_total ?? revenueData.reduce((sum, item) => sum + (item.patients || 0), 0)).toLocaleString()}
+                      </div>
+                    </div>
+                    <div className="bg-gradient-to-br from-amber-500 to-amber-600 rounded-lg p-3 sm:p-4 text-white shadow-lg">
+                      <div className="text-xs sm:text-sm opacity-90 mb-1">Total Appointments</div>
+                      <div className="text-xl sm:text-2xl font-bold">
+                        {revenueData.reduce((sum, item) => sum + (item.appointments || 0), 0).toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Area Chart */}
+                  <ResponsiveContainer width="100%" height={300}>
+                    <AreaChart data={revenueData} margin={{ top: 20, right: 30, left: 20, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="areaRevenue" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8}/>
+                          <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.1}/>
+                        </linearGradient>
+                        <linearGradient id="areaPatients" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#10b981" stopOpacity={0.8}/>
+                          <stop offset="95%" stopColor="#10b981" stopOpacity={0.1}/>
+                        </linearGradient>
+                        <linearGradient id="areaAppointments" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.8}/>
+                          <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.1}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+                      <XAxis 
+                        dataKey="date" 
+                        tick={{ fontSize: 11, fill: '#6b7280' }}
+                        tickFormatter={(value) => new Date(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        axisLine={{ stroke: '#d1d5db' }}
+                      />
+                      <YAxis 
+                        tick={{ fontSize: 11, fill: '#6b7280' }}
+                        axisLine={{ stroke: '#d1d5db' }}
+                      />
+                      <Tooltip 
+                        formatter={(value, name) => {
+                          if (name === 'Revenue') {
+                            return [`₱${Number(value || 0).toLocaleString()}`, 'Revenue'];
+                          }
+                          return [value, name];
+                        }}
+                        labelFormatter={(value) => new Date(value).toLocaleDateString('en-US', { 
+                          month: 'short', 
+                          day: 'numeric',
+                          year: 'numeric'
+                        })}
+                        contentStyle={{
+                          backgroundColor: '#fff',
+                          border: '1px solid #e5e7eb',
+                          borderRadius: '8px',
+                          boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+                          fontSize: '13px'
+                        }}
+                      />
+                      <Legend 
+                        wrapperStyle={{ paddingTop: '20px', fontSize: '13px' }}
+                        iconType="rect"
+                      />
+                      <Area 
+                        type="monotone" 
+                        dataKey="revenue" 
+                        stroke="#3b82f6" 
+                        fillOpacity={0.6}
+                        fill="url(#areaRevenue)" 
+                        name="Revenue"
+                      />
+                      <Area 
+                        type="monotone" 
+                        dataKey="patients" 
+                        stroke="#10b981" 
+                        fillOpacity={0.6}
+                        fill="url(#areaPatients)" 
+                        name="Patients"
+                      />
+                      <Area 
+                        type="monotone" 
+                        dataKey="appointments" 
+                        stroke="#f59e0b" 
+                        fillOpacity={0.6}
+                        fill="url(#areaAppointments)" 
+                        name="Appointments"
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
               ) : (
-                <ResponsiveContainer width="100%" height={450}>
-                  <BarChart data={trendsData?.revenue_trend || []}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                    <XAxis 
-                      dataKey="date" 
-                      tick={{ fontSize: 12, fill: '#666' }}
-                      tickFormatter={(value) => new Date(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                      axisLine={{ stroke: '#ddd' }}
-                    />
-                    <YAxis 
-                      yAxisId="revenue" 
-                      orientation="left"
-                      tick={{ fontSize: 12, fill: '#666' }}
-                      tickFormatter={(value) => `₱${(value / 1000).toFixed(0)}k`}
-                      axisLine={{ stroke: '#ddd' }}
-                    />
-                    <YAxis 
-                      yAxisId="count" 
-                      orientation="right"
-                      tick={{ fontSize: 12, fill: '#666' }}
-                      axisLine={{ stroke: '#ddd' }}
-                    />
-                    <Tooltip 
-                      formatter={(value, name) => [
-                        name === 'Revenue (₱)' ? `₱${Number(value || 0).toLocaleString()}` : value,
-                        name
-                      ]}
-                      labelFormatter={(value) => new Date(value).toLocaleDateString('en-US', { 
-                        weekday: 'short', 
-                        month: 'short', 
-                        day: 'numeric' 
-                      })}
-                      contentStyle={{
-                        backgroundColor: '#fff',
-                        border: '1px solid #e5e5e5',
-                        borderRadius: '8px',
-                        boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
-                        fontSize: '14px'
-                      }}
-                    />
-                    <Legend 
-                      wrapperStyle={{ paddingTop: '20px', fontSize: '14px' }}
-                    />
-                    <Bar 
-                      yAxisId="revenue" 
-                      dataKey="revenue" 
-                      fill="#1e40af" 
-                      name="Revenue (₱)"
-                      radius={[2, 2, 0, 0]}
-                    />
-                    <Bar 
-                      yAxisId="count" 
-                      dataKey="patients" 
-                      fill="#059669" 
-                      name="Patients"
-                      radius={[2, 2, 0, 0]}
-                    />
-                    <Bar 
-                      yAxisId="count" 
-                      dataKey="appointments" 
-                      fill="#d97706" 
-                      name="Appointments"
-                      radius={[2, 2, 0, 0]}
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
+                <div className="flex items-center justify-center h-[450px]">
+                  <div className="text-center">
+                    <p className="text-muted-foreground">No revenue data available for the selected period</p>
+                  </div>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -468,32 +543,6 @@ const AnalyticsDashboard = () => {
             </Card>
           </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Appointment Metrics</CardTitle>
-              <CardDescription>Key performance indicators</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div className="text-center">
-                  <div className="text-3xl font-bold text-green-600">94%</div>
-                  <div className="text-sm text-muted-foreground">Show-up Rate</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-3xl font-bold text-blue-600">18min</div>
-                  <div className="text-sm text-muted-foreground">Avg Wait Time</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-3xl font-bold text-purple-600">85%</div>
-                  <div className="text-sm text-muted-foreground">On-time Rate</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-3xl font-bold text-orange-600">42min</div>
-                  <div className="text-sm text-muted-foreground">Avg Duration</div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
         </TabsContent>
 
 
@@ -525,7 +574,7 @@ const AnalyticsDashboard = () => {
           )}
           
           {/* Feedback Overview Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">Overall Rating</CardTitle>
@@ -567,23 +616,6 @@ const AnalyticsDashboard = () => {
                 </div>
                 <p className="text-xs text-muted-foreground">
                   provided feedback
-                </p>
-              </CardContent>
-            </Card>
-            
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Response Rate</CardTitle>
-                <Activity className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">
-                  {feedbackData?.overall_stats?.total_feedback && feedbackData?.overall_stats?.unique_customers 
-                    ? Math.round((feedbackData.overall_stats.total_feedback / feedbackData.overall_stats.unique_customers) * 100) 
-                    : 0}%
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  feedback per customer
                 </p>
               </CardContent>
             </Card>

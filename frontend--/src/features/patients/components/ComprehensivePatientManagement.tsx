@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { useWebSocket } from '@/hooks/useWebSocket';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
 import { 
   User, 
   Eye, 
@@ -102,6 +105,9 @@ interface GlassOrder {
 
 export const ComprehensivePatientManagement: React.FC = () => {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const isStaff = user?.role === 'staff';
   const [patients, setPatients] = useState<Patient[]>([]);
   const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -113,8 +119,33 @@ export const ComprehensivePatientManagement: React.FC = () => {
 
   // Fetch all data
   useEffect(() => {
-    loadAllData();
-  }, []);
+    if (user) {
+      loadAllData();
+    }
+  }, [user]);
+
+  // Listen for prescription created events and refresh patient data
+  useWebSocket({
+    onPrescriptionCreated: (data) => {
+      console.log('Prescription created event received in patient management:', data);
+      // Refresh patient data to show new prescription
+      if (data.prescription?.patient_id) {
+        // Invalidate queries and reload
+        queryClient.invalidateQueries({ queryKey: ['patients'] });
+        queryClient.invalidateQueries({ queryKey: ['prescriptions'] });
+        queryClient.invalidateQueries({ queryKey: ['patient-prescriptions', data.prescription.patient_id] });
+        loadAllData();
+      }
+    },
+    onGeneralNotification: (data) => {
+      // Check if notification is about prescription (fallback)
+      if (data.message && data.message.toLowerCase().includes('prescription')) {
+        queryClient.invalidateQueries({ queryKey: ['patients'] });
+        queryClient.invalidateQueries({ queryKey: ['prescriptions'] });
+        loadAllData();
+      }
+    }
+  });
 
   const loadAllData = async () => {
     try {
@@ -318,9 +349,8 @@ export const ComprehensivePatientManagement: React.FC = () => {
                 <TableHead>Contact</TableHead>
                 <TableHead>Prescriptions</TableHead>
                 <TableHead>Appointments</TableHead>
-                <TableHead>Glass Orders</TableHead>
+                {!isStaff && <TableHead>Glass Orders</TableHead>}
                 <TableHead>Last Visit</TableHead>
-                <TableHead>Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -387,18 +417,20 @@ export const ComprehensivePatientManagement: React.FC = () => {
                         )}
                       </div>
                     </TableCell>
-                    <TableCell>
-                      <div className="space-y-1">
-                        <Badge variant="outline" className="text-xs">
-                          {patientGlassOrders.length} Orders
-                        </Badge>
-                        {patientGlassOrders.length > 0 && (
-                          <div className="text-xs text-gray-500">
-                            Latest: {patientGlassOrders[0]?.glass_specifications?.lens_type || 'N/A'}
-                          </div>
-                        )}
-                      </div>
-                    </TableCell>
+                    {!isStaff && (
+                      <TableCell>
+                        <div className="space-y-1">
+                          <Badge variant="outline" className="text-xs">
+                            {patientGlassOrders.length} Orders
+                          </Badge>
+                          {patientGlassOrders.length > 0 && (
+                            <div className="text-xs text-gray-500">
+                              Latest: {patientGlassOrders[0]?.glass_specifications?.lens_type || 'N/A'}
+                            </div>
+                          )}
+                        </div>
+                      </TableCell>
+                    )}
                     <TableCell>
                       {lastAppointment ? (
                         <div className="flex items-center space-x-2">
@@ -408,68 +440,6 @@ export const ComprehensivePatientManagement: React.FC = () => {
                       ) : (
                         <span className="text-sm text-gray-500">No visits</span>
                       )}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex space-x-2">
-                        <Dialog>
-                          <DialogTrigger asChild>
-                            <Button 
-                              variant="outline" 
-                              size="sm"
-                              onClick={() => setSelectedPatient(patient)}
-                            >
-                              <EyeIcon className="h-3 w-3 mr-1" />
-                              View Details
-                            </Button>
-                          </DialogTrigger>
-                          <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
-                            <DialogHeader>
-                              <DialogTitle>Patient Details: {patient.name}</DialogTitle>
-                              <DialogDescription>
-                                View comprehensive patient information, prescriptions, and appointment history
-                              </DialogDescription>
-                            </DialogHeader>
-                            {selectedPatient && (
-                              <PatientDetailsView 
-                                patient={selectedPatient}
-                                prescriptions={getPatientPrescriptions(selectedPatient.id)}
-                                appointments={getPatientAppointments(selectedPatient.id)}
-                              />
-                            )}
-                          </DialogContent>
-                        </Dialog>
-                        
-                        <Dialog>
-                          <DialogTrigger asChild>
-                            <Button 
-                              variant="outline" 
-                              size="sm"
-                              onClick={() => setSelectedPatient(patient)}
-                            >
-                              <Package className="h-3 w-3 mr-1" />
-                              Glass Order
-                            </Button>
-                          </DialogTrigger>
-                          <DialogContent className="max-w-2xl">
-                            <DialogHeader>
-                              <DialogTitle>Create Glass Order for {patient.name}</DialogTitle>
-                              <DialogDescription>
-                                Create a new glass order based on the patient's prescription requirements
-                              </DialogDescription>
-                            </DialogHeader>
-                            {selectedPatient && (
-                              <GlassOrderForm 
-                                patient={selectedPatient}
-                                prescriptions={getPatientPrescriptions(selectedPatient.id)}
-                                onSuccess={() => {
-                                  setShowGlassOrderDialog(false);
-                                  loadAllData();
-                                }}
-                              />
-                            )}
-                          </DialogContent>
-                        </Dialog>
-                      </div>
                     </TableCell>
                   </TableRow>
                 );
@@ -487,7 +457,8 @@ const PatientDetailsView: React.FC<{
   patient: Patient;
   prescriptions: Prescription[];
   appointments: Appointment[];
-}> = ({ patient, prescriptions, appointments }) => {
+  isStaff?: boolean;
+}> = ({ patient, prescriptions, appointments, isStaff = false }) => {
   const [glassOrders, setGlassOrders] = useState<GlassOrder[]>([]);
 
   useEffect(() => {
@@ -516,11 +487,11 @@ const PatientDetailsView: React.FC<{
   }, [patient.id]);
   return (
     <Tabs defaultValue="overview" className="w-full">
-      <TabsList className="grid w-full grid-cols-5">
+      <TabsList className={isStaff ? "grid w-full grid-cols-4" : "grid w-full grid-cols-5"}>
         <TabsTrigger value="overview">Overview</TabsTrigger>
         <TabsTrigger value="prescriptions">Prescriptions</TabsTrigger>
         <TabsTrigger value="appointments">Appointments</TabsTrigger>
-        <TabsTrigger value="glass-orders">Glass Orders</TabsTrigger>
+        {!isStaff && <TabsTrigger value="glass-orders">Glass Orders</TabsTrigger>}
         <TabsTrigger value="history">History</TabsTrigger>
       </TabsList>
       
@@ -665,7 +636,8 @@ const PatientDetailsView: React.FC<{
         )}
       </TabsContent>
       
-      <TabsContent value="glass-orders" className="space-y-4">
+      {!isStaff && (
+        <TabsContent value="glass-orders" className="space-y-4">
         {glassOrders.length > 0 ? (
           glassOrders.map((order) => (
             <Card key={order.id}>
@@ -821,7 +793,8 @@ const PatientDetailsView: React.FC<{
             </CardContent>
           </Card>
         )}
-      </TabsContent>
+        </TabsContent>
+      )}
       
       <TabsContent value="history" className="space-y-4">
         <Card>

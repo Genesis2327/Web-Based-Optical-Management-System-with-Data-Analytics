@@ -5,13 +5,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { 
   Phone, 
   Mail, 
-  MessageCircle, 
   MapPin, 
   Clock, 
-  Facebook, 
-  Instagram, 
-  Twitter, 
-  Linkedin,
   Building2,
   AlertCircle,
   X
@@ -126,17 +121,6 @@ const ContactModal: React.FC<ContactModalProps> = ({ isOpen, onClose }) => {
               </div>
             )}
 
-            {/* WhatsApp */}
-            {contact.whatsapp_number && (
-              <div className="flex items-center gap-3 p-3 bg-green-50 rounded-lg">
-                <MessageCircle className="h-4 w-4 text-green-600" />
-                <div>
-                  <p className="text-sm font-medium text-green-900">WhatsApp</p>
-                  <p className="text-sm text-green-700">{contact.formatted_whatsapp}</p>
-                </div>
-              </div>
-            )}
-
             {/* Address */}
             {contact.address && (
               <div className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
@@ -159,38 +143,6 @@ const ContactModal: React.FC<ContactModalProps> = ({ isOpen, onClose }) => {
               </div>
             )}
 
-            {/* Social Media */}
-            {Object.keys(contact.social_media).length > 0 && (
-              <div className="space-y-2">
-                <p className="text-sm font-medium text-gray-900">Follow Us</p>
-                <div className="flex gap-2">
-                  {contact.social_media.facebook && (
-                    <div className="flex items-center gap-2 p-2 bg-blue-50 rounded-lg">
-                      <Facebook className="h-4 w-4 text-blue-600" />
-                      <span className="text-sm text-blue-700">Facebook</span>
-                    </div>
-                  )}
-                  {contact.social_media.instagram && (
-                    <div className="flex items-center gap-2 p-2 bg-pink-50 rounded-lg">
-                      <Instagram className="h-4 w-4 text-pink-600" />
-                      <span className="text-sm text-pink-700">Instagram</span>
-                    </div>
-                  )}
-                  {contact.social_media.twitter && (
-                    <div className="flex items-center gap-2 p-2 bg-blue-50 rounded-lg">
-                      <Twitter className="h-4 w-4 text-blue-400" />
-                      <span className="text-sm text-blue-600">Twitter</span>
-                    </div>
-                  )}
-                  {contact.social_media.linkedin && (
-                    <div className="flex items-center gap-2 p-2 bg-blue-50 rounded-lg">
-                      <Linkedin className="h-4 w-4 text-blue-700" />
-                      <span className="text-sm text-blue-700">LinkedIn</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
           </div>
         )}
       </DialogContent>

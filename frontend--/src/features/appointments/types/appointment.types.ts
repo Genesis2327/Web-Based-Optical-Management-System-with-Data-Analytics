@@ -15,6 +15,7 @@ export interface Appointment {
     id: number;
     name: string;
     email: string;
+    phone?: string;
   };
   optometrist?: {
     id: number;

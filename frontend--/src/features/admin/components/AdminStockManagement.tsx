@@ -36,7 +36,7 @@ const AdminStockManagement: React.FC = () => {
 
   const fetchBranchStock = async () => {
     try {
-      const response = await fetch('http://127.0.0.1:8000/api-mysql.php/branch-stock', {
+      const response = await fetch('http://127.0.0.1:8000/api/branch-stock', {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
@@ -64,27 +64,44 @@ const AdminStockManagement: React.FC = () => {
 
   const handleSaveStock = async (stock: BranchStock) => {
     const newQuantity = editingStock[stock.id];
-    if (newQuantity === undefined || newQuantity < 0) {
-      toast.error('Please enter a valid quantity');
+    // Allow 0 as a valid quantity - only reject undefined or negative values
+    if (newQuantity === undefined || isNaN(newQuantity) || newQuantity < 0) {
+      toast.error('Please enter a valid quantity (0 or greater)');
       return;
     }
 
+    const stockQuantity = parseInt(String(newQuantity), 10);
+    
     setSaving(true);
     try {
-      const response = await fetch('http://127.0.0.1:8000/api-mysql.php/branch-stock', {
+      console.log('Updating stock:', {
+        stockId: stock.id,
+        productId: stock.product_id,
+        branchId: stock.branch_id,
+        newQuantity: stockQuantity
+      });
+
+      // Use the proper endpoint with route model binding
+      const token = localStorage.getItem('token') || sessionStorage.getItem('auth_token');
+      const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api';
+      
+      const response = await fetch(`${apiBaseUrl}/branch-stock/${stock.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json'
         },
         body: JSON.stringify({
-          product_id: stock.product_id,
-          branch_id: stock.branch_id,
-          stock_quantity: newQuantity
+          stock_quantity: stockQuantity,
+          reason: 'Updated from product management'
         })
       });
 
+      const responseData = await response.json();
+
       if (response.ok) {
+        console.log('Stock updated successfully:', responseData);
         toast.success('Stock updated successfully');
         fetchBranchStock();
         setEditingStock(prev => {
@@ -93,11 +110,12 @@ const AdminStockManagement: React.FC = () => {
           return newState;
         });
       } else {
-        const error = await response.json();
-        toast.error(error.message || 'Failed to update stock');
+        console.error('Stock update failed:', responseData);
+        toast.error(responseData.message || responseData.error || 'Failed to update stock');
       }
-    } catch (error) {
-      toast.error('Failed to update stock');
+    } catch (error: any) {
+      console.error('Error updating stock:', error);
+      toast.error(error.message || 'Failed to update stock');
     } finally {
       setSaving(false);
     }

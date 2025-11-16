@@ -1,21 +1,56 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Eye, Calendar, AlertCircle, Loader2, ShoppingCart, MessageCircle, Stethoscope } from 'lucide-react';
+import { Eye, Calendar, AlertCircle } from 'lucide-react';
 import { format } from 'date-fns';
 import { usePatientPrescriptions } from '@/features/prescriptions/hooks/usePrescriptions';
 import { useAuth } from '@/contexts/AuthContext';
 import { Skeleton } from '@/components/ui/skeleton';
-import AppointmentBookingForm from '@/components/appointments/AppointmentBookingForm';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { useWebSocket } from '@/hooks/useWebSocket';
+import { useQueryClient } from '@tanstack/react-query';
 
 const CustomerPrescriptions: React.FC = () => {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const [selectedPrescription, setSelectedPrescription] = useState<number | null>(null);
-  const [appointmentDialogOpen, setAppointmentDialogOpen] = useState(false);
-  const [appointmentType, setAppointmentType] = useState<'exam' | 'consultation' | 'order'>('exam');
-  const { prescriptions, loading, error } = usePatientPrescriptions(user?.id || null);
+  const { prescriptions, loading, error, refetch } = usePatientPrescriptions(user?.id || null);
+
+  // Listen for prescription created events and refresh
+  useWebSocket({
+    onPrescriptionCreated: (data) => {
+      console.log('Prescription created event received:', data);
+      // Check if this prescription is for the current user
+      const patientId = data.prescription?.patient_id || data.patient?.id;
+      if (patientId === user?.id) {
+        // Invalidate all prescription-related queries
+        queryClient.invalidateQueries({ queryKey: ['patient-prescriptions'] });
+        queryClient.invalidateQueries({ queryKey: ['patient-prescriptions', user?.id] });
+        queryClient.invalidateQueries({ queryKey: ['prescriptions'] });
+        // Refetch immediately
+        refetch();
+      }
+    },
+    onGeneralNotification: (data) => {
+      // Check if notification is about prescription (fallback)
+      if (data.message && data.message.toLowerCase().includes('prescription')) {
+        queryClient.invalidateQueries({ queryKey: ['patient-prescriptions'] });
+        queryClient.invalidateQueries({ queryKey: ['patient-prescriptions', user?.id] });
+        refetch();
+      }
+    }
+  });
+
+  // Poll for new prescriptions every 30 seconds when component is mounted
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const interval = setInterval(() => {
+      refetch();
+    }, 30000); // Poll every 30 seconds
+
+    return () => clearInterval(interval);
+  }, [user?.id, refetch]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -43,30 +78,6 @@ const CustomerPrescriptions: React.FC = () => {
       case 'progressive': return 'Progressive Lenses';
       case 'bifocal': return 'Bifocal Lenses';
       default: return type.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
-    }
-  };
-
-  const handleOrderGlasses = () => {
-    setAppointmentType('order');
-    setAppointmentDialogOpen(true);
-  };
-
-  const handleContactOptometrist = () => {
-    setAppointmentType('consultation');
-    setAppointmentDialogOpen(true);
-  };
-
-  const handleScheduleExam = () => {
-    setAppointmentType('exam');
-    setAppointmentDialogOpen(true);
-  };
-
-  const getAppointmentTitle = () => {
-    switch (appointmentType) {
-      case 'order': return 'Order New Glasses';
-      case 'consultation': return 'Contact Optometrist';
-      case 'exam': return 'Schedule Eye Exam';
-      default: return 'Book Appointment';
     }
   };
 
@@ -293,38 +304,6 @@ const CustomerPrescriptions: React.FC = () => {
         <div className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>Quick Actions</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <Button 
-                className="w-full" 
-                variant="default"
-                onClick={handleOrderGlasses}
-              >
-                <ShoppingCart className="w-4 h-4 mr-2" />
-                Order New Glasses
-              </Button>
-              <Button 
-                className="w-full" 
-                variant="outline"
-                onClick={handleContactOptometrist}
-              >
-                <MessageCircle className="w-4 h-4 mr-2" />
-                Contact Optometrist
-              </Button>
-              <Button 
-                className="w-full" 
-                variant="outline"
-                onClick={handleScheduleExam}
-              >
-                <Stethoscope className="w-4 h-4 mr-2" />
-                Schedule Eye Exam
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
               <CardTitle>Prescription Summary</CardTitle>
             </CardHeader>
             <CardContent>
@@ -357,24 +336,6 @@ const CustomerPrescriptions: React.FC = () => {
           </Card>
         </div>
       </div>
-
-      {/* Appointment Booking Dialog */}
-      <Dialog open={appointmentDialogOpen} onOpenChange={setAppointmentDialogOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{getAppointmentTitle()}</DialogTitle>
-            <DialogDescription>
-              {appointmentType === 'order' && 'Book an appointment to order new glasses based on your prescription.'}
-              {appointmentType === 'consultation' && 'Schedule a consultation with an optometrist to discuss your vision needs.'}
-              {appointmentType === 'exam' && 'Schedule a comprehensive eye examination to update your prescription.'}
-            </DialogDescription>
-          </DialogHeader>
-          <AppointmentBookingForm 
-            appointmentType={appointmentType}
-            onSuccess={() => setAppointmentDialogOpen(false)}
-          />
-        </DialogContent>
-      </Dialog>
     </div>
   );
 };

@@ -1,15 +1,15 @@
 import React from 'react';
-import { Calendar, Package, Users, Clock, ShoppingBag, FileText } from 'lucide-react';
+import { Calendar, Package, Users, Clock, FileText } from 'lucide-react';
 import { DashboardCard } from './DashboardCard';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { useNavigate } from 'react-router-dom';
-import { ProductGalleryLocalStorage } from '@/features/products/components/ProductGalleryLocalStorage';
 import { useAppointments } from '@/features/appointments/hooks/useAppointments';
 import { useAuth } from '@/contexts/AuthContext';
 import { useQuery } from '@tanstack/react-query';
+import { getApiUrl, getAuthHeaders } from '@/config/api';
 import axios from 'axios';
 
 const StaffDashboard = () => {
@@ -19,19 +19,23 @@ const StaffDashboard = () => {
   // Fetch appointments data
   const { appointments, loading: appointmentsLoading } = useAppointments();
   
-  // Fetch inventory data
+  // Fetch inventory data (auto-filters by user's branch)
   const { data: inventoryData, isLoading: inventoryLoading, error: inventoryError } = useQuery({
     queryKey: ['staff-inventory', user?.branch?.id],
     queryFn: async () => {
-      if (!user?.branch?.id) return null;
-      const response = await axios.get(`http://127.0.0.1:8000/api/enhanced-inventory/branch/${user.branch.id}`, {
-        headers: {
-          'Authorization': `Bearer ${sessionStorage.getItem('auth_token')}`,
-        },
-      });
-      return response.data;
+      try {
+        // Use /inventory endpoint which auto-filters by user's branch_id for staff
+        const response = await axios.get(getApiUrl('/inventory'), {
+          headers: getAuthHeaders(),
+        });
+        console.log('Inventory response:', response.data);
+        return response.data;
+      } catch (error: any) {
+        console.error('Failed to fetch inventory:', error.response?.data || error.message);
+        throw error;
+      }
     },
-    enabled: !!user?.branch?.id,
+    enabled: !!user,
     retry: 3,
     refetchInterval: 30000, // Refetch every 30 seconds
   });
@@ -40,10 +44,8 @@ const StaffDashboard = () => {
   const { data: reservationsData, isLoading: reservationsLoading, error: reservationsError } = useQuery({
     queryKey: ['staff-reservations', user?.branch?.id],
     queryFn: async () => {
-      const response = await axios.get('http://127.0.0.1:8000/api/reservations', {
-        headers: {
-          'Authorization': `Bearer ${sessionStorage.getItem('auth_token')}`,
-        },
+      const response = await axios.get(getApiUrl('/reservations'), {
+        headers: getAuthHeaders(),
       });
       return response.data;
     },
@@ -53,9 +55,13 @@ const StaffDashboard = () => {
 
   // Process today's appointments
   const today = new Date().toISOString().split('T')[0];
-  const todayAppointments = appointments?.filter(apt => 
-    apt.appointment_date === today
-  ).map(apt => ({
+  const todayAppointments = appointments?.filter(apt => {
+    // Handle different date formats from the API
+    const aptDate = typeof apt.appointment_date === 'string' 
+      ? apt.appointment_date.split('T')[0] 
+      : apt.appointment_date;
+    return aptDate === today;
+  }).map(apt => ({
     time: new Date(`1970-01-01T${apt.start_time}`).toLocaleTimeString('en-US', {
       hour: 'numeric',
       minute: '2-digit',
@@ -72,37 +78,58 @@ const StaffDashboard = () => {
   ) || [];
 
   // Process inventory data for dashboard
-  const processedInventoryData = inventoryData?.inventories?.reduce((acc: any[], item: any) => {
-    const category = item.product_name.split(' ')[0]; // Simple category extraction
-    const existing = acc.find(cat => cat.category === category);
+  // Filter out items with unknown products/branches
+  const processedInventoryData = (inventoryData?.stock || inventoryData?.branch_stocks || inventoryData?.inventories || [])
+    .filter((item: any) => {
+      // Filter out items with unknown or missing product/branch names
+      const productName = item.product?.name || item.product_name || '';
+      const branchName = item.branch?.name || item.branch_name || '';
+      return productName && 
+             productName !== 'Unknown Product' && 
+             productName !== 'Unknown' &&
+             branchName && 
+             branchName !== 'Unknown Branch' && 
+             branchName !== 'Unknown';
+    })
+    .map((item: any, index: number) => {
+    const productName = item.product?.name || item.product_name || '';
+    const quantity = item.stock_quantity || item.quantity || 0;
+    const threshold = item.min_stock_threshold || item.min_threshold || 5;
     
-    if (existing) {
-      existing.current += item.quantity;
-      existing.max += item.quantity + 20; // Estimate max based on current + buffer
-    } else {
-      acc.push({
-        category,
-        current: item.quantity,
-        max: item.quantity + 20,
-        status: item.quantity < item.min_threshold ? 'critical' : 
-                item.quantity < item.min_threshold * 1.5 ? 'low' : 'good'
-      });
+    // Determine status based on quantity and threshold
+    let status = 'good';
+    if (quantity <= 0) {
+      status = 'out_of_stock';
+    } else if (quantity < threshold) {
+      status = 'critical';
+    } else if (quantity < threshold * 1.5) {
+      status = 'low';
     }
     
-    return acc;
-  }, []) || [];
+    return {
+      index,
+      productName: productName.length > 25 ? productName.substring(0, 25) + '...' : productName,
+      quantity,
+      threshold,
+      status,
+      // Calculate percentage for visual representation (0-100%)
+      percentage: threshold > 0 ? Math.min((quantity / threshold) * 100, 100) : 0
+    };
+  });
 
 
   const getInventoryStatus = (status: string) => {
     switch (status) {
       case 'good':
-        return { color: 'bg-green-500', textColor: 'text-green-700' };
+        return { color: 'bg-green-500', textColor: 'text-green-700', bgColor: 'bg-green-100', label: 'In Stock' };
       case 'low':
-        return { color: 'bg-yellow-500', textColor: 'text-yellow-700' };
+        return { color: 'bg-yellow-500', textColor: 'text-yellow-700', bgColor: 'bg-yellow-100', label: 'Low Stock' };
       case 'critical':
-        return { color: 'bg-red-500', textColor: 'text-red-700' };
+        return { color: 'bg-orange-500', textColor: 'text-orange-700', bgColor: 'bg-orange-100', label: 'Critical' };
+      case 'out_of_stock':
+        return { color: 'bg-red-500', textColor: 'text-red-700', bgColor: 'bg-red-100', label: 'Out of Stock' };
       default:
-        return { color: 'bg-gray-500', textColor: 'text-gray-700' };
+        return { color: 'bg-gray-500', textColor: 'text-gray-700', bgColor: 'bg-gray-100', label: 'Unknown' };
     }
   };
 
@@ -149,7 +176,7 @@ const StaffDashboard = () => {
         
         <DashboardCard
           title="Inventory Items"
-          value={inventoryError ? 'Error' : (inventoryData?.inventories?.length || 0)}
+          value={inventoryError ? 'Error' : (inventoryData?.summary?.total_items || inventoryData?.branch_stocks?.length || inventoryData?.stock?.length || inventoryData?.inventories?.length || 0)}
           description={inventoryError ? 'Failed to load' : "Items in stock"}
           icon={Package}
           trend={inventoryError ? undefined : { 
@@ -201,7 +228,7 @@ const StaffDashboard = () => {
               <Package className="h-5 w-5 text-staff" />
               <span>Inventory Status</span>
             </CardTitle>
-            <CardDescription>Current stock levels by category</CardDescription>
+            <CardDescription>Recent inventory items with stock levels</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {inventoryLoading ? (
@@ -210,26 +237,22 @@ const StaffDashboard = () => {
                 <p className="mt-2 text-sm text-gray-600">Loading inventory...</p>
               </div>
             ) : processedInventoryData.length > 0 ? (
-              processedInventoryData.map((item, index) => {
-                const percentage = (item.current / item.max) * 100;
+              processedInventoryData.slice(0, 5).map((item) => {
                 const status = getInventoryStatus(item.status);
                 return (
-                  <div key={index} className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium text-slate-900">{item.category}</span>
-                      <div className="flex items-center space-x-2">
+                  <div key={item.index} className="flex items-center justify-between p-3 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-slate-900 truncate">{item.productName}</p>
+                      <div className="flex items-center gap-3 mt-1">
                         <span className="text-sm text-slate-600">
-                          {item.current}/{item.max}
+                          <strong>{item.quantity}</strong> units
                         </span>
-                        <Badge className={`${status.textColor} bg-opacity-10`}>
-                          {item.status}
-                        </Badge>
+                        <span className="text-xs text-slate-500">Threshold: {item.threshold}</span>
                       </div>
                     </div>
-                    <Progress 
-                      value={percentage} 
-                      className="h-2"
-                    />
+                    <Badge className={`${status.bgColor} ${status.textColor} ml-2`}>
+                      {status.label}
+                    </Badge>
                   </div>
                 );
               })
@@ -355,21 +378,6 @@ const StaffDashboard = () => {
           </CardContent>
         </Card>
       </div>
-
-
-      {/* Product Gallery */}
-      <Card className="shadow-lg border-0">
-        <CardHeader>
-          <CardTitle className="flex items-center space-x-2">
-            <ShoppingBag className="h-5 w-5 text-staff" />
-            <span>Product Gallery Management</span>
-          </CardTitle>
-          <CardDescription>Manage products available for customer reservations</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ProductGalleryLocalStorage />
-        </CardContent>
-      </Card>
     </div>
   );
 };

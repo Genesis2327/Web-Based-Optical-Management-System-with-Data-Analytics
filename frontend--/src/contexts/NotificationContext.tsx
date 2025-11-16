@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { Notification, getNotifications, getUnreadCount, markAsRead, markAllAsRead } from '@/services/notificationApi';
 import { useAuth } from './AuthContext';
+import { useWebSocket } from '@/hooks/useWebSocket';
 
 interface NotificationContextType {
   notifications: Notification[];
@@ -134,6 +135,25 @@ export const NotificationProvider: React.FC<NotificationProviderProps> = ({ chil
   const refreshNotifications = useCallback(async () => {
     await Promise.all([fetchNotifications(), fetchUnreadCount()]);
   }, [fetchNotifications, fetchUnreadCount]);
+
+  // Listen to WebSocket notifications and refresh when received
+  useWebSocket({
+    onGeneralNotification: () => {
+      refreshNotifications();
+    },
+    onAppointmentCreated: () => {
+      refreshNotifications();
+    },
+    onAppointmentUpdated: () => {
+      refreshNotifications();
+    },
+    onAppointmentCancelled: () => {
+      refreshNotifications();
+    },
+    onInventoryLowStock: () => {
+      refreshNotifications();
+    },
+  });
 
   // Fetch notifications when user logs in
   useEffect(() => {

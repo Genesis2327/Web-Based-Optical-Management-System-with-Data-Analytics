@@ -26,7 +26,7 @@ class AppointmentController extends Controller
             return response()->json(['error' => 'User not authenticated'], 401);
         }
         
-        $query = Appointment::with(['patient', 'optometrist', 'branch']);
+        $query = Appointment::with(['patient', 'optometrist', 'branch', 'receipt']);
 
         // Filter based on user role
         if (!$user->role) {
@@ -118,40 +118,120 @@ class AppointmentController extends Controller
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
+        // Handle different role formats
+        $userRole = null;
+        if (is_object($user->role)) {
+            $userRole = $user->role->value ?? (string)$user->role;
+        } else {
+            $userRole = (string)$user->role;
+        }
+
         // Check if user has permission to create appointments
-        if (!in_array($user->role->value, [UserRole::OPTOMETRIST->value, UserRole::STAFF->value, UserRole::ADMIN->value, UserRole::CUSTOMER->value])) {
+        $allowedRoles = [UserRole::OPTOMETRIST->value, UserRole::STAFF->value, UserRole::ADMIN->value, UserRole::CUSTOMER->value];
+        
+        if (!in_array($userRole, $allowedRoles)) {
+            \Log::warning('Unauthorized appointment creation attempt', [
+                'user_id' => $user->id,
+                'user_role' => $userRole,
+                'allowed_roles' => $allowedRoles
+            ]);
             return response()->json(['error' => 'Unauthorized to create appointments'], 403);
         }
 
         // If customer is creating appointment, ensure it's for themselves
-        if ($user->role->value === UserRole::CUSTOMER->value && $request->patient_id != $user->id) {
+        if ($userRole === UserRole::CUSTOMER->value && $request->patient_id != $user->id) {
             return response()->json(['error' => 'You can only create appointments for yourself'], 403);
         }
 
         // Check if optometrist exists and has the correct role
         $optometrist = User::find($request->optometrist_id);
-        if (!$optometrist || $optometrist->role->value !== UserRole::OPTOMETRIST->value) {
+        if (!$optometrist) {
+            return response()->json(['error' => 'Optometrist not found'], 422);
+        }
+        
+        $optometristRole = null;
+        if (is_object($optometrist->role)) {
+            $optometristRole = $optometrist->role->value ?? (string)$optometrist->role;
+        } else {
+            $optometristRole = (string)$optometrist->role;
+        }
+        
+        if ($optometristRole !== UserRole::OPTOMETRIST->value) {
+            \Log::warning('Invalid optometrist selected', [
+                'optometrist_id' => $request->optometrist_id,
+                'optometrist_role' => $optometristRole
+            ]);
             return response()->json(['error' => 'Invalid optometrist selected'], 422);
         }
 
-        // Verify the appointment is valid according to schedule
-        $date = \Carbon\Carbon::parse($request->appointment_date);
-        $dayOfWeek = $date->dayOfWeekIso;
-        
-        $schedule = \App\Models\Schedule::where('staff_id', $request->optometrist_id)
-            ->where('staff_role', 'optometrist')
-            ->where('branch_id', $request->branch_id)
-            ->where('day_of_week', $dayOfWeek)
-            ->where('is_active', true)
-            ->first();
+        // Verify the appointment is valid according to optometrist rotation schedule
+        try {
+            $date = \Carbon\Carbon::parse($request->appointment_date);
+            $dayOfWeek = $date->dayOfWeekIso;
+            
+            // Check if optometrist has a rotation schedule for this day and branch
+            $rotation = \App\Models\OptometristRotation::where('optometrist_id', $request->optometrist_id)
+                ->where('is_active', true)
+                ->first();
 
-        if (!$schedule) {
+            if (!$rotation) {
+                \Log::warning('Optometrist has no rotation schedule', [
+                    'optometrist_id' => $request->optometrist_id,
+                    'branch_id' => $request->branch_id,
+                    'appointment_date' => $request->appointment_date
+                ]);
+                return response()->json([
+                    'error' => 'Invalid appointment: Optometrist has no rotation schedule'
+                ], 400);
+            }
+
+            // Check if rotation_schedule is valid
+            if (empty($rotation->rotation_schedule) || !is_array($rotation->rotation_schedule)) {
+                \Log::warning('Invalid rotation schedule format', [
+                    'optometrist_id' => $request->optometrist_id,
+                    'rotation_schedule' => $rotation->rotation_schedule
+                ]);
+                return response()->json([
+                    'error' => 'Invalid appointment: Optometrist rotation schedule is invalid'
+                ], 400);
+            }
+
+            // Check if the optometrist is scheduled for this specific day and branch
+            $isScheduledForDayAndBranch = false;
+            foreach ($rotation->rotation_schedule as $schedule) {
+                if (isset($schedule['day']) && isset($schedule['branch_id'])) {
+                    if ($schedule['day'] == $dayOfWeek && (int)$schedule['branch_id'] == (int)$request->branch_id) {
+                        $isScheduledForDayAndBranch = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!$isScheduledForDayAndBranch) {
+                \Log::warning('Optometrist not scheduled for day and branch', [
+                    'optometrist_id' => $request->optometrist_id,
+                    'branch_id' => $request->branch_id,
+                    'day_of_week' => $dayOfWeek,
+                    'rotation_schedule' => $rotation->rotation_schedule
+                ]);
+                return response()->json([
+                    'error' => 'Invalid appointment: Optometrist is not available at this branch on this day'
+                ], 400);
+            }
+        } catch (\Exception $e) {
+            \Log::error('Error checking rotation schedule: ' . $e->getMessage(), [
+                'optometrist_id' => $request->optometrist_id,
+                'branch_id' => $request->branch_id,
+                'appointment_date' => $request->appointment_date,
+                'trace' => $e->getTraceAsString()
+            ]);
             return response()->json([
-                'error' => 'Invalid appointment: Optometrist is not available at this branch on this day'
-            ], 400);
+                'error' => 'Failed to validate appointment schedule',
+                'message' => config('app.debug') ? $e->getMessage() : 'An error occurred while validating the appointment'
+            ], 500);
         }
 
-        // Check for scheduling conflicts
+        // Check for scheduling conflicts (exclude cancelled and completed appointments)
         $conflict = Appointment::where('optometrist_id', $request->optometrist_id)
             ->where('appointment_date', $request->appointment_date)
             ->where(function ($query) use ($request) {
@@ -162,7 +242,7 @@ class AppointmentController extends Controller
                             ->where('end_time', '>=', $request->end_time);
                       });
             })
-            ->where('status', '!=', 'cancelled')
+            ->whereNotIn('status', ['cancelled', 'completed'])
             ->exists();
 
         if ($conflict) {
@@ -197,26 +277,68 @@ class AppointmentController extends Controller
             }
         }
 
-        $appointment = Appointment::create($request->all());
+        try {
+            // Prepare appointment data with default status
+            $appointmentData = $request->only([
+                'patient_id',
+                'optometrist_id',
+                'branch_id',
+                'appointment_date',
+                'start_time',
+                'end_time',
+                'type',
+                'notes'
+            ]);
+            
+            // Set default status if not provided
+            if (!$request->has('status')) {
+                $appointmentData['status'] = 'scheduled';
+            } else {
+                $appointmentData['status'] = $request->status;
+            }
 
-        // Load relationships for notifications
-        $appointment->load(['patient', 'optometrist', 'branch']);
+            $appointment = Appointment::create($appointmentData);
 
-        // Create notifications for appointment booking
-        NotificationController::createAppointmentNotification(
-            $appointment,
-            'booked',
-            "Your appointment has been booked for {$appointment->appointment_date} at {$appointment->start_time} at {$appointment->branch->name}"
-        );
+            // Load relationships for notifications
+            $appointment->load(['patient', 'optometrist', 'branch']);
 
-        // Send real-time notification
-        WebSocketService::notifyAppointmentUpdate(
-            $appointment,
-            'created',
-            "New appointment scheduled for {$appointment->appointment_date} at {$appointment->start_time}"
-        );
+            // Create notifications for appointment booking
+            try {
+                NotificationController::createAppointmentNotification(
+                    $appointment,
+                    'booked',
+                    "Your appointment has been booked for {$appointment->appointment_date} at {$appointment->start_time}" . 
+                    ($appointment->branch ? " at {$appointment->branch->name}" : "")
+                );
+            } catch (\Exception $e) {
+                \Log::warning('Failed to create appointment notification: ' . $e->getMessage());
+                // Continue even if notification fails
+            }
 
-        return response()->json($appointment, 201);
+            // Send real-time notification
+            try {
+                WebSocketService::notifyAppointmentUpdate(
+                    $appointment,
+                    'created',
+                    "New appointment scheduled for {$appointment->appointment_date} at {$appointment->start_time}"
+                );
+            } catch (\Exception $e) {
+                \Log::warning('Failed to send WebSocket notification: ' . $e->getMessage());
+                // Continue even if WebSocket fails
+            }
+
+            return response()->json($appointment, 201);
+        } catch (\Exception $e) {
+            \Log::error('Error creating appointment: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString(),
+                'request_data' => $request->all()
+            ]);
+            
+            return response()->json([
+                'error' => 'Failed to create appointment',
+                'message' => config('app.debug') ? $e->getMessage() : 'An error occurred while creating the appointment'
+            ], 500);
+        }
     }
 
     /**
@@ -241,8 +363,18 @@ class AppointmentController extends Controller
     {
         $user = Auth::user();
 
-        // Check if user has permission to update this appointment
-        if (!$this->canUpdateAppointment($user, $appointment)) {
+        // Special handling: Allow optometrists to take over appointments by assigning themselves
+        $isOptometristTakingOver = false;
+        if ($user->role->value === UserRole::OPTOMETRIST->value && 
+            $request->has('optometrist_id') && 
+            (int)$request->optometrist_id === (int)$user->id &&
+            $appointment->optometrist_id !== $user->id) {
+            // Optometrist is trying to take over this appointment
+            $isOptometristTakingOver = true;
+        }
+
+        // Check if user has permission to update this appointment (unless it's a take-over)
+        if (!$isOptometristTakingOver && !$this->canUpdateAppointment($user, $appointment)) {
             return response()->json(['error' => 'Unauthorized'], 403);
         }
 
@@ -252,6 +384,7 @@ class AppointmentController extends Controller
             'end_time' => 'sometimes|date_format:H:i|after:start_time',
             'type' => 'sometimes|in:eye_exam,contact_fitting,follow_up,consultation,emergency',
             'status' => 'sometimes|in:scheduled,confirmed,in_progress,completed,cancelled,no_show',
+            'optometrist_id' => 'sometimes|exists:users,id',
             'notes' => 'nullable|string|max:1000',
         ]);
 
@@ -316,7 +449,7 @@ class AppointmentController extends Controller
 
         $appointment->delete();
 
-        return response()->json(['message' => 'Appointment deleted successfully']);
+        return response()->json(['message' => 'Appointment deleted successfully (soft deleted - data preserved in database)']);
     }
 
     /**
@@ -507,6 +640,77 @@ class AppointmentController extends Controller
 
             default:
                 return false;
+        }
+    }
+
+    /**
+     * Get weekly schedule for appointments
+     */
+    public function getWeeklySchedule(Request $request): JsonResponse
+    {
+        try {
+            $user = Auth::user();
+            
+            if (!$user) {
+                return response()->json(['message' => 'Unauthorized'], 401);
+            }
+
+            // Get the start of the current week (Monday)
+            $startOfWeek = now()->startOfWeek();
+            $endOfWeek = now()->endOfWeek();
+
+            // Build query based on user role
+            $query = Appointment::with(['patient', 'optometrist', 'branch'])
+                ->whereBetween('appointment_date', [$startOfWeek, $endOfWeek]);
+
+            // Filter by user role
+            if ($user->role === UserRole::OPTOMETRIST->value) {
+                $query->where('optometrist_id', $user->id);
+            } elseif ($user->role === UserRole::CUSTOMER->value) {
+                $query->where('patient_id', $user->id);
+            }
+            // Admin and Staff can see all appointments
+
+            $appointments = $query->orderBy('appointment_date')
+                ->orderBy('appointment_time')
+                ->get()
+                ->map(function ($appointment) {
+                    return [
+                        'id' => $appointment->id,
+                        'date' => $appointment->appointment_date?->format('Y-m-d'),
+                        'time' => $appointment->appointment_time,
+                        'type' => $appointment->type,
+                        'status' => $appointment->status,
+                        'patient' => $appointment->patient ? [
+                            'id' => $appointment->patient->id,
+                            'name' => $appointment->patient->name,
+                            'email' => $appointment->patient->email,
+                        ] : null,
+                        'optometrist' => $appointment->optometrist ? [
+                            'id' => $appointment->optometrist->id,
+                            'name' => $appointment->optometrist->name,
+                        ] : null,
+                        'branch' => $appointment->branch ? [
+                            'id' => $appointment->branch->id,
+                            'name' => $appointment->branch->name,
+                        ] : null,
+                        'notes' => $appointment->notes,
+                        'created_at' => $appointment->created_at,
+                    ];
+                });
+
+            return response()->json([
+                'data' => $appointments,
+                'week_start' => $startOfWeek->format('Y-m-d'),
+                'week_end' => $endOfWeek->format('Y-m-d'),
+                'total' => $appointments->count()
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Error fetching weekly schedule',
+                'error' => $e->getMessage()
+            ], 500);
         }
     }
 }

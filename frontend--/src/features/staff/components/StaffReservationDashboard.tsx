@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../../contexts/AuthContext';
+import { getApiUrl, getAuthHeaders } from '@/config/api';
 
 interface Branch {
   id: number;
@@ -57,18 +58,13 @@ const StaffReservationDashboard: React.FC = () => {
       setLoading(true);
       setError(null);
       
-      const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api';
-      const token = sessionStorage.getItem('auth_token');
-      
-      let url = `${apiBaseUrl}/reservations`;
+      let url = getApiUrl('/reservations');
       if (selectedStatus !== 'all') {
         url += `?status=${selectedStatus}`;
       }
 
       const response = await fetch(url, {
-        headers: {
-          'Authorization': token ? `Bearer ${token}` : '',
-        },
+        headers: getAuthHeaders(),
       });
 
       if (!response.ok) {
@@ -89,14 +85,9 @@ const StaffReservationDashboard: React.FC = () => {
     try {
       setActionLoading(reservationId);
       
-      const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api';
-      const token = sessionStorage.getItem('auth_token');
-      
-      const response = await fetch(`${apiBaseUrl}/reservations/${reservationId}/${action}`, {
+      const response = await fetch(getApiUrl(`/reservations/${reservationId}/${action}`), {
         method: 'PUT',
-        headers: {
-          'Authorization': token ? `Bearer ${token}` : '',
-        },
+        headers: getAuthHeaders(),
       });
 
       if (!response.ok) {
@@ -164,7 +155,7 @@ const StaffReservationDashboard: React.FC = () => {
   };
 
   const getStorageUrl = (path: string) => {
-    const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api';
+    const apiBaseUrl = getApiUrl('/');
     const baseUrl = apiBaseUrl.replace('/api', '');
     const cleanPath = path.startsWith('/') ? path.substring(1) : path;
     return `${baseUrl}/storage/${cleanPath}`;

@@ -17,10 +17,12 @@ class PrescriptionPolicy
      */
     public function viewAny(User $user): bool
     {
-        // Admin and optometrists can view all prescriptions
+        // Admin, optometrists, and customers can view prescriptions
+        // (customers will be filtered to see only their own in the controller)
         return in_array($user->role->value, [
             UserRole::ADMIN->value,
             UserRole::OPTOMETRIST->value,
+            UserRole::CUSTOMER->value,
         ]);
     }
 
