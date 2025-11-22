@@ -36,6 +36,18 @@ class Product extends Model
         'brand',
         'model',
         'sku',
+        'color',
+        'shape',
+        'lens_width',
+        'bridge_width',
+        'temple_length',
+        'frame_material',
+        'lens_material',
+        'lens_type',
+        'polarized',
+        'uv_protection',
+        'gender',
+        'prescription_file_path',
     ];
 
     protected $casts = [
@@ -44,8 +56,13 @@ class Product extends Model
         'image_metadata' => 'array',
         'attributes' => 'array',
         'price' => 'decimal:2',
+        'lens_width' => 'decimal:2',
+        'bridge_width' => 'decimal:2',
+        'temple_length' => 'decimal:2',
         'is_active' => 'boolean',
         'stock_quantity' => 'integer',
+        'polarized' => 'boolean',
+        'uv_protection' => 'boolean',
         'expiry_date' => 'date',
         'min_stock_threshold' => 'integer',
         'auto_restock_quantity' => 'integer',
@@ -198,11 +215,75 @@ class Product extends Model
     }
 
     /**
+     * Scope to get products by color.
+     */
+    public function scopeByColor($query, $color)
+    {
+        return $query->where('color', $color);
+    }
+
+    /**
+     * Scope to get products by shape.
+     */
+    public function scopeByShape($query, $shape)
+    {
+        return $query->where('shape', $shape);
+    }
+
+    /**
+     * Scope to get products by frame material.
+     */
+    public function scopeByFrameMaterial($query, $frameMaterial)
+    {
+        return $query->where('frame_material', $frameMaterial);
+    }
+
+    /**
+     * Scope to get polarized sunglasses.
+     */
+    public function scopePolarized($query)
+    {
+        return $query->where('polarized', true);
+    }
+
+    /**
+     * Scope to get UV protection glasses.
+     */
+    public function scopeUvProtective($query)
+    {
+        return $query->where('uv_protection', true);
+    }
+
+    /**
+     * Scope to get products by gender.
+     */
+    public function scopeByGender($query, $gender)
+    {
+        return $query->where('gender', $gender);
+    }
+
+    /**
      * Scope to get products with primary image.
      */
     public function scopeWithPrimaryImage($query)
     {
         return $query->whereNotNull('primary_image');
+    }
+
+    /**
+     * Get the formatted price with Philippine Peso currency.
+     */
+    public function getFormattedPriceAttribute(): string
+    {
+        return 'P ' . number_format($this->price, 2, '.', ',');
+    }
+
+    /**
+     * Format price for API responses.
+     */
+    public function getFormattedPrice(): string
+    {
+        return $this->formatted_price;
     }
 
     /**
@@ -232,18 +313,14 @@ class Product extends Model
         if ($this->image_order && is_array($this->image_order) && count($this->image_order) > 0) {
             return $this->image_order;
         }
-        
+
         // Fall back to image_paths if image_order is not set
         if ($this->image_paths && is_array($this->image_paths)) {
             return $this->image_paths;
         }
-        
+
         return [];
     }
-
-    /**
-     * Set the image order and update image_paths accordingly.
-     */
     public function setImageOrder(array $orderedPaths): void
     {
         $this->image_order = $orderedPaths;

@@ -33,21 +33,22 @@ io.use((socket, next) => {
     token = token.slice(7).trim();
   }
 
+  // Development mode: skip authentication entirely unless SKIP_WS_AUTH is explicitly false
+  if (process.env.NODE_ENV !== 'production' || process.env.SKIP_WS_AUTH === 'true') {
+    socket.userId = 'dev-user';
+    socket.userRole = 'admin'; // Default to admin for development
+    socket.userBranchId = null;
+    return next();
+  }
+
   if (!token) {
-    if (process.env.SKIP_WS_AUTH === 'true') {
-      // Dev bypass: allow connection without token
-      socket.userId = 'dev-user';
-      socket.userRole = 'guest';
-      socket.userBranchId = null;
-      return next();
-    }
     return next(new Error('Authentication error: No token provided'));
   }
 
   // Dev bypass flag: skip JWT verification entirely
   if (process.env.SKIP_WS_AUTH === 'true') {
     socket.userId = 'dev-user';
-    socket.userRole = 'guest';
+    socket.userRole = 'admin'; // Default to admin for development
     socket.userBranchId = null;
     return next();
   }
@@ -133,6 +134,9 @@ app.get('/connections', (req, res) => {
     connections,
   });
 });
+
+// Set default development bypass
+process.env.SKIP_WS_AUTH = process.env.SKIP_WS_AUTH || (process.env.NODE_ENV === 'development' ? 'true' : 'false');
 
 const PORT = process.env.WEBSOCKET_PORT || 6001;
 const HOST = process.env.WEBSOCKET_HOST || '0.0.0.0'; // Listen on all interfaces for network access

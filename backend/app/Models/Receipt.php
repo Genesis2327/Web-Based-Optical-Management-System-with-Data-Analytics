@@ -66,24 +66,25 @@ class Receipt extends Model
     }
 
     /**
-     * Generate unique receipt number
+     * Generate unique receipt number in BIR-compliant format
+     * Format: YYMMDD-XXXX (e.g., 241122-0001)
      */
     public static function generateReceiptNumber(): string
     {
-        $date = now()->format('Ymd');
-        $prefix = "REC-{$date}-";
-        
+        $date = now()->format('ymd'); // YYMMDD format
+        $prefix = "{$date}-";
+
         $lastReceipt = static::where('receipt_number', 'like', $prefix . '%')
             ->orderBy('receipt_number', 'desc')
             ->first();
-        
+
         if ($lastReceipt) {
             $lastNumber = (int) substr($lastReceipt->receipt_number, -4);
             $newNumber = $lastNumber + 1;
         } else {
             $newNumber = 1;
         }
-        
+
         return $prefix . str_pad($newNumber, 4, '0', STR_PAD_LEFT);
     }
 
