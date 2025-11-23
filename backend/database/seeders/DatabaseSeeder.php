@@ -78,6 +78,7 @@ class DatabaseSeeder extends Seeder
             ProductCategorySeeder::class, // Create product categories
             UserSeeder::class,           // Create users (test accounts)
             ProductSeeder::class,        // Create sample products
+            StockReturnSeeder::class,    // Create stock returns
             // TestReceiptSeeder::class, // Run separately to add test receipts: php artisan db:seed --class=TestReceiptSeeder
             // ScheduleSeeder::class,    // Create doctor schedules (if exists)
             // ComprehensiveDummyDataSeeder::class, // Disabled to use real product data

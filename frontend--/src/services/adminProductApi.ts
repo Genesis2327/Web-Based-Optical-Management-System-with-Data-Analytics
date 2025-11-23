@@ -1,15 +1,4 @@
-import axios from 'axios';
-import { API_BASE_URL } from '../config/api';
-
-// Include auth token if present (use sessionStorage for consistency)
-axios.interceptors.request.use((config) => {
-  const token = sessionStorage.getItem('auth_token');
-  if (token) {
-    config.headers = config.headers || {};
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
+import axios from '../lib/http';
 
 export const getAdminProducts = async (filters: {
   branch_id?: string;
@@ -21,30 +10,26 @@ export const getAdminProducts = async (filters: {
   if (filters.approval_status) params.append('approval_status', filters.approval_status);
   if (filters.search) params.append('search', filters.search);
 
-  const response = await axios.get(`${API_BASE_URL}/admin/products?${params}`);
+  const response = await axios.get(`/admin/products?${params}`);
   return response.data;
 };
 
 export const approveProduct = async (productId: number) => {
-  const response = await axios.put(`${API_BASE_URL}/admin/products/${productId}/approve`);
+  const response = await axios.put(`/admin/products/${productId}/approve`);
   return response.data;
 };
 
 export const rejectProduct = async (productId: number) => {
-  const response = await axios.put(`${API_BASE_URL}/admin/products/${productId}/reject`);
+  const response = await axios.put(`/admin/products/${productId}/reject`);
   return response.data;
 };
 
 export const getManufacturers = async () => {
-  const response = await axios.get(`${API_BASE_URL}/manufacturers`);
+  const response = await axios.get('/manufacturers');
   return response.data;
 };
 
 export const getBranches = async () => {
-  const response = await axios.get(`${API_BASE_URL}/branches/active`);
+  const response = await axios.get('/branches/active');
   return response.data;
 };
-
-
-
-

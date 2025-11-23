@@ -55,6 +55,21 @@ class ProductSeeder extends Seeder
                 'stock_quantity' => 25,
                 'is_active' => true,
                 'approval_status' => 'approved',
+                // New eyeglasses fields
+                'brand' => 'OptiClear',
+                'model' => 'RC-100',
+                'sku' => 'OCRC1001',
+                'color' => 'Black',
+                'shape' => 'Rectangle',
+                'lens_width' => 52.00,
+                'bridge_width' => 16.00,
+                'temple_length' => 140.00,
+                'frame_material' => 'Acetate',
+                'lens_material' => 'Polycarbonate',
+                'lens_type' => 'single_vision',
+                'polarized' => false,
+                'uv_protection' => true,
+                'gender' => 'unisex',
             ],
             [
                 'name' => 'Round Vintage Glasses - VisionPro RV-200',
@@ -64,6 +79,21 @@ class ProductSeeder extends Seeder
                 'stock_quantity' => 18,
                 'is_active' => true,
                 'approval_status' => 'approved',
+                // New eyeglasses fields
+                'brand' => 'VisionPro',
+                'model' => 'RV-200',
+                'sku' => 'VPRV2001',
+                'color' => 'Gold',
+                'shape' => 'Round',
+                'lens_width' => 48.00,
+                'bridge_width' => 20.00,
+                'temple_length' => 145.00,
+                'frame_material' => 'Metal',
+                'lens_material' => 'Glass',
+                'lens_type' => 'single_vision',
+                'polarized' => false,
+                'uv_protection' => true,
+                'gender' => 'unisex',
             ],
             [
                 'name' => 'Cat Eye Fashion Frame - ElegantView CE-300',
@@ -73,6 +103,21 @@ class ProductSeeder extends Seeder
                 'stock_quantity' => 22,
                 'is_active' => true,
                 'approval_status' => 'approved',
+                // New eyeglasses fields
+                'brand' => 'ElegantView',
+                'model' => 'CE-300',
+                'sku' => 'EVCE3001',
+                'color' => 'Tortoise',
+                'shape' => 'Cat Eye',
+                'lens_width' => 50.00,
+                'bridge_width' => 18.00,
+                'temple_length' => 135.00,
+                'frame_material' => 'Acetate',
+                'lens_material' => 'Polycarbonate',
+                'lens_type' => 'single_vision',
+                'polarized' => false,
+                'uv_protection' => true,
+                'gender' => 'women',
             ],
             [
                 'name' => 'Aviator Metal Frame',
@@ -82,6 +127,21 @@ class ProductSeeder extends Seeder
                 'stock_quantity' => 30,
                 'is_active' => true,
                 'approval_status' => 'approved',
+                // New eyeglasses fields
+                'brand' => 'Aviator',
+                'model' => 'AM-400',
+                'sku' => 'AVAM4001',
+                'color' => 'Silver',
+                'shape' => 'Aviator',
+                'lens_width' => 55.00,
+                'bridge_width' => 14.00,
+                'temple_length' => 150.00,
+                'frame_material' => 'Metal',
+                'lens_material' => 'Mineral Glass',
+                'lens_type' => 'single_vision',
+                'polarized' => false,
+                'uv_protection' => true,
+                'gender' => 'unisex',
             ],
 
             // Sunglasses
@@ -196,6 +256,3 @@ class ProductSeeder extends Seeder
         $this->command->info('Successfully seeded ' . count($products) . ' products!');
     }
 }
-
-
-
