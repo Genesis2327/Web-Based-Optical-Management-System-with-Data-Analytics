@@ -337,19 +337,8 @@ class InventoryApiService {
     return response.data;
   }
 
-  /**
-   * Get all branch stock (Admin only)
-   */
-  async getAllBranchStock(): Promise<{
-    stock: InventoryItem[];
-    summary: {
-      total_products: number;
-      in_stock: number;
-      low_stock: number;
-      out_of_stock: number;
-    };
-  }> {
-    const response = await axios.get(`${API_BASE_URL}/branch-stock`);
+  async getAllBranchStock(): Promise<any> {
+    const response = await axios.get('/branch-stock');
     return response.data;
   }
 }
