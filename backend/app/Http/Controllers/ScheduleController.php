@@ -11,6 +11,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Schema;
 
 class ScheduleController extends Controller
 {
@@ -31,14 +32,32 @@ class ScheduleController extends Controller
                 ], 404);
             }
 
+            // Initialize complete schedule
+            $completeSchedule = [];
+            
             // Get the doctor's rotation schedule (preferred for optometrists)
-            $rotation = OptometristRotation::where('optometrist_id', $doctorId)
-                ->where('is_active', true)
-                ->first();
+            // Handle soft deletes and missing columns gracefully
+            $rotationQuery = OptometristRotation::where('optometrist_id', $doctorId);
+            
+            // Check if deleted_at column exists, if not, disable soft deletes scope
+            if (Schema::hasTable('optometrist_rotations') && !Schema::hasColumn('optometrist_rotations', 'deleted_at')) {
+                $rotationQuery->withoutGlobalScopes();
+            }
+            
+            // Only filter by is_active if column exists
+            if (Schema::hasTable('optometrist_rotations') && Schema::hasColumn('optometrist_rotations', 'is_active')) {
+                $rotationQuery->where('is_active', true);
+            }
+            
+            $rotation = null;
+            try {
+                $rotation = $rotationQuery->first();
+            } catch (\Exception $e) {
+                \Log::warning('Failed to fetch optometrist rotation: ' . $e->getMessage());
+            }
 
-            if ($rotation && !empty($rotation->rotation_schedule)) {
+            if ($rotation && !empty($rotation->rotation_schedule) && is_array($rotation->rotation_schedule)) {
                 // Use rotation schedule
-                $completeSchedule = [];
                 $daysOfWeek = [
                     1 => 'Monday',
                     2 => 'Tuesday',
@@ -49,15 +68,34 @@ class ScheduleController extends Controller
                 ];
 
                 foreach ($rotation->rotation_schedule as $scheduleItem) {
-                    $dayNum = $scheduleItem['day'];
-                    $branch = Branch::find($scheduleItem['branch_id']);
+                    // Validate schedule item structure
+                    if (!is_array($scheduleItem)) {
+                        continue;
+                    }
+                    
+                    $dayNum = $scheduleItem['day'] ?? null;
+                    $branchId = $scheduleItem['branch_id'] ?? null;
+                    
+                    if ($dayNum === null || $branchId === null) {
+                        continue;
+                    }
+                    
+                    // Safely get branch
+                    $branch = null;
+                    try {
+                        if ($branchId) {
+                            $branch = Branch::find($branchId);
+                        }
+                    } catch (\Exception $e) {
+                        \Log::warning('Failed to find branch for rotation schedule: ' . $e->getMessage());
+                    }
                     
                     $completeSchedule[] = [
                         'day' => $daysOfWeek[$dayNum] ?? 'Unknown',
                         'branch' => $branch ? $branch->name : 'Unknown Branch',
                         'time' => ($scheduleItem['start_time'] ?? '09:00') . ' - ' . ($scheduleItem['end_time'] ?? '17:00'),
                         'day_of_week' => $dayNum,
-                        'branch_id' => $scheduleItem['branch_id'],
+                        'branch_id' => $branchId,
                         'start_time' => $scheduleItem['start_time'] ?? '09:00',
                         'end_time' => $scheduleItem['end_time'] ?? '17:00',
                     ];
@@ -65,28 +103,48 @@ class ScheduleController extends Controller
 
                 // Sort by day of week
                 usort($completeSchedule, function ($a, $b) {
-                    return $a['day_of_week'] <=> $b['day_of_week'];
+                    return ($a['day_of_week'] ?? 0) <=> ($b['day_of_week'] ?? 0);
                 });
 
             } else {
                 // Fallback to old Schedule table if no rotation exists
-                $schedules = Schedule::where('staff_id', $doctorId)
+                $scheduleQuery = Schedule::where('staff_id', $doctorId)
                     ->where('staff_role', 'optometrist')
-                    ->where('is_active', true)
-                    ->whereIn('day_of_week', [1, 2, 3, 4, 5, 6])
-                    ->with(['branch'])
+                    ->whereIn('day_of_week', [1, 2, 3, 4, 5, 6]);
+                
+                // Only filter by is_active if column exists
+                if (Schema::hasColumn('schedules', 'is_active')) {
+                    $scheduleQuery->where('is_active', true);
+                }
+                
+                // Check if deleted_at column exists, if not, disable soft deletes scope
+                if (Schema::hasTable('schedules') && !Schema::hasColumn('schedules', 'deleted_at')) {
+                    $scheduleQuery->withoutGlobalScopes();
+                }
+                
+                $schedules = $scheduleQuery->with(['branch'])
                     ->orderBy('day_of_week')
                     ->get();
 
                 $weeklySchedule = $schedules->map(function ($schedule) {
+                    // Safely access branch name
+                    $branchName = 'Not Available';
+                    try {
+                        if ($schedule->branch && $schedule->branch->name) {
+                            $branchName = $schedule->branch->name;
+                        }
+                    } catch (\Exception $e) {
+                        \Log::warning('Failed to get branch name for schedule: ' . $e->getMessage());
+                    }
+                    
                     return [
-                        'day' => $schedule->day_name,
-                        'branch' => $schedule->branch->name,
-                        'time' => $schedule->formatted_start_time . ' - ' . $schedule->formatted_end_time,
-                        'day_of_week' => $schedule->day_of_week,
-                        'branch_id' => $schedule->branch_id,
-                        'start_time' => $schedule->start_time,
-                        'end_time' => $schedule->end_time,
+                        'day' => $schedule->day_name ?? 'Unknown',
+                        'branch' => $branchName,
+                        'time' => ($schedule->formatted_start_time ?? $schedule->start_time ?? '09:00') . ' - ' . ($schedule->formatted_end_time ?? $schedule->end_time ?? '17:00'),
+                        'day_of_week' => $schedule->day_of_week ?? 1,
+                        'branch_id' => $schedule->branch_id ?? null,
+                        'start_time' => $schedule->start_time ?? '09:00',
+                        'end_time' => $schedule->end_time ?? '17:00',
                     ];
                 });
 
@@ -130,9 +188,16 @@ class ScheduleController extends Controller
             ]);
 
         } catch (\Exception $e) {
+            \Log::error('Error in ScheduleController@getDoctorSchedule: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString(),
+                'doctor_id' => $doctorId,
+                'file' => $e->getFile(),
+                'line' => $e->getLine()
+            ]);
+            
             return response()->json([
                 'error' => 'Failed to fetch doctor schedule',
-                'message' => $e->getMessage()
+                'message' => config('app.debug') ? $e->getMessage() : 'An error occurred while fetching the schedule'
             ], 500);
         }
     }
@@ -144,7 +209,7 @@ class ScheduleController extends Controller
     {
         try {
             // Get all optometrists with their schedules
-            $optometrists = User::where('role', UserRsle::OerRole::Opometrist)
+            $optometrists = User::where('role', UserRole::Optometrist)
                 ->where('is_approved', true)
                 ->get();
 
@@ -315,12 +380,40 @@ class ScheduleController extends Controller
             ], 403);
         }
 
-        $validator = Validator::make($request->all(), [
+        // Normalize time formats - accept 12-hour (h:i A) or 24-hour (H:i or H:i:s) and convert to 24-hour (H:i) for storage
+        $data = $request->all();
+        if (isset($data['start_time']) && is_string($data['start_time'])) {
+            $data['start_time'] = $this->normalizeTimeTo24Hour($data['start_time']);
+        }
+        if (isset($data['end_time']) && is_string($data['end_time'])) {
+            $data['end_time'] = $this->normalizeTimeTo24Hour($data['end_time']);
+        }
+        
+        $validator = Validator::make($data, [
             'day_of_week' => 'required|integer|between:1,7',
             'branch_id' => 'nullable|exists:branches,id',
             'start_time' => 'nullable|date_format:H:i',
-            'end_time' => 'nullable|date_format:H:i|after:start_time',
+            'end_time' => 'nullable|date_format:H:i',
         ]);
+        
+        // Custom validation: if both start_time and end_time are provided, end_time should be after start_time
+        if (isset($data['start_time']) && isset($data['end_time'])) {
+            $validator->after(function ($validator) use ($data) {
+                $startTime = $data['start_time'] ?? null;
+                $endTime = $data['end_time'] ?? null;
+                if ($startTime && $endTime) {
+                    try {
+                        $start = \Carbon\Carbon::createFromFormat('H:i', $startTime);
+                        $end = \Carbon\Carbon::createFromFormat('H:i', $endTime);
+                        if ($end->lte($start)) {
+                            $validator->errors()->add('end_time', 'The end time must be after the start time.');
+                        }
+                    } catch (\Exception $e) {
+                        // If time parsing fails, the date_format validation will catch it
+                    }
+                }
+            });
+        }
 
         if ($validator->fails()) {
             return response()->json([
@@ -330,33 +423,51 @@ class ScheduleController extends Controller
         }
 
         try {
-            // Find existing schedule for this day
-            $existingSchedule = Schedule::where('staff_id', $doctorId)
+            // Find existing schedule for this day (handle soft deletes)
+            $scheduleQuery = Schedule::where('staff_id', $doctorId)
                 ->where('staff_role', 'optometrist')
-                ->where('day_of_week', $request->day_of_week)
-                ->first();
+                ->where('day_of_week', $data['day_of_week']);
+            
+            // Check if deleted_at column exists, if not, disable soft deletes scope
+            if (Schema::hasTable('schedules') && !Schema::hasColumn('schedules', 'deleted_at')) {
+                $scheduleQuery->withoutGlobalScopes();
+            }
+            
+            $existingSchedule = $scheduleQuery->first();
+
+            $updateData = [
+                'branch_id' => $data['branch_id'] ?? null,
+                'start_time' => $data['start_time'] ?? null,
+                'end_time' => $data['end_time'] ?? null,
+            ];
+            
+            // Only add updated_by if column exists
+            if (Schema::hasColumn('schedules', 'updated_by')) {
+                $updateData['updated_by'] = $user->id;
+            }
 
             if ($existingSchedule) {
                 // Update existing schedule
-                $existingSchedule->update([
-                    'branch_id' => $request->branch_id,
-                    'start_time' => $request->start_time,
-                    'end_time' => $request->end_time,
-                    'updated_by' => $user->id,
-                ]);
+                $existingSchedule->update($updateData);
             } else {
                 // Create new schedule entry
-                Schedule::create([
+                $createData = array_merge($updateData, [
                     'staff_id' => $doctorId,
                     'staff_role' => 'optometrist',
-                    'day_of_week' => $request->day_of_week,
-                    'branch_id' => $request->branch_id,
-                    'start_time' => $request->start_time,
-                    'end_time' => $request->end_time,
-                    'is_active' => true,
-                    'created_by' => $user->id,
-                    'updated_by' => $user->id,
+                    'day_of_week' => $data['day_of_week'],
                 ]);
+                
+                // Only add is_active if column exists
+                if (Schema::hasColumn('schedules', 'is_active')) {
+                    $createData['is_active'] = true;
+                }
+                
+                // Only add created_by if column exists
+                if (Schema::hasColumn('schedules', 'created_by')) {
+                    $createData['created_by'] = $user->id;
+                }
+                
+                Schedule::create($createData);
             }
 
             return response()->json([
@@ -365,10 +476,73 @@ class ScheduleController extends Controller
             ]);
 
         } catch (\Exception $e) {
+            \Log::error('Error in ScheduleController@updateScheduleDirectly: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString(),
+                'doctor_id' => $doctorId,
+                'request_data' => $request->all(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine()
+            ]);
+            
             return response()->json([
                 'message' => 'Failed to update schedule',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
             ], 500);
+        }
+    }
+
+    /**
+     * Normalize time format to 24-hour (H:i)
+     * Accepts: 12-hour format (h:i A or h:iA), 24-hour format (H:i or H:i:s)
+     * Returns: 24-hour format (H:i)
+     */
+    private function normalizeTimeTo24Hour($timeString): string
+    {
+        if (empty($timeString) || !is_string($timeString)) {
+            return $timeString;
+        }
+
+        $timeString = trim($timeString);
+        
+        // Try 12-hour format with space: "9:00 AM", "09:00 PM"
+        try {
+            $time = \Carbon\Carbon::createFromFormat('h:i A', $timeString);
+            return $time->format('H:i');
+        } catch (\Exception $e) {
+            // Continue to next format
+        }
+        
+        // Try 12-hour format without space: "9:00AM", "09:00PM"
+        try {
+            $time = \Carbon\Carbon::createFromFormat('h:iA', $timeString);
+            return $time->format('H:i');
+        } catch (\Exception $e) {
+            // Continue to next format
+        }
+        
+        // Try 12-hour format with single digit hour: "9:00 AM"
+        try {
+            $time = \Carbon\Carbon::createFromFormat('g:i A', $timeString);
+            return $time->format('H:i');
+        } catch (\Exception $e) {
+            // Continue to next format
+        }
+        
+        // Try 24-hour format with seconds: "09:00:00"
+        try {
+            $time = \Carbon\Carbon::createFromFormat('H:i:s', $timeString);
+            return $time->format('H:i');
+        } catch (\Exception $e) {
+            // Continue to next format
+        }
+        
+        // Try 24-hour format without seconds: "09:00"
+        try {
+            $time = \Carbon\Carbon::createFromFormat('H:i', $timeString);
+            return $time->format('H:i');
+        } catch (\Exception $e) {
+            // If all parsing fails, return original (validation will catch it)
+            return $timeString;
         }
     }
 }

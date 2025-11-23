@@ -344,8 +344,10 @@ const CustomerVisionHistory: React.FC = () => {
 
   // Transform data for the new EyeTrackerLineChart
   const eyeTrackerData = useMemo(() => {
-    const data = lineChartData.map(item => ({
+    const data = lineChartData.map((item, index) => ({
       date: item.date,
+      fullDate: item.fullDate, // Use full date for uniqueness
+      uniqueId: `${item.fullDate}-${index}`, // Create unique identifier
       rightEye: item.reSphere,
       leftEye: item.leSphere,
       visionAcuity: item.visionAcuity,

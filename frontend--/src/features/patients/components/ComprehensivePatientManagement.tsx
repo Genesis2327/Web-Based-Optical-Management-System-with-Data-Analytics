@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
+import CreateGlassOrderFromPrescription from '@/components/glass-orders/CreateGlassOrderFromPrescription';
 import { 
   User, 
   Eye, 
@@ -362,7 +363,14 @@ export const ComprehensivePatientManagement: React.FC = () => {
                   .sort((a, b) => new Date(b.appointment_date).getTime() - new Date(a.appointment_date).getTime())[0];
 
                 return (
-                  <TableRow key={patient.id}>
+                  <TableRow 
+                    key={patient.id}
+                    className="cursor-pointer hover:bg-blue-50 transition-colors"
+                    onClick={() => {
+                      console.log('Patient row clicked:', patient.name);
+                      setSelectedPatient(patient);
+                    }}
+                  >
                     <TableCell>
                       <div>
                         <div className="font-medium">{patient.name}</div>
@@ -448,6 +456,45 @@ export const ComprehensivePatientManagement: React.FC = () => {
           </Table>
         </CardContent>
       </Card>
+
+      {/* Patient Details View */}
+      {selectedPatient && (
+        <div className="mt-6 border-t pt-6">
+          <div className="flex justify-between items-center mb-4">
+            <div>
+              <h2 className="text-2xl font-bold">Patient Details: {selectedPatient.name}</h2>
+              <p className="text-sm text-gray-500 mt-1">Click on tabs below to view prescriptions, appointments, and glass orders</p>
+            </div>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                console.log('Closing patient details');
+                setSelectedPatient(null);
+              }}
+            >
+              Close
+            </Button>
+          </div>
+          <PatientDetailsView
+            patient={selectedPatient}
+            prescriptions={getPatientPrescriptions(selectedPatient.id)}
+            appointments={getPatientAppointments(selectedPatient.id)}
+            isStaff={isStaff}
+          />
+        </div>
+      )}
+      
+      {!selectedPatient && (
+        <Card className="mt-6">
+          <CardContent className="pt-6">
+            <div className="text-center text-gray-500">
+              <User className="h-12 w-12 mx-auto mb-4 text-gray-400" />
+              <p className="text-lg font-medium mb-2">No Patient Selected</p>
+              <p className="text-sm">Click on any patient row above to view their details and create glass orders</p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 };
@@ -460,6 +507,7 @@ const PatientDetailsView: React.FC<{
   isStaff?: boolean;
 }> = ({ patient, prescriptions, appointments, isStaff = false }) => {
   const [glassOrders, setGlassOrders] = useState<GlassOrder[]>([]);
+  const [showGlassOrderDialog, setShowGlassOrderDialog] = useState(false);
 
   useEffect(() => {
     const loadGlassOrders = async () => {
@@ -485,6 +533,9 @@ const PatientDetailsView: React.FC<{
 
     loadGlassOrders();
   }, [patient.id]);
+
+  console.log('PatientDetailsView rendering for:', patient.name, 'isStaff:', isStaff, 'showGlassOrderDialog:', showGlassOrderDialog);
+
   return (
     <Tabs defaultValue="overview" className="w-full">
       <TabsList className={isStaff ? "grid w-full grid-cols-4" : "grid w-full grid-cols-5"}>
@@ -638,6 +689,60 @@ const PatientDetailsView: React.FC<{
       
       {!isStaff && (
         <TabsContent value="glass-orders" className="space-y-4">
+        {/* Create Glass Order Button */}
+        {!showGlassOrderDialog && (
+          <div className="flex justify-end mb-4">
+            <Button
+              onClick={() => {
+                console.log('Create Glass Order button clicked');
+                setShowGlassOrderDialog(true);
+              }}
+              className="bg-green-600 hover:bg-green-700 text-white"
+            >
+              <Package className="w-4 h-4 mr-2" />
+              Create New Glass Order
+            </Button>
+          </div>
+        )}
+
+        {/* Create Glass Order Form */}
+        {showGlassOrderDialog && (
+          <div className="mb-4">
+            <CreateGlassOrderFromPrescription
+              patientId={patient.id}
+              patientName={patient.name}
+              onSuccess={() => {
+                console.log('Glass order created successfully');
+                setShowGlassOrderDialog(false);
+                // Reload glass orders
+                const loadGlassOrders = async () => {
+                  try {
+                    const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+                    const token = sessionStorage.getItem('auth_token');
+                    const response = await fetch(`${apiBaseUrl}/glass-orders/patient/${patient.id}`, {
+                      headers: {
+                        'Authorization': token ? `Bearer ${token}` : '',
+                        'Content-Type': 'application/json',
+                      },
+                    });
+                    if (response.ok) {
+                      const data = await response.json();
+                      setGlassOrders(data.data);
+                    }
+                  } catch (error) {
+                    console.error('Error loading glass orders:', error);
+                  }
+                };
+                loadGlassOrders();
+              }}
+              onCancel={() => {
+                console.log('Glass order creation cancelled');
+                setShowGlassOrderDialog(false);
+              }}
+            />
+          </div>
+        )}
+
         {glassOrders.length > 0 ? (
           glassOrders.map((order) => (
             <Card key={order.id}>
@@ -789,7 +894,52 @@ const PatientDetailsView: React.FC<{
           <Card>
             <CardContent className="text-center py-8">
               <Package className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-              <p className="text-gray-500">No glass orders found for this patient</p>
+              <p className="text-gray-500 mb-4">No glass orders found for this patient</p>
+              {!showGlassOrderDialog && (
+                <Button
+                  onClick={() => setShowGlassOrderDialog(true)}
+                  className="bg-green-600 hover:bg-green-700"
+                >
+                  <Package className="w-4 h-4 mr-2" />
+                  Create Glass Order from Prescription & Reservation
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+        )}
+        
+        {/* Create Glass Order Dialog */}
+        {showGlassOrderDialog && (
+          <Card className="mt-4">
+            <CardContent className="pt-6">
+              <CreateGlassOrderFromPrescription
+                patientId={patient.id}
+                patientName={patient.name}
+                onSuccess={() => {
+                  setShowGlassOrderDialog(false);
+                  // Reload glass orders
+                  const loadGlassOrders = async () => {
+                    try {
+                      const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+                      const token = sessionStorage.getItem('auth_token');
+                      const response = await fetch(`${apiBaseUrl}/glass-orders/patient/${patient.id}`, {
+                        headers: {
+                          'Authorization': token ? `Bearer ${token}` : '',
+                          'Content-Type': 'application/json',
+                        },
+                      });
+                      if (response.ok) {
+                        const data = await response.json();
+                        setGlassOrders(data.data);
+                      }
+                    } catch (error) {
+                      console.error('Error loading glass orders:', error);
+                    }
+                  };
+                  loadGlassOrders();
+                }}
+                onCancel={() => setShowGlassOrderDialog(false)}
+              />
             </CardContent>
           </Card>
         )}

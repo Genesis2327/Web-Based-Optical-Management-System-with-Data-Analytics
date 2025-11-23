@@ -197,10 +197,8 @@ export const CustomerAppointmentsLocalStorage: React.FC = () => {
   };
 
   const appointmentTypes = [
-    { value: 'eye_exam', label: 'Eye Examination' },
-    { value: 'contact_fitting', label: 'Contact Lens Fitting' },
-    { value: 'follow_up', label: 'Follow-up Visit' },
-    { value: 'emergency', label: 'Emergency Consultation' }
+    { value: 'eye_exam', label: 'Eye Refraction' },
+    { value: 'contact_fitting', label: 'Contact Lens' }
   ];
 
   const timeSlots = [

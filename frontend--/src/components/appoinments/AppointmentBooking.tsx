@@ -132,11 +132,8 @@ const AppointmentBooking: React.FC<AppointmentBookingProps> = ({ onSuccess }) =>
   }, [optometristsData]);
 
   const appointmentTypes = [
-    { value: 'eye_exam', label: 'Eye Exam' },
-    { value: 'contact_fitting', label: 'Contact Lens Fitting' },
-    { value: 'consultation', label: 'Consultation' },
-    { value: 'follow_up', label: 'Follow-up' },
-    { value: 'emergency', label: 'Emergency' }
+    { value: 'eye_exam', label: 'Eye Refraction' },
+    { value: 'contact_fitting', label: 'Contact Lens' }
   ];
 
   // Convert 12-hour format to 24-hour format

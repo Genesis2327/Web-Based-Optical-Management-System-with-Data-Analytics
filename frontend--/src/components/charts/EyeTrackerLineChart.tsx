@@ -22,6 +22,8 @@ import {
 
 interface EyeTrackerData {
   date: string;
+  fullDate?: string;
+  uniqueId?: string;
   rightEye: number;
   leftEye: number;
   visionAcuity?: string;
@@ -224,9 +226,13 @@ export function EyeTrackerLineChart({
                 dot={(props: any) => {
                   const { cx, cy, payload } = props;
                   const hasCondition = payload.condition && payload.condition !== 'None' && payload.condition !== 'Not specified';
+                  // Use uniqueId for guaranteed uniqueness, fallback to fullDate + coordinates for safety
+                  const uniqueKey = payload.uniqueId 
+                    ? `rightEye-dot-${payload.uniqueId}` 
+                    : `rightEye-dot-${payload.fullDate || payload.date}-${cx}-${cy}`;
                   return (
                     <circle
-                      key={`rightEye-dot-${payload.date}`}
+                      key={uniqueKey}
                       cx={cx}
                       cy={cy}
                       r={hasCondition ? 6 : 4}
@@ -249,9 +255,13 @@ export function EyeTrackerLineChart({
                 dot={(props: any) => {
                   const { cx, cy, payload } = props;
                   const hasCondition = payload.condition && payload.condition !== 'None' && payload.condition !== 'Not specified';
+                  // Use uniqueId for guaranteed uniqueness, fallback to fullDate + coordinates for safety
+                  const uniqueKey = payload.uniqueId 
+                    ? `leftEye-dot-${payload.uniqueId}` 
+                    : `leftEye-dot-${payload.fullDate || payload.date}-${cx}-${cy}`;
                   return (
                     <circle
-                      key={`leftEye-dot-${payload.date}`}
+                      key={uniqueKey}
                       cx={cx}
                       cy={cy}
                       r={hasCondition ? 6 : 4}

@@ -32,9 +32,14 @@ class User extends Authenticatable
         'social_media',
         'address',
         'date_of_birth',
+        'sex',
         'emergency_contact',
         'emergency_phone',
         'must_change_password',
+        'privacy_policy_accepted_at',
+        'privacy_policy_version',
+        'terms_accepted_at',
+        'terms_version',
     ];
 
     /**
@@ -60,6 +65,9 @@ class User extends Authenticatable
             'role' => UserRole::class,
             'is_approved' => 'boolean',
             'must_change_password' => 'boolean',
+            'privacy_policy_accepted_at' => 'datetime',
+            'terms_accepted_at' => 'datetime',
+            'date_of_birth' => 'date',
         ];
     }
 
@@ -142,5 +150,57 @@ class User extends Authenticatable
     public function schedules()
     {
         return $this->hasMany(Schedule::class, 'staff_id');
+    }
+
+    /**
+     * Check if user has accepted the latest privacy policy
+     */
+    public function hasAcceptedLatestPrivacyPolicy(): bool
+    {
+        $latestPolicy = Policy::getLatest('privacy_policy');
+        
+        if (!$latestPolicy) {
+            return false;
+        }
+
+        return $this->privacy_policy_version === $latestPolicy->version 
+            && $this->privacy_policy_accepted_at !== null;
+    }
+
+    /**
+     * Check if user has accepted the latest terms and conditions
+     */
+    public function hasAcceptedLatestTerms(): bool
+    {
+        $latestTerms = Policy::getLatest('terms_conditions');
+        
+        if (!$latestTerms) {
+            return false;
+        }
+
+        return $this->terms_version === $latestTerms->version 
+            && $this->terms_accepted_at !== null;
+    }
+
+    /**
+     * Accept privacy policy
+     */
+    public function acceptPrivacyPolicy(string $version): void
+    {
+        $this->update([
+            'privacy_policy_accepted_at' => now(),
+            'privacy_policy_version' => $version,
+        ]);
+    }
+
+    /**
+     * Accept terms and conditions
+     */
+    public function acceptTerms(string $version): void
+    {
+        $this->update([
+            'terms_accepted_at' => now(),
+            'terms_version' => $version,
+        ]);
     }
 }

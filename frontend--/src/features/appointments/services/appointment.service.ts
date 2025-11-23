@@ -10,6 +10,9 @@ const getApiBaseUrl = (): string => {
 
 const API_BASE_URL = getApiBaseUrl();
 
+// Flag to prevent multiple 401 handlers from running simultaneously
+let isHandling401 = false;
+
 // Create axios instance with default config
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -38,6 +41,29 @@ apiClient.interceptors.response.use(
       if (import.meta.env.DEV) {
         console.debug(`API endpoint not found: ${error.config?.url}`);
       }
+    }
+    // Handle 401 Unauthorized - clear session and redirect to login
+    if (error.response?.status === 401 && !isHandling401) {
+      isHandling401 = true;
+      
+      // Clear authentication data
+      sessionStorage.removeItem('auth_token');
+      sessionStorage.removeItem('auth_current_user');
+      
+      // Dispatch a custom event to notify components
+      window.dispatchEvent(new CustomEvent('auth:token-expired'));
+      
+      // Reset the flag after a short delay
+      setTimeout(() => {
+        isHandling401 = false;
+      }, 1000);
+      
+      // Redirect to login if not already there
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login';
+      }
+      
+      return Promise.reject(error);
     }
     return Promise.reject(error);
   }

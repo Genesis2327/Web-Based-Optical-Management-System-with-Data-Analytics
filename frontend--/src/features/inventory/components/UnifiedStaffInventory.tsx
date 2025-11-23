@@ -12,14 +12,15 @@ import {
   AlertTriangle, 
   Plus, 
   Edit, 
-  Trash2, 
   Search, 
   RefreshCw,
   TrendingUp,
   TrendingDown,
   AlertCircle,
   CheckCircle,
-  Building
+  Building,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import axios from 'axios';
@@ -82,7 +83,6 @@ const UnifiedStaffInventory: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState('all');
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
   const [formData, setFormData] = useState({
     name: '',
@@ -229,28 +229,50 @@ const UnifiedStaffInventory: React.FC = () => {
     }
   };
 
-  const handleDeleteProduct = async () => {
-    if (!selectedItem) return;
-    
+  const handleToggleStatus = async (item: InventoryItem) => {
     try {
       setError(null);
       
+      const newStatus = !item.is_active;
+      
+      // Optimistic update
+      setInventory(prevInventory =>
+        prevInventory.map(i =>
+          i.id === item.id ? { ...i, is_active: newStatus } : i
+        )
+      );
+
       const token = sessionStorage.getItem('auth_token');
-      await axios.delete(`${getAPIUrl()}/enhanced-inventory/${selectedItem.id}`, {
+      const response = await fetch(`${getAPIUrl()}/products/${item.product_id}`, {
+        method: 'PUT',
         headers: {
-          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : '',
         },
+        body: JSON.stringify({
+          is_active: newStatus
+        }),
       });
 
-      setSuccess('Product removed from inventory successfully!');
-      setShowDeleteConfirm(false);
-      setSelectedItem(null);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: 'Failed to update product' }));
+        throw new Error(errorData.message || 'Failed to update product');
+      }
+
+      setSuccess(`Product ${newStatus ? 'activated' : 'deactivated'} successfully!`);
       loadInventory();
       
       setTimeout(() => setSuccess(null), 3000);
     } catch (err: any) {
-      console.error('Error deleting product:', err);
-      setError(err.response?.data?.message || 'Failed to delete product');
+      console.error('Error toggling status:', err);
+      // Revert optimistic update on error
+      setInventory(prevInventory =>
+        prevInventory.map(i =>
+          i.id === item.id ? { ...i, is_active: !item.is_active } : i
+        )
+      );
+      setError(err.response?.data?.message || err.message || 'Failed to update product status');
     }
   };
 
@@ -284,10 +306,6 @@ const UnifiedStaffInventory: React.FC = () => {
     setShowEditModal(true);
   };
 
-  const openDeleteConfirm = (item: InventoryItem) => {
-    setSelectedItem(item);
-    setShowDeleteConfirm(true);
-  };
 
   // Filter inventory based on search and status
   const filteredInventory = useMemo(() => {
@@ -531,10 +549,25 @@ const UnifiedStaffInventory: React.FC = () => {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => openDeleteConfirm(item)}
-                            className="text-red-600 hover:text-red-700"
+                            onClick={() => handleToggleStatus(item)}
+                            className={
+                              item.is_active
+                                ? 'text-orange-600 hover:text-orange-700 hover:bg-orange-50'
+                                : 'text-green-600 hover:text-green-700 hover:bg-green-50'
+                            }
+                            title={item.is_active ? 'Deactivate Product' : 'Activate Product'}
                           >
-                            <Trash2 className="h-4 w-4" />
+                            {item.is_active ? (
+                              <>
+                                <EyeOff className="h-4 w-4 mr-1" />
+                                Deactivate
+                              </>
+                            ) : (
+                              <>
+                                <Eye className="h-4 w-4 mr-1" />
+                                Activate
+                              </>
+                            )}
                           </Button>
                         </div>
                       </td>
@@ -727,26 +760,6 @@ const UnifiedStaffInventory: React.FC = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation Modal */}
-      <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Confirm Deletion</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to remove "{selectedItem?.product_name}" from your branch inventory?
-              This action cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => { setShowDeleteConfirm(false); setSelectedItem(null); }}>
-              Cancel
-            </Button>
-            <Button type="button" variant="destructive" onClick={handleDeleteProduct}>
-              Delete
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 };

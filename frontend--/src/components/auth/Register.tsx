@@ -7,6 +7,9 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+import { policyApi, Policy } from '@/services/policyApi';
+import { PolicyModal } from '@/components/policies/PolicyModal';
+import { PolicyCheckbox } from '@/components/policies/PolicyCheckbox';
 
 const Register = () => {
   const [name, setName] = useState('');
@@ -23,12 +26,79 @@ const Register = () => {
     phone?: string[];
     password?: string[];
     password_confirmation?: string[];
+    privacy_policy_accepted?: string[];
+    terms_accepted?: string[];
     general?: string;
   }>({});
+  
+  // Policy states
+  const [privacyPolicy, setPrivacyPolicy] = useState<Policy | null>(null);
+  const [termsPolicy, setTermsPolicy] = useState<Policy | null>(null);
+  const [privacyAccepted, setPrivacyAccepted] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [showPrivacyModal, setShowPrivacyModal] = useState(false);
+  const [showTermsModal, setShowTermsModal] = useState(false);
+  const [loadingPolicies, setLoadingPolicies] = useState(true);
   
   const { register, user } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
+
+  // Fetch policies on component mount
+  useEffect(() => {
+    const fetchPolicies = async () => {
+      try {
+        setLoadingPolicies(true);
+        console.log('[Register] Fetching policies...');
+        
+        const [privacy, terms] = await Promise.all([
+          policyApi.getPrivacyPolicy().catch((error) => {
+            console.error('[Register] Privacy policy error:', error);
+            return null;
+          }),
+          policyApi.getTermsConditions().catch((error) => {
+            console.error('[Register] Terms error:', error);
+            return null;
+          }),
+        ]);
+        
+        console.log('[Register] Policies fetched:', { privacy: !!privacy, terms: !!terms });
+        
+        if (privacy) {
+          setPrivacyPolicy(privacy);
+          console.log('[Register] Privacy policy set:', privacy.title);
+        } else {
+          console.warn('[Register] Privacy policy not found');
+        }
+        
+        if (terms) {
+          setTermsPolicy(terms);
+          console.log('[Register] Terms set:', terms.title);
+        } else {
+          console.warn('[Register] Terms not found');
+        }
+        
+        if (!privacy || !terms) {
+          toast({
+            title: "Policies not available",
+            description: "Please contact the administrator. Policies may need to be created.",
+            variant: "destructive",
+          });
+        }
+      } catch (error: any) {
+        console.error('[Register] Failed to load policies:', error);
+        toast({
+          title: "Error loading policies",
+          description: error?.message || "Please refresh the page to try again.",
+          variant: "destructive",
+        });
+      } finally {
+        setLoadingPolicies(false);
+      }
+    };
+
+    fetchPolicies();
+  }, [toast]);
 
 
 
@@ -63,10 +133,43 @@ const Register = () => {
       return;
     }
 
+    // Policy acceptance validation
+    if (!privacyAccepted || !termsAccepted) {
+      setErrors({
+        privacy_policy_accepted: !privacyAccepted ? ['You must accept the Privacy Policy to create an account.'] : undefined,
+        terms_accepted: !termsAccepted ? ['You must accept the Terms and Conditions to create an account.'] : undefined,
+      });
+      toast({
+        title: "Policy acceptance required",
+        description: "Please accept both Privacy Policy and Terms and Conditions to continue.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!privacyPolicy || !termsPolicy) {
+      toast({
+        title: "Policies not loaded",
+        description: "Please wait for policies to load, then try again.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsLoading(true);
 
     try {
-      await register(name, email, password, confirmPassword, 'customer', phone || undefined, undefined);
+      await register(
+        name, 
+        email, 
+        password, 
+        confirmPassword, 
+        'customer', 
+        phone || undefined, 
+        undefined,
+        privacyPolicy.version,
+        termsPolicy.version
+      );
       setErrors({});
       toast({
         title: "Registration successful",
@@ -74,6 +177,10 @@ const Register = () => {
       });
       navigate('/customer/dashboard');
     } catch (error: any) {
+      console.error('[Register] Registration error:', error);
+      console.error('[Register] Error response:', error?.response?.data);
+      console.error('[Register] Error status:', error?.response?.status);
+      
       const responseData = error?.response?.data;
       const statusCode = error?.response?.status;
       
@@ -83,7 +190,7 @@ const Register = () => {
       }
       
       // Get the first error message for better user feedback
-      let errorDescription = responseData?.message || 'Please check your input and try again.';
+      let errorDescription = responseData?.message || error?.message || 'Please check your input and try again.';
       
       if (responseData?.errors) {
         const firstErrorField = Object.keys(responseData.errors)[0];
@@ -280,14 +387,76 @@ const Register = () => {
               )}
             </div>
 
+            {/* Policy Acceptance Section */}
+            <div className="space-y-3 pt-2 border-t border-gray-200">
+              <Label className="text-sm font-semibold text-gray-700">
+                Terms & Policies
+              </Label>
+              
+              {loadingPolicies ? (
+                <div className="text-sm text-gray-500 py-2">
+                  Loading policies...
+                </div>
+              ) : (
+                <>
+                  <PolicyCheckbox
+                    checked={privacyAccepted}
+                    onCheckedChange={(checked) => {
+                      setPrivacyAccepted(checked);
+                      if (errors.privacy_policy_accepted) {
+                        setErrors({ ...errors, privacy_policy_accepted: undefined });
+                      }
+                    }}
+                    label="I accept the"
+                    policyType="privacy"
+                    onViewPolicy={() => setShowPrivacyModal(true)}
+                    error={errors.privacy_policy_accepted?.[0]}
+                  />
+                  
+                  <PolicyCheckbox
+                    checked={termsAccepted}
+                    onCheckedChange={(checked) => {
+                      setTermsAccepted(checked);
+                      if (errors.terms_accepted) {
+                        setErrors({ ...errors, terms_accepted: undefined });
+                      }
+                    }}
+                    label="I accept the"
+                    policyType="terms"
+                    onViewPolicy={() => setShowTermsModal(true)}
+                    error={errors.terms_accepted?.[0]}
+                  />
+                </>
+              )}
+            </div>
+
             <Button 
               type="submit"
               className="w-full bg-blue-600 hover:bg-blue-700 text-white" 
-              disabled={isLoading}
+              disabled={isLoading || loadingPolicies || !privacyAccepted || !termsAccepted}
             >
               {isLoading ? "Creating account..." : "Create Account"}
             </Button>
           </form>
+
+          {/* Policy Modals */}
+          <PolicyModal
+            isOpen={showPrivacyModal}
+            onClose={() => setShowPrivacyModal(false)}
+            title={privacyPolicy?.title || "Privacy Policy"}
+            content={privacyPolicy?.content || "Privacy Policy is not available. Please contact the administrator."}
+            version={privacyPolicy?.version}
+            effectiveDate={privacyPolicy?.effective_date}
+          />
+          
+          <PolicyModal
+            isOpen={showTermsModal}
+            onClose={() => setShowTermsModal(false)}
+            title={termsPolicy?.title || "Terms and Conditions"}
+            content={termsPolicy?.content || "Terms and Conditions are not available. Please contact the administrator."}
+            version={termsPolicy?.version}
+            effectiveDate={termsPolicy?.effective_date}
+          />
 
           <div className="mt-6 text-center text-sm">
             <span className="text-gray-600">Already have an account? </span>

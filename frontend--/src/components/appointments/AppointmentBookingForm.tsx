@@ -149,7 +149,14 @@ const AppointmentBookingForm: React.FC = () => {
         }));
         
         setAvailableTimes(firstAvailability.available_times.map((slot: any) => slot.display));
-        setServices(data.services || []);
+        // Filter services to only show client services: Eye Refraction and Contact Lens
+        const clientServices = (data.services || []).filter((service: string) => {
+          const serviceLower = service.toLowerCase();
+          return serviceLower.includes('eye') || serviceLower.includes('refraction') || 
+                 serviceLower.includes('contact') || serviceLower.includes('lens');
+        });
+        // If no matching services found, use default client services
+        setServices(clientServices.length > 0 ? clientServices : ['Eye Refraction', 'Contact Lens']);
         toast.success(`${firstAvailability.optometrist.name} is available at ${firstAvailability.branch.name} on ${date}`);
       } else {
         setAvailabilityData(null);
@@ -197,15 +204,15 @@ const AppointmentBookingForm: React.FC = () => {
         return `${hour24.toString().padStart(2, '0')}:${minutes}`;
       };
 
-      // Map service names to API enum values
+      // Map service names to API enum values (matching client services only)
       const getServiceType = (service: string) => {
         const serviceMap: { [key: string]: string } = {
+          'Eye Refraction': 'eye_exam',
           'Eye Exam': 'eye_exam',
-          'Contact Lens Fitting': 'contact_fitting',
-          'Prescription Check': 'consultation',
-          'Follow-up': 'follow_up'
+          'Contact Lens': 'contact_fitting',
+          'Contact Lens Fitting': 'contact_fitting'
         };
-        return serviceMap[service] || 'consultation';
+        return serviceMap[service] || 'eye_exam'; // Default to eye_exam if not found
       };
 
       const appointmentData = {

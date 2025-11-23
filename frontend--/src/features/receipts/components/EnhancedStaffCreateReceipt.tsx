@@ -13,6 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { Eye, User, Calendar, FileText, Package, Phone, Mail, MapPin, ShoppingCart, Loader2 } from 'lucide-react';
+import { getApiUrl, getAuthHeaders } from '@/config/api';
 
 interface Props {
   appointmentId: number;
@@ -79,6 +80,7 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
   const [items, setItems] = useState<ReceiptItemInput[]>([{ description: '', qty: 1, unit_price: 0, amount: 0 }]);
   const [discount, setDiscount] = useState<number>(0);
   const [withholdingTax, setWithholdingTax] = useState<number>(0);
+  const [discountType, setDiscountType] = useState<'pwd' | 'senior_citizen' | null>(null);
   const [loadingReservations, setLoadingReservations] = useState(false);
   
   // Enhanced fields for comprehensive patient management
@@ -100,27 +102,15 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
     manufacturerNotes: ''
   });
 
-  // Lens type options
+  // Lens type options (matching client services)
   const lensTypes = [
-    'Single Vision',
-    'Progressive (Multifocal)',
-    'Bifocal',
-    'Trifocal',
-    'Reading Glasses',
-    'Computer Glasses',
-    'Sunglasses',
-    'Safety Glasses'
+    'Ordinary Lens',
+    'Anti-Radiation Lens',
+    'Photochromic Lens'
   ];
 
-  const lensCoatings = [
-    'Anti-Reflective',
-    'Blue Light Filter',
-    'UV Protection',
-    'Scratch Resistant',
-    'Anti-Fog',
-    'Photochromic',
-    'Polarized'
-  ];
+  // Lens coatings (additional treatments - Photochromic and Anti-Radiation are lens types, not coatings)
+  // Coating removed - not part of client services
 
   const lensMaterials = [
     'CR-39 Plastic',
@@ -149,19 +139,13 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
       if (!customerId) return;
       
       try {
-        // Get API base URL - normalize to always end with /api
-        const getNormalizedApiUrl = () => {
-          const envUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
-          // Remove trailing /api if present, then add it back to ensure consistency
-          return envUrl.replace(/\/api\/?$/, '') + '/api';
-        };
-        const apiBaseUrl = getNormalizedApiUrl();
-        const token = sessionStorage.getItem('auth_token');
+        // Use dynamic API URL detection that supports network access
+        const apiBaseUrl = getApiUrl('').replace(/\/$/, ''); // Remove trailing slash if present
 
         // Fetch patient details
         const patientResponse = await fetch(`${apiBaseUrl}/patients/${customerId}`, {
           headers: {
-            'Authorization': token ? `Bearer ${token}` : '',
+            ...getAuthHeaders(),
             'Content-Type': 'application/json',
           },
         });
@@ -176,7 +160,7 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
         // Fetch latest prescription for this patient
         const prescriptionResponse = await fetch(`${apiBaseUrl}/prescriptions/patient/${customerId}`, {
           headers: {
-            'Authorization': token ? `Bearer ${token}` : '',
+            ...getAuthHeaders(),
             'Content-Type': 'application/json',
           },
         });
@@ -216,20 +200,17 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
       
       try {
         setLoadingReservations(true);
-        // Get API base URL - normalize to always end with /api
-        const getNormalizedApiUrl = () => {
-          const envUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
-          return envUrl.replace(/\/api\/?$/, '') + '/api';
-        };
-        const apiBaseUrl = getNormalizedApiUrl();
+        // Use dynamic API URL detection that supports network access
+        const apiBaseUrl = getApiUrl('').replace(/\/$/, ''); // Remove trailing slash if present
         const token = sessionStorage.getItem('auth_token');
 
         console.log(`Loading reservations for customer ID: ${customerId}, Appointment ID: ${appointmentId}`);
 
         // Fetch all reservations for this branch (staff only see their branch)
-        const response = await fetch(`${apiBaseUrl}/reservations?status=approved`, {
+        // Include both approved and completed reservations
+        const response = await fetch(`${apiBaseUrl}/reservations`, {
           headers: {
-            'Authorization': token ? `Bearer ${token}` : '',
+            ...getAuthHeaders(),
             'Content-Type': 'application/json',
           },
         });
@@ -241,12 +222,15 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
         const allReservations: Reservation[] = await response.json();
         
         // Filter to only get reservations for THIS specific customer
+        // Include both approved and completed reservations (completed means ready for receipt)
         const customerReservations = allReservations.filter(reservation => {
           const reservationUserId = reservation.user?.id || reservation.user_id;
-          return reservationUserId === customerId;
+          const isCorrectCustomer = reservationUserId === customerId;
+          const isApprovedOrCompleted = reservation.status === 'approved' || reservation.status === 'completed';
+          return isCorrectCustomer && isApprovedOrCompleted;
         });
 
-        console.log(`Found ${customerReservations.length} approved reservation(s) for customer ${defaultCustomerName} (ID: ${customerId})`);
+        console.log(`Found ${customerReservations.length} approved/completed reservation(s) for customer ${defaultCustomerName} (ID: ${customerId})`);
 
         // Convert reservations to receipt items
         if (customerReservations && customerReservations.length > 0) {
@@ -269,9 +253,9 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
             };
           });
 
-          // Add eye examination as default first item
+          // Add eye refraction as default first item
           const eyeExamItem: ReceiptItemInput = {
-            description: 'Eye Examination',
+            description: 'Eye Refraction',
             qty: 1,
             unit_price: 500,
             amount: 500
@@ -286,9 +270,9 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
           });
         } else {
           console.log(`No approved reservations found for customer ${defaultCustomerName} (ID: ${customerId})`);
-          // No reservations, just add eye exam
+          // No reservations, just add eye refraction
           setItems([{
-            description: 'Eye Examination',
+            description: 'Eye Refraction',
             qty: 1,
             unit_price: 500,
             amount: 500
@@ -296,7 +280,7 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
           
           toast({
             title: 'No Reserved Products',
-            description: `${defaultCustomerName} has no approved product reservations.`,
+            description: `${defaultCustomerName} has no approved or completed product reservations.`,
             variant: 'default',
           });
         }
@@ -307,9 +291,9 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
           description: 'Could not load reserved products. You can add them manually.',
           variant: 'default',
         });
-        // Still add eye exam on error
+        // Still add eye refraction on error
         setItems([{
-          description: 'Eye Examination',
+          description: 'Eye Refraction',
           qty: 1,
           unit_price: 500,
           amount: 500
@@ -325,19 +309,88 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
   const computed = useMemo(() => {
     const subtotal = items.reduce((sum, it) => sum + (Number(it.amount) || 0), 0);
     const vatRate = 0.12;
-    const vatableSales = subtotal / (1 + vatRate);
-    const vatAmount = subtotal - vatableSales;
-    const netOfVat = vatableSales;
-    const totalDue = subtotal - discount - withholdingTax;
-    return { subtotal, vatableSales, vatAmount, netOfVat, totalDue };
-  }, [items, discount, withholdingTax]);
+    
+    // If PWD or Senior Citizen discount is applied, entire amount is VAT-exempt
+    if (discountType === 'pwd' || discountType === 'senior_citizen') {
+      const vatExemptSales = subtotal;
+      const vatableSales = 0;
+      const vatAmount = 0;
+      const netOfVat = 0;
+      const totalDue = subtotal - discount - withholdingTax;
+      return { subtotal, vatableSales, vatAmount, netOfVat, totalDue, vatExemptSales };
+    } else {
+      // Normal VAT calculation
+      const vatableSales = subtotal / (1 + vatRate);
+      const vatAmount = subtotal - vatableSales;
+      const netOfVat = vatableSales;
+      const totalDue = subtotal - discount - withholdingTax;
+      const vatExemptSales = 0;
+      return { subtotal, vatableSales, vatAmount, netOfVat, totalDue, vatExemptSales };
+    }
+  }, [items, discount, withholdingTax, discountType]);
 
   const setItem = (idx: number, patch: Partial<ReceiptItemInput>) => {
-    setItems(prev => prev.map((it, i) => i === idx ? { ...it, ...patch, amount: Number(patch.unit_price ?? it.unit_price) * Number(patch.qty ?? it.qty) } : it));
+    setItems(prev => {
+      const updated = prev.map((it, i) => i === idx ? { ...it, ...patch, amount: Number(patch.unit_price ?? it.unit_price) * Number(patch.qty ?? it.qty) } : it);
+      
+      // Recalculate discount if discount type is set (maintain 20% of new subtotal)
+      if (discountType) {
+        const newSubtotal = updated.reduce((sum, it) => sum + (Number(it.amount) || 0), 0);
+        setDiscount(newSubtotal * 0.20);
+      }
+      
+      return updated;
+    });
   };
 
   const addRow = () => setItems(prev => [...prev, { description: '', qty: 1, unit_price: 0, amount: 0 }]);
-  const removeRow = (idx: number) => setItems(prev => prev.filter((_, i) => i !== idx));
+  const removeRow = (idx: number) => {
+    setItems(prev => {
+      const updated = prev.filter((_, i) => i !== idx);
+      
+      // Recalculate discount if discount type is set (maintain 20% of new subtotal)
+      if (discountType) {
+        const newSubtotal = updated.reduce((sum, it) => sum + (Number(it.amount) || 0), 0);
+        setDiscount(newSubtotal * 0.20);
+      }
+      
+      return updated;
+    });
+  };
+
+  // Apply PWD discount (20% + VAT Exempt)
+  const applyPWDDiscount = () => {
+    const subtotal = items.reduce((sum, it) => sum + (Number(it.amount) || 0), 0);
+    const discountAmount = subtotal * 0.20;
+    setDiscount(discountAmount);
+    setDiscountType('pwd');
+    toast({
+      title: 'PWD Discount Applied',
+      description: `20% discount (₱${discountAmount.toFixed(2)}) applied. Transaction is VAT-exempt.`,
+    });
+  };
+
+  // Apply Senior Citizen discount (20% + VAT Exempt)
+  const applySeniorCitizenDiscount = () => {
+    const subtotal = items.reduce((sum, it) => sum + (Number(it.amount) || 0), 0);
+    const discountAmount = subtotal * 0.20;
+    setDiscount(discountAmount);
+    setDiscountType('senior_citizen');
+    toast({
+      title: 'Senior Citizen Discount Applied',
+      description: `20% discount (₱${discountAmount.toFixed(2)}) applied. Transaction is VAT-exempt.`,
+    });
+  };
+
+  // Clear discount
+  const clearDiscount = () => {
+    setDiscount(0);
+    setDiscountType(null);
+    toast({
+      title: 'Discount Cleared',
+      description: 'Discount has been removed.',
+    });
+  };
 
   const onSubmit = async () => {
     try {
@@ -353,7 +406,7 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
           vatable_sales: Number(computed.vatableSales.toFixed(2)),
           vat_amount: Number(computed.vatAmount.toFixed(2)),
           zero_rated_sales: 0,
-          vat_exempt_sales: 0,
+          vat_exempt_sales: Number((computed.vatExemptSales || 0).toFixed(2)),
           net_of_vat: Number(computed.netOfVat.toFixed(2)),
           less_vat: Number(computed.vatAmount.toFixed(2)),
           add_vat: Number(computed.vatAmount.toFixed(2)),
@@ -372,16 +425,11 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
       // Then create glass order with reserved products and prescription data (only for admin)
       // Staff should not create glass orders - they only create receipts
       if (!isStaff && customerId && items.length > 1) { // Only create glass order if there are reserved products
-        // Get API base URL - normalize to always end with /api
-        const getNormalizedApiUrl = () => {
-          const envUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
-          return envUrl.replace(/\/api\/?$/, '') + '/api';
-        };
-        const apiBaseUrl = getNormalizedApiUrl();
-        const token = sessionStorage.getItem('auth_token');
+        // Use dynamic API URL detection that supports network access
+        const apiBaseUrl = getApiUrl('').replace(/\/$/, ''); // Remove trailing slash if present
         
-        // Get reserved products (exclude eye exam)
-        const reservedProducts = items.filter(item => item.description !== 'Eye Examination');
+        // Get reserved products (exclude eye refraction)
+        const reservedProducts = items.filter(item => item.description !== 'Eye Refraction');
         
         const glassOrderPayload = {
           appointment_id: appointmentId,
@@ -404,10 +452,11 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
           } : null,
           frame_type: glassOrderDetails.frameType,
           lens_type: glassOrderDetails.lensType,
-          lens_coating: glassOrderDetails.lensCoating,
-          blue_light_filter: glassOrderDetails.blueLightFilter,
-          progressive_lens: glassOrderDetails.progressiveLens,
-          bifocal_lens: glassOrderDetails.bifocalLens,
+          lens_coating: '', // Coating removed - not part of client services
+          // Blue Light Filter is automatically true if Anti-Radiation Lens is selected
+          blue_light_filter: glassOrderDetails.lensType === 'Anti-Radiation Lens' || glassOrderDetails.blueLightFilter,
+          progressive_lens: false, // Not part of client services
+          bifocal_lens: false, // Not part of client services
           lens_material: glassOrderDetails.lensMaterial,
           frame_material: glassOrderDetails.frameMaterial,
           frame_color: glassOrderDetails.frameColor,
@@ -420,7 +469,7 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
         const glassOrderResponse = await fetch(`${apiBaseUrl}/glass-orders`, {
           method: 'POST',
           headers: {
-            'Authorization': token ? `Bearer ${token}` : '',
+            ...getAuthHeaders(),
             'Content-Type': 'application/json',
           },
           body: JSON.stringify(glassOrderPayload)
@@ -510,7 +559,7 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
             </div>
           ) : (
             <div className="space-y-3">
-              {items.filter(item => item.description !== 'Eye Examination').map((item, index) => (
+              {items.filter(item => item.description !== 'Eye Refraction').map((item, index) => (
                 <div key={index} className="bg-blue-50 p-4 rounded-lg border-l-4 border-blue-400">
                   <div className="flex justify-between items-start">
                     <div className="flex-1">
@@ -539,11 +588,11 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
                 </div>
               ))}
               
-              {items.filter(item => item.description !== 'Eye Examination').length === 0 && (
+              {items.filter(item => item.description !== 'Eye Refraction').length === 0 && (
                 <div className="text-center text-gray-500 p-6 border-2 border-dashed rounded-lg">
                   <ShoppingCart className="h-8 w-8 text-gray-400 mx-auto mb-3" />
                   <h4 className="font-semibold text-gray-600 mb-2">No Reserved Products</h4>
-                  <p className="text-sm">This customer has not reserved any products yet. Only the eye examination will be charged.</p>
+                  <p className="text-sm">This customer has not reserved any products yet. Only the eye refraction will be charged.</p>
                 </div>
               )}
             </div>
@@ -712,26 +761,12 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
             </div>
           </div>
 
-          {/* Lens Coatings */}
+          {/* Blue Light Filter Feature */}
           <div>
-            <Label>Lens Coatings & Features</Label>
-            <div className="grid grid-cols-2 gap-4 mt-2">
-              <div>
-                <Select value={glassOrderDetails.lensCoating} onValueChange={(value) => 
-                  setGlassOrderDetails(prev => ({ ...prev, lensCoating: value }))
-                }>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select coating" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {lensCoatings.map(coating => (
-                      <SelectItem key={coating} value={coating}>{coating}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              
-              <div className="space-y-2">
+            <Label>Special Features</Label>
+            <div className="mt-2">
+              {/* Blue Light Filter is automatically included with Anti-Radiation Lens, so hide checkbox if that's selected */}
+              {glassOrderDetails.lensType !== 'Anti-Radiation Lens' && (
                 <div className="flex items-center space-x-2">
                   <Checkbox 
                     id="blueLight" 
@@ -740,19 +775,14 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
                       setGlassOrderDetails(prev => ({ ...prev, blueLightFilter: !!checked }))
                     }
                   />
-                  <Label htmlFor="blueLight">Blue Light Filter</Label>
+                  <Label htmlFor="blueLight">Blue Light Filter (Additional)</Label>
                 </div>
-                <div className="flex items-center space-x-2">
-                  <Checkbox 
-                    id="progressive" 
-                    checked={glassOrderDetails.progressiveLens}
-                    onCheckedChange={(checked) => 
-                      setGlassOrderDetails(prev => ({ ...prev, progressiveLens: !!checked }))
-                    }
-                  />
-                  <Label htmlFor="progressive">Progressive Lens</Label>
+              )}
+              {glassOrderDetails.lensType === 'Anti-Radiation Lens' && (
+                <div className="text-sm text-gray-600 bg-blue-50 p-2 rounded">
+                  ℹ️ Blue Light Filter is included with Anti-Radiation Lens
                 </div>
-              </div>
+              )}
             </div>
           </div>
 
@@ -870,10 +900,72 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
               <div className="flex justify-between"><span>Vatable Sales</span><span>₱{computed.vatableSales.toFixed(2)}</span></div>
               <div className="flex justify-between"><span>VAT</span><span>₱{computed.vatAmount.toFixed(2)}</span></div>
               <div className="flex justify-between"><span>Zero Rated Sales</span><span>₱0.00</span></div>
-              <div className="flex justify-between"><span>VAT-Exempt Sales</span><span>₱0.00</span></div>
+              <div className="flex justify-between">
+                <span>VAT-Exempt Sales</span>
+                <span className={discountType ? 'font-semibold text-green-600' : ''}>
+                  ₱{(computed.vatExemptSales || 0).toFixed(2)}
+                </span>
+              </div>
             </div>
             <div>
-              <div className="flex justify-between"><span>Less: Discount</span><Input className="w-28" type="number" value={discount} onChange={e => setDiscount(Number(e.target.value))} /></div>
+              <div className="flex justify-between items-center gap-2">
+                <span>Less: Discount</span>
+                <div className="flex items-center gap-2">
+                  <Input 
+                    className="w-28" 
+                    type="number" 
+                    value={discount} 
+                    onChange={e => {
+                      const newDiscount = Number(e.target.value);
+                      setDiscount(newDiscount);
+                      // Clear discount type if manually changed to 0
+                      if (newDiscount === 0) {
+                        setDiscountType(null);
+                      }
+                    }}
+                    disabled={discountType !== null}
+                  />
+                  {discountType && (
+                    <Badge variant="secondary" className="text-xs">
+                      {discountType === 'pwd' ? 'PWD' : 'Senior'}
+                    </Badge>
+                  )}
+                </div>
+              </div>
+              <div className="flex justify-between items-center gap-2 mb-2">
+                <span className="text-sm text-muted-foreground">Quick Apply:</span>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant={discountType === 'pwd' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={applyPWDDiscount}
+                    className="text-xs h-7"
+                  >
+                    PWD (20%)
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={discountType === 'senior_citizen' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={applySeniorCitizenDiscount}
+                    className="text-xs h-7"
+                  >
+                    Senior (20%)
+                  </Button>
+                  {discountType && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={clearDiscount}
+                      className="text-xs h-7 text-red-600 hover:text-red-700"
+                    >
+                      Clear
+                    </Button>
+                  )}
+                </div>
+              </div>
               <div className="flex justify-between"><span>Add: VAT</span><span>₱{computed.vatAmount.toFixed(2)}</span></div>
               <div className="flex justify-between"><span>Less: Withholding Tax</span><Input className="w-28" type="number" value={withholdingTax} onChange={e => setWithholdingTax(Number(e.target.value))} /></div>
               <div className="flex justify-between font-semibold text-lg"><span>Total Amount Due</span><span>₱{computed.totalDue.toFixed(2)}</span></div>

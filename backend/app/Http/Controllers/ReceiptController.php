@@ -5,9 +5,15 @@ namespace App\Http\Controllers;
 use App\Models\Receipt;
 use App\Models\ReceiptItem;
 use App\Models\Appointment;
+use App\Models\Reservation;
+use App\Models\GlassOrder;
+use App\Models\Prescription;
+use App\Services\WebSocketService;
 use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class ReceiptController extends Controller
 {
@@ -86,6 +92,9 @@ class ReceiptController extends Controller
                 $receipt->items()->create($item);
             }
 
+            // Check if receipt contains frame items and automatically create glass order
+            $this->createGlassOrderFromReceipt($receipt, $appointment, $validated['items']);
+
             return response()->json($receipt->load('items'), 201);
         });
     }
@@ -119,7 +128,7 @@ class ReceiptController extends Controller
                 return response()->json(['message' => 'Unauthorized'], 403);
             }
 
-            $receipts = Receipt::with(['appointment.patient', 'appointment.optometrist', 'items'])
+            $receipts = Receipt::with(['appointment.patient', 'appointment.optometrist', 'appointment.branch', 'branch', 'items'])
                 ->whereHas('appointment', function($query) use ($customerId) {
                     $query->where('patient_id', $customerId);
                 })
@@ -164,7 +173,17 @@ class ReceiptController extends Controller
                             'id' => $receipt->appointment->optometrist->id,
                             'name' => $receipt->appointment->optometrist->name,
                         ] : null,
+                        'branch' => $receipt->appointment->branch ? [
+                            'id' => $receipt->appointment->branch->id,
+                            'name' => $receipt->appointment->branch->name,
+                            'address' => $receipt->appointment->branch->address,
+                        ] : null,
                     ],
+                    'branch' => $receipt->branch ? [
+                        'id' => $receipt->branch->id,
+                        'name' => $receipt->branch->name,
+                        'address' => $receipt->branch->address,
+                    ] : null,
                 ];
             }),
             'pagination' => [
@@ -353,6 +372,154 @@ class ReceiptController extends Controller
         // Generate PDF using the existing PdfController
         $pdfController = new \App\Http\Controllers\PdfController();
         return $pdfController->downloadReceipt($receipt->appointment_id);
+    }
+
+    /**
+     * Automatically create glass order when receipt contains reserved frame
+     */
+    private function createGlassOrderFromReceipt(Receipt $receipt, Appointment $appointment, array $items)
+    {
+        try {
+            // Check if any receipt item is a frame (from reservation)
+            $frameItems = [];
+            $reservationIds = [];
+
+            foreach ($items as $item) {
+                $description = strtolower($item['description'] ?? '');
+                
+                // Check if item is a frame (could be from reservation)
+                if (
+                    strpos($description, 'frame') !== false ||
+                    strpos($description, 'eyeglass') !== false ||
+                    strpos($description, 'spectacle') !== false
+                ) {
+                    $frameItems[] = $item;
+                    
+                    // Try to find related reservation
+                    // Look for reservations for this patient with approved status
+                    $reservations = Reservation::where('user_id', $appointment->patient_id)
+                        ->where('branch_id', $appointment->branch_id)
+                        ->where('status', 'approved')
+                        ->whereNull('completed_at')
+                        ->with('product')
+                        ->get();
+
+                    foreach ($reservations as $reservation) {
+                        if ($reservation->product) {
+                            $productName = strtolower($reservation->product->name ?? '');
+                            if (strpos($description, $productName) !== false || 
+                                strpos($productName, 'frame') !== false) {
+                                $reservationIds[] = $reservation->id;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // If we found frame items, create glass order
+            if (!empty($frameItems) && !empty($reservationIds)) {
+                // Check if glass order already exists for this receipt
+                $existingOrder = GlassOrder::where('receipt_id', $receipt->id)->first();
+                if ($existingOrder) {
+                    Log::info('Glass order already exists for receipt: ' . $receipt->id);
+                    return;
+                }
+
+                // Get the first reservation (or you can handle multiple)
+                $reservation = Reservation::with('product')->find($reservationIds[0]);
+                
+                if (!$reservation || !$reservation->product) {
+                    Log::warning('Reservation or product not found for glass order creation');
+                    return;
+                }
+
+                // Get latest prescription for the patient
+                $prescription = Prescription::where('patient_id', $appointment->patient_id)
+                    ->orderBy('issue_date', 'desc')
+                    ->first();
+
+                // Prepare reserved products array
+                $reservedProducts = [[
+                    'reservation_id' => $reservation->id,
+                    'product_id' => $reservation->product_id,
+                    'product_name' => $reservation->product->name ?? 'Frame',
+                    'quantity' => $reservation->quantity,
+                    'unit_price' => $reservation->product->price ?? 0,
+                    'description' => 'Frame: ' . ($reservation->product->name ?? 'Unknown')
+                ]];
+
+                // Prepare prescription data
+                $prescriptionData = null;
+                if ($prescription) {
+                    $prescriptionData = $prescription->prescription_data ?? [
+                        'lens_type' => $prescription->lens_type ?? 'single',
+                        'coating' => $prescription->coating ?? null,
+                    ];
+                }
+
+                // Create glass order
+                $glassOrder = GlassOrder::create([
+                    'appointment_id' => $appointment->id,
+                    'patient_id' => $appointment->patient_id,
+                    'prescription_id' => $prescription?->id,
+                    'receipt_id' => $receipt->id,
+                    'branch_id' => $appointment->branch_id,
+                    'reserved_products' => $reservedProducts,
+                    'prescription_data' => $prescriptionData,
+                    'frame_type' => 'Full Frame',
+                    'lens_type' => $prescription?->lens_type ?? 'single',
+                    'lens_coating' => $prescription?->coating ?? null,
+                    'blue_light_filter' => false,
+                    'progressive_lens' => false,
+                    'bifocal_lens' => false,
+                    'lens_material' => null,
+                    'frame_material' => $reservation->product->material ?? null,
+                    'frame_color' => null,
+                    'lens_color' => null,
+                    'special_instructions' => null,
+                    'manufacturer_notes' => null,
+                    'priority' => 'normal',
+                    'status' => 'Pending Confirmation',
+                ]);
+
+                // Mark reservation as completed
+                $reservation->update([
+                    'status' => 'completed',
+                    'completed_at' => now(),
+                ]);
+
+                // Notify staff
+                try {
+                    $appointment->load('patient');
+                    $patientName = $appointment->patient ? $appointment->patient->name : 'Customer';
+                    WebSocketService::notifyBranch(
+                        'New Glass Order Created',
+                        "Glass order {$glassOrder->formatted_number} has been automatically created from receipt for patient {$patientName}.",
+                        $appointment->branch_id,
+                        'product_order',
+                        [
+                            'order_id' => $glassOrder->id,
+                            'order_number' => $glassOrder->formatted_number,
+                            'patient_id' => $glassOrder->patient_id,
+                            'status' => $glassOrder->status,
+                        ]
+                    );
+                } catch (\Exception $e) {
+                    Log::error('Failed to send notification for auto-created glass order: ' . $e->getMessage());
+                }
+
+                Log::info('Glass order automatically created from receipt', [
+                    'receipt_id' => $receipt->id,
+                    'glass_order_id' => $glassOrder->id,
+                    'patient_id' => $appointment->patient_id,
+                ]);
+            }
+        } catch (\Exception $e) {
+            Log::error('Error creating glass order from receipt: ' . $e->getMessage());
+            Log::error('Stack trace: ' . $e->getTraceAsString());
+            // Don't fail the receipt creation if glass order creation fails
+        }
     }
 
     /**

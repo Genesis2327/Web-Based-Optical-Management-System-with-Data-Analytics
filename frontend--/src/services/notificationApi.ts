@@ -73,7 +73,9 @@ export const getUnreadCount = async (): Promise<UnreadCountResponse> => {
 // Mark notification as read
 export const markAsRead = async (notificationId: number): Promise<void> => {
   const token = sessionStorage.getItem('auth_token');
-  await axios.put(`${API_BASE_URL}/notifications/${notificationId}/read`, {}, {
+  await axios.post(`${API_BASE_URL}/notifications/mark-read`, {
+    notification_id: notificationId
+  }, {
     headers: {
       Authorization: token ? `Bearer ${token}` : '',
     },

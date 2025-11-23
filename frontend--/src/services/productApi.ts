@@ -31,14 +31,27 @@ axios.interceptors.response.use(
 /**
  * Get all products with optional filters
  */
-export const getProducts = async (search = '', categoryId?: number, isActive?: boolean): Promise<Product[]> => {
-  console.log('getProducts called with:', { search, categoryId, isActive });
+export const getProducts = async (search = '', categoryId?: number, isActive?: boolean, showAll?: boolean): Promise<Product[]> => {
+  console.log('getProducts called with:', { search, categoryId, isActive, showAll });
+  
+  // Build params object, only including defined values
+  const params: any = {};
+  if (search) {
+    params.search = search;
+  }
+  if (categoryId !== undefined && categoryId !== null) {
+    params.category = categoryId;
+  }
+  if (isActive !== undefined && isActive !== null) {
+    params.active = isActive;
+  }
+  if (showAll !== undefined && showAll !== null) {
+    params.show_all = showAll;
+  }
+  
   const response = await axios.get(`${API_BASE}/products`, {
-    params: { 
-      search,
-      category: categoryId, // Changed from category_id to category to match our API
-      active: isActive,
-    },
+    params,
+    timeout: 10000, // 10 second timeout
   });
   
   console.log('getProducts response:', response.data);

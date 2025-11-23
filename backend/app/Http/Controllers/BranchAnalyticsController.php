@@ -113,11 +113,31 @@ class BranchAnalyticsController extends Controller
         }
 
         // Calculate unique patients across ALL branches (not summing branch totals to avoid double-counting)
-        $uniquePatientsTotal = Appointment::whereIn('branch_id', $branchIds)
-            ->where('status', 'completed')
+        // Use proper MySQL distinct count syntax
+        $result = DB::table('appointments')
+            ->whereIn('branch_id', $branchIds)
             ->where('appointment_date', '>=', $thirtyDaysAgo)
-            ->distinct('patient_id')
-            ->count('patient_id');
+            ->select(DB::raw('COUNT(DISTINCT patient_id) as unique_count'))
+            ->first();
+        
+        $uniquePatientsTotal = $result ? (int)$result->unique_count : 0;
+        
+        // Fallback: If query builder approach doesn't work, use Eloquent with collection
+        if ($uniquePatientsTotal === 0) {
+            $appointmentCount = Appointment::whereIn('branch_id', $branchIds)
+                ->where('appointment_date', '>=', $thirtyDaysAgo)
+                ->count();
+            
+            // Only use fallback if there are actually appointments
+            if ($appointmentCount > 0) {
+                $uniquePatientsTotal = Appointment::whereIn('branch_id', $branchIds)
+                    ->where('appointment_date', '>=', $thirtyDaysAgo)
+                    ->get()
+                    ->pluck('patient_id')
+                    ->unique()
+                    ->count();
+            }
+        }
 
         return response()->json([
             'branches' => $branchPerformance,

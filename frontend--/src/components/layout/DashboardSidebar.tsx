@@ -130,7 +130,7 @@ const getNavItems = (role: UserRole): NavItem[] => {
             title: 'My Schedule',
             href: '/optometrist/schedule',
             icon: Calendar,
-            description: 'View weekly rotation schedule'
+            description: 'View your weekly schedule'
         },
       {
         title: 'Notifications',

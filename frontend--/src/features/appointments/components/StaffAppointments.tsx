@@ -68,12 +68,7 @@ const StaffAppointments = () => {
         return 'bg-purple-100 text-purple-800';
       case 'contact_fitting':
         return 'bg-indigo-100 text-indigo-800';
-      case 'follow_up':
-        return 'bg-cyan-100 text-cyan-800';
-      case 'consultation':
-        return 'bg-teal-100 text-teal-800';
-      case 'emergency':
-        return 'bg-red-100 text-red-800';
+      // Removed non-client services: follow_up, consultation, emergency
       default:
         return 'bg-gray-100 text-gray-800';
     }
@@ -248,9 +243,12 @@ const StaffAppointments = () => {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Types</SelectItem>
-                {APPOINTMENT_TYPES.map((type) => (
+                {/* Filter to only show client services: Eye Refraction and Contact Lens */}
+                {APPOINTMENT_TYPES.filter(type => type === 'eye_exam' || type === 'contact_fitting').map((type) => (
                   <SelectItem key={type} value={type}>
-                    {type.replace('_', ' ').toUpperCase()}
+                    {type === 'eye_exam' ? 'Eye Refraction' : 
+                     type === 'contact_fitting' ? 'Contact Lens' : 
+                     type.replace('_', ' ').toUpperCase()}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -313,7 +311,9 @@ const StaffAppointments = () => {
                   </TableCell>
                   <TableCell>
                     <Badge className={getTypeColor(appointment.type)}>
-                      {appointment.type.replace('_', ' ')}
+                      {appointment.type === 'eye_exam' ? 'Eye Refraction' : 
+                       appointment.type === 'contact_fitting' ? 'Contact Lens' : 
+                       appointment.type.replace('_', ' ')}
                     </Badge>
                   </TableCell>
                   <TableCell>

@@ -254,6 +254,133 @@ class TransactionController extends Controller
                 ]),
             ]);
         }
+
+        // Create eyewear reminder if reservation has a product
+        if ($reservation && $reservation->product) {
+            $this->createEyewearReminder($appointment, $reservation, $receipt);
+        }
+    }
+
+    /**
+     * Create eyewear reminder after purchase
+     */
+    private function createEyewearReminder($appointment, $reservation, $receipt)
+    {
+        try {
+            $product = $reservation->product;
+            $customer = $appointment->patient;
+            
+            // Determine product type based on category
+            $productType = $this->determineProductType($product);
+            
+            // Skip if product type cannot be determined or is not trackable
+            if (!$productType || !in_array($productType, ['frame', 'prescription_lens', 'contact_lens'])) {
+                \Log::info('Skipping eyewear reminder creation - product type not trackable', [
+                    'product_id' => $product->id,
+                    'product_name' => $product->name,
+                    'category' => $product->category?->name ?? 'N/A'
+                ]);
+                return;
+            }
+
+            // Calculate reminder interval based on product type
+            $intervalDays = match($productType) {
+                'frame' => 90, // 3 months
+                'prescription_lens' => 180, // 6 months
+                'contact_lens' => 30, // Monthly default
+                default => 90
+            };
+
+            $purchaseDate = now();
+            $nextReminderDate = \Carbon\Carbon::parse($purchaseDate)->addDays($intervalDays);
+
+            // For contact lenses, check if expiry date is available
+            $contactLensExpiry = null;
+            if ($productType === 'contact_lens' && $product->expiry_date) {
+                $contactLensExpiry = $product->expiry_date;
+                $nextReminderDate = \Carbon\Carbon::parse($contactLensExpiry)->subDays(7); // Remind 7 days before expiry
+            }
+
+            // Get transaction from reservation if available
+            $transaction = $reservation->transaction ?? null;
+
+            // Create reminder
+            $reminder = \App\Models\EyewearReminder::create([
+                'user_id' => $customer->id,
+                'product_id' => $product->id,
+                'reservation_id' => $reservation->id,
+                'transaction_id' => $transaction?->id,
+                'product_type' => $productType,
+                'reminder_type' => 'condition_check',
+                'reminder_interval_days' => $intervalDays,
+                'purchase_date' => $purchaseDate,
+                'next_reminder_date' => $nextReminderDate,
+                'contact_lens_expiry' => $contactLensExpiry,
+                'contact_lens_cycle_days' => $productType === 'contact_lens' ? 30 : null,
+                'is_active' => true,
+            ]);
+
+            \Log::info('Eyewear reminder created automatically after purchase', [
+                'reminder_id' => $reminder->id,
+                'user_id' => $customer->id,
+                'product_id' => $product->id,
+                'product_type' => $productType,
+                'next_reminder_date' => $nextReminderDate->toDateString()
+            ]);
+
+        } catch (\Exception $e) {
+            \Log::error('Failed to create eyewear reminder after purchase: ' . $e->getMessage(), [
+                'appointment_id' => $appointment->id,
+                'reservation_id' => $reservation->id,
+                'trace' => $e->getTraceAsString()
+            ]);
+            // Don't throw - this is a non-critical feature
+        }
+    }
+
+    /**
+     * Determine product type from product category
+     */
+    private function determineProductType($product): ?string
+    {
+        if (!$product->category) {
+            // Try to infer from product name/description
+            $name = strtolower($product->name ?? '');
+            $description = strtolower($product->description ?? '');
+            $combined = $name . ' ' . $description;
+            
+            if (str_contains($combined, 'contact lens') || str_contains($combined, 'contact')) {
+                return 'contact_lens';
+            }
+            if (str_contains($combined, 'lens') && !str_contains($combined, 'contact')) {
+                return 'prescription_lens';
+            }
+            if (str_contains($combined, 'frame') || str_contains($combined, 'eyeglass')) {
+                return 'frame';
+            }
+            
+            return null;
+        }
+
+        $categoryName = strtolower($product->category->name ?? '');
+        $categorySlug = strtolower($product->category->slug ?? '');
+
+        // Map categories to product types
+        if (str_contains($categoryName, 'contact') || str_contains($categorySlug, 'contact')) {
+            return 'contact_lens';
+        }
+        
+        if (str_contains($categoryName, 'frame') || str_contains($categorySlug, 'frame')) {
+            return 'frame';
+        }
+        
+        // For lenses, check if it's prescription-related
+        if (str_contains($categoryName, 'lens') || str_contains($categorySlug, 'lens')) {
+            // If it's not contact lens, assume prescription lens
+            return 'prescription_lens';
+        }
+
+        return null;
     }
 
     /**

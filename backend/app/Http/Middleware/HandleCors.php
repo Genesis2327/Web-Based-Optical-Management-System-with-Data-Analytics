@@ -71,6 +71,12 @@ class HandleCors
             'http://10.173.7.92:8080',
             'http://10.173.7.92:8081',
             'http://10.173.7.92:8082',
+            'http://10.35.44.92:3000',
+            'http://10.35.44.92:5173',
+            'http://10.35.44.92:5174',
+            'http://10.35.44.92:8080',
+            'http://10.35.44.92:8081',
+            'http://10.35.44.92:8082',
             // Railway frontend domains
             'https://everbright-optical-clinic-system-production-2f77.up.railway.app',
             'https://everbright-optical-clinic-system-production.up.railway.app',
@@ -91,11 +97,13 @@ class HandleCors
         }
         
         // Check for local development patterns (localhost, 127.0.0.1, LAN IPs with any port)
+        // Allow any HTTP origin from local network (for development)
         if ($origin && (
             preg_match('/^http:\/\/localhost(?:\:[0-9]+)?$/', $origin) ||
             preg_match('/^http:\/\/127\.0\.0\.1(?:\:[0-9]+)?$/', $origin) ||
             preg_match('/^http:\/\/192\.168\.[0-9]+\.[0-9]+(?:\:[0-9]+)?$/', $origin) ||
-            preg_match('/^http:\/\/10\.[0-9]+\.[0-9]+\.[0-9]+(?:\:[0-9]+)?$/', $origin)
+            preg_match('/^http:\/\/10\.[0-9]+\.[0-9]+\.[0-9]+(?:\:[0-9]+)?$/', $origin) ||
+            preg_match('/^http:\/\/172\.(?:1[6-9]|2[0-9]|3[01])\.[0-9]+\.[0-9]+(?:\:[0-9]+)?$/', $origin)
         )) {
             return $origin;
         }
@@ -105,17 +113,28 @@ class HandleCors
             return $origin;
         }
 
-        // For development, allow any localhost or 192.168.x.x origin
+        // For development, allow any localhost or LAN IP origin (more permissive patterns)
         if ($origin && (
             preg_match('/^http:\/\/localhost:\d+$/', $origin) ||
             preg_match('/^http:\/\/127\.0\.0\.1:\d+$/', $origin) ||
             preg_match('/^http:\/\/192\.168\.\d+\.\d+:\d+$/', $origin) ||
-            preg_match('/^http:\/\/10\.\d+\.\d+\.\d+:\d+$/', $origin)
+            preg_match('/^http:\/\/10\.\d+\.\d+\.\d+:\d+$/', $origin) ||
+            preg_match('/^http:\/\/172\.(?:1[6-9]|2[0-9]|3[01])\.\d+\.\d+:\d+$/', $origin)
         )) {
             return $origin;
         }
 
+        // If we have an origin but it didn't match, log it for debugging (only in development)
+        if ($origin && config('app.debug')) {
+            \Log::warning('CORS: Origin not matched', ['origin' => $origin]);
+        }
+
         // Default to the first allowed origin if no match
+        // But if we have an origin from a local network, return it anyway for development
+        if ($origin && preg_match('/^http:\/\/(localhost|127\.0\.0\.1|192\.168\.|10\.|172\.(?:1[6-9]|2[0-9]|3[01])\.)/', $origin)) {
+            return $origin;
+        }
+
         return $allowedOrigins[0];
     }
 }

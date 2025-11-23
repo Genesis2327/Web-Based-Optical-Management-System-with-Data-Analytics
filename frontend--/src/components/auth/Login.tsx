@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { User, Mail, Lock, Eye, EyeOff, HelpCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,6 +9,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 
 const Login = () => {
+  const location = useLocation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -21,6 +22,7 @@ const Login = () => {
     general?: string;
   }>({});
   const [lockoutRemaining, setLockoutRemaining] = useState<number | null>(null);
+  const [lockoutInitialSeconds, setLockoutInitialSeconds] = useState<number | null>(null);
   const [attemptNumber, setAttemptNumber] = useState<number | null>(null);
   const [maxAttempts, setMaxAttempts] = useState<number>(5);
 
@@ -28,12 +30,57 @@ const Login = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
 
+  // Countdown timer effect for lockout
+  useEffect(() => {
+    console.log('⏱️ Lockout timer effect triggered, lockoutRemaining:', lockoutRemaining);
+    if (lockoutRemaining !== null && lockoutRemaining > 0) {
+      console.log('✅ Starting lockout timer countdown, remaining:', lockoutRemaining, 'seconds');
+      const interval = setInterval(() => {
+        setLockoutRemaining((prev) => {
+          if (prev === null || prev <= 1) {
+            console.log('⏰ Lockout timer expired');
+            setLockoutInitialSeconds(null);
+            return null;
+          }
+          const newValue = prev - 1;
+          if (newValue % 10 === 0 || newValue <= 10) {
+            console.log('⏱️ Lockout timer tick:', newValue, 'seconds remaining');
+          }
+          return newValue;
+        });
+      }, 1000);
+
+      return () => {
+        console.log('🧹 Cleaning up lockout timer interval');
+        clearInterval(interval);
+      };
+    } else if (lockoutRemaining === null) {
+      setLockoutInitialSeconds(null);
+    }
+  }, [lockoutRemaining]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Don't allow submission if locked out
+    if (lockoutRemaining !== null && lockoutRemaining > 0) {
+      toast({
+        title: "Account Locked",
+        description: `Please wait ${Math.floor(lockoutRemaining / 60)}:${(lockoutRemaining % 60).toString().padStart(2, '0')} before trying again.`,
+        variant: "destructive",
+      });
+      setIsLoading(false);
+      return;
+    }
+    
     setIsLoading(true);
     setErrors({});
-    setLockoutRemaining(null);
-    setAttemptNumber(null);
+    // Only clear lockout state if not actively locked out
+    if (lockoutRemaining === null || lockoutRemaining <= 0) {
+      setLockoutRemaining(null);
+      setLockoutInitialSeconds(null);
+      setAttemptNumber(null);
+    }
 
     // Basic client-side validation
     if (!email || !email.includes('@')) {
@@ -78,6 +125,16 @@ const Login = () => {
         description: `Welcome back! Redirecting to your ${roleName} dashboard.`,
       });
 
+      // Handle redirect from product reservation
+      const state = location.state as { from?: string; action?: string; productId?: number } | null;
+      if (state?.from === '/' && state?.action === 'reserve' && state?.productId) {
+        // Redirect to product detail page for reservation
+        setTimeout(() => {
+          navigate(`/customer/products/${state.productId}`, { replace: true });
+        }, 100);
+        return;
+      }
+
       // Use the role from the successful login response
       const destRole = roleName;
       console.log('Destination role:', destRole);
@@ -104,6 +161,19 @@ const Login = () => {
       }
       if (responseData?.max_attempts !== undefined) {
         setMaxAttempts(responseData.max_attempts);
+      }
+      
+      // Check for lockout information in ANY error response (not just 429)
+      if (responseData?.lockout_remaining_seconds !== undefined || responseData?.lockout_active) {
+        const remainingSeconds = responseData?.lockout_remaining_seconds || (responseData?.lockout_active ? 60 : 0);
+        console.log('🔴 Lockout detected in ANY response:', remainingSeconds, 'seconds', responseData);
+        if (remainingSeconds > 0) {
+          setLockoutRemaining(remainingSeconds);
+          if (lockoutInitialSeconds === null) {
+            setLockoutInitialSeconds(remainingSeconds);
+            console.log('✅ Setting initial lockout time from any response:', remainingSeconds);
+          }
+        }
       }
       
       // Handle server connection errors
@@ -281,10 +351,35 @@ const Login = () => {
         return;
       }
       
-      // Handle lockout (429)
+      // Handle lockout (429) - CRITICAL: This must be checked
       if (error?.response?.status === 429) {
-        const remainingSeconds = responseData?.lockout_remaining_seconds || 0;
-        setLockoutRemaining(remainingSeconds);
+        // Try multiple ways to get lockout time
+        const remainingSeconds = responseData?.lockout_remaining_seconds 
+          || (responseData?.lockout_active ? 60 : 0)
+          || 60; // Default to 60 seconds if not provided
+        
+        console.log('🔴 429 LOCKOUT DETECTED:', {
+          remainingSeconds,
+          lockoutInitialSeconds,
+          responseData,
+          fullError: error?.response
+        });
+        
+        // ALWAYS set lockout state for 429 errors
+        if (remainingSeconds > 0) {
+          setLockoutRemaining(remainingSeconds);
+          // Store initial lockout time for progress bar calculation
+          if (lockoutInitialSeconds === null) {
+            setLockoutInitialSeconds(remainingSeconds);
+            console.log('✅ Setting initial lockout time:', remainingSeconds);
+          }
+        } else {
+          // Even if 0, set it to show the lockout message
+          setLockoutRemaining(60); // Default 1 minute
+          if (lockoutInitialSeconds === null) {
+            setLockoutInitialSeconds(60);
+          }
+        }
         
         // Extract attempt information
         if (responseData?.attempt_number !== undefined) {
@@ -294,25 +389,22 @@ const Login = () => {
           setMaxAttempts(responseData.max_attempts);
         }
         
-        // Start countdown timer
-        const interval = setInterval(() => {
-          setLockoutRemaining((prev) => {
-            if (prev === null || prev <= 1) {
-              clearInterval(interval);
-              return null;
-            }
-            return prev - 1;
-          });
-        }, 1000);
-        
         let lockoutMessage = apiMsg || "Too many failed login attempts. Please try again later.";
         if (responseData?.attempt_number && responseData?.max_attempts) {
           lockoutMessage += ` (${responseData.attempt_number} failed attempts)`;
         }
         
+        const displaySeconds = remainingSeconds > 0 ? remainingSeconds : 60;
+        const minutes = Math.floor(displaySeconds / 60);
+        const seconds = displaySeconds % 60;
+        const timeString = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+        
+        console.log('⏱️ Displaying lockout timer:', timeString, 'seconds:', displaySeconds);
+        console.log('🔍 Current lockoutRemaining state will be:', displaySeconds);
+        
         toast({
           title: "Account temporarily locked",
-          description: lockoutMessage,
+          description: `${lockoutMessage} Time remaining: ${timeString}`,
           variant: "destructive",
         });
         setIsLoading(false);
@@ -343,6 +435,17 @@ const Login = () => {
       navigate(`/${roleStr}/dashboard`, { replace: true });
     }
   }, [user, navigate]);
+
+  // Debug: Log state changes
+  useEffect(() => {
+    console.log('🔍 Login component state:', {
+      lockoutRemaining,
+      lockoutInitialSeconds,
+      attemptNumber,
+      maxAttempts,
+      willShowTimer: lockoutRemaining !== null && lockoutRemaining > 0
+    });
+  }, [lockoutRemaining, lockoutInitialSeconds, attemptNumber, maxAttempts]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4 sm:p-6 lg:p-8">
@@ -375,13 +478,52 @@ const Login = () => {
               </div>
             )}
 
-            {/* Lockout Message */}
-            {lockoutRemaining !== null && lockoutRemaining > 0 && (
-              <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-                <strong>Account temporarily locked:</strong> Please wait {Math.ceil(lockoutRemaining / 60)} minute(s) before trying again.
+            {/* Lockout Message with Countdown - ALWAYS SHOW IF LOCKED */}
+            {(lockoutRemaining !== null && lockoutRemaining > 0) && (
+              <div className="p-4 bg-red-50 border-2 border-red-400 rounded-lg shadow-lg animate-pulse" style={{ zIndex: 1000 }}>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 bg-red-600 rounded-full animate-ping"></div>
+                    <strong className="text-red-800 text-base sm:text-lg">🔒 Account Temporarily Locked</strong>
+                  </div>
+                  <div className="text-red-700 font-mono font-bold text-xl sm:text-2xl bg-red-100 px-3 py-1 rounded border-2 border-red-400 animate-pulse">
+                    {Math.floor(lockoutRemaining / 60)}:{(lockoutRemaining % 60).toString().padStart(2, '0')}
+                  </div>
+                </div>
+                <p className="text-sm text-red-700 mb-2">
+                  Too many failed login attempts. Please wait before trying again.
+                </p>
                 {attemptNumber && maxAttempts && (
-                  <span className="block mt-1">Failed attempts: {attemptNumber} of {maxAttempts}</span>
+                  <p className="text-xs text-red-600 mb-3">
+                    Failed attempts: {attemptNumber} of {maxAttempts}
+                  </p>
                 )}
+                <div className="mt-3 w-full bg-red-200 rounded-full h-3 overflow-hidden">
+                  <div 
+                    className="bg-red-600 h-3 rounded-full transition-all duration-1000 ease-linear"
+                    style={{ 
+                      width: lockoutInitialSeconds && lockoutInitialSeconds > 0
+                        ? `${Math.min(100, ((lockoutInitialSeconds - lockoutRemaining) / lockoutInitialSeconds) * 100)}%` 
+                        : '0%'
+                    }}
+                  />
+                </div>
+                <p className="text-xs text-red-600 mt-2 text-center font-semibold">
+                  ⏱️ Time remaining: {Math.floor(lockoutRemaining / 60)} minute(s) and {lockoutRemaining % 60} second(s)
+                </p>
+                {/* Debug info - remove in production */}
+                {process.env.NODE_ENV === 'development' && (
+                  <p className="text-xs text-gray-500 mt-1 text-center">
+                    Debug: remaining={lockoutRemaining}, initial={lockoutInitialSeconds}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Lockout Expired Message */}
+            {lockoutRemaining === null && attemptNumber !== null && attemptNumber >= maxAttempts && (
+              <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700">
+                <strong>✓ Lockout expired:</strong> You can now try logging in again.
               </div>
             )}
 

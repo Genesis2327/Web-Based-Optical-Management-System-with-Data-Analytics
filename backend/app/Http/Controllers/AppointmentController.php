@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Schema;
 use App\Enums\UserRole;
 use App\Helpers\Realtime;
 use App\Http\Controllers\NotificationController;
@@ -26,7 +27,7 @@ class AppointmentController extends Controller
             return response()->json(['error' => 'User not authenticated'], 401);
         }
         
-        $query = Appointment::with(['patient', 'optometrist', 'branch', 'receipt']);
+        $query = Appointment::with(['patient', 'optometrist', 'branch']);
 
         // Filter based on user role
         if (!$user->role) {
@@ -166,13 +167,58 @@ class AppointmentController extends Controller
 
         // Verify the appointment is valid according to optometrist rotation schedule
         try {
-            $date = \Carbon\Carbon::parse($request->appointment_date);
-            $dayOfWeek = $date->dayOfWeekIso;
+            // Parse the appointment date
+            try {
+                $date = \Carbon\Carbon::parse($request->appointment_date);
+                $dayOfWeek = $date->dayOfWeekIso; // Returns 1 (Monday) to 7 (Sunday)
+            } catch (\Exception $dateError) {
+                \Log::error('Date parsing error: ' . $dateError->getMessage(), [
+                    'appointment_date' => $request->appointment_date
+                ]);
+                return response()->json([
+                    'error' => 'Invalid appointment date format',
+                    'message' => 'The appointment date provided is invalid: ' . ($dateError->getMessage() ?? 'Unknown error')
+                ], 400);
+            }
             
             // Check if optometrist has a rotation schedule for this day and branch
-            $rotation = \App\Models\OptometristRotation::where('optometrist_id', $request->optometrist_id)
-                ->where('is_active', true)
-                ->first();
+            // Handle potential soft deletes and table structure issues
+            try {
+                // Check if optometrist_rotations table exists
+                if (!\Schema::hasTable('optometrist_rotations')) {
+                    \Log::warning('optometrist_rotations table does not exist');
+                    return response()->json([
+                        'error' => 'Invalid appointment: Optometrist rotation schedule table does not exist'
+                    ], 400);
+                }
+                
+                $rotationQuery = \App\Models\OptometristRotation::query();
+                
+                // Check if deleted_at column exists to handle soft deletes safely
+                if (!\Schema::hasColumn('optometrist_rotations', 'deleted_at')) {
+                    // Disable soft deletes scope if column doesn't exist
+                    $rotationQuery->withoutGlobalScopes();
+                }
+                
+                // Only filter by is_active if column exists
+                if (\Schema::hasColumn('optometrist_rotations', 'is_active')) {
+                    $rotationQuery->where('is_active', true);
+                }
+                
+                $rotation = $rotationQuery
+                    ->where('optometrist_id', $request->optometrist_id)
+                    ->first();
+            } catch (\Exception $queryError) {
+                \Log::error('Query error when fetching rotation: ' . $queryError->getMessage(), [
+                    'optometrist_id' => $request->optometrist_id,
+                    'exception_class' => get_class($queryError),
+                    'trace' => $queryError->getTraceAsString()
+                ]);
+                return response()->json([
+                    'error' => 'Failed to check rotation schedule',
+                    'message' => config('app.debug') ? $queryError->getMessage() : 'An error occurred while checking the rotation schedule'
+                ], 500);
+            }
 
             if (!$rotation) {
                 \Log::warning('Optometrist has no rotation schedule', [
@@ -185,25 +231,66 @@ class AppointmentController extends Controller
                 ], 400);
             }
 
-            // Check if rotation_schedule is valid
-            if (empty($rotation->rotation_schedule) || !is_array($rotation->rotation_schedule)) {
+            // Safely get rotation_schedule and ensure it's an array
+            // Try to access rotation_schedule, handling potential JSON decode errors
+            try {
+                $rotationSchedule = $rotation->rotation_schedule;
+            } catch (\Exception $e) {
+                \Log::error('Failed to decode rotation_schedule: ' . $e->getMessage(), [
+                    'optometrist_id' => $request->optometrist_id,
+                    'rotation_id' => $rotation->id ?? null,
+                ]);
+                // Try to manually decode if cast failed
+                $rawSchedule = $rotation->getAttributes()['rotation_schedule'] ?? null;
+                if ($rawSchedule && is_string($rawSchedule)) {
+                    $rotationSchedule = json_decode($rawSchedule, true);
+                    if (json_last_error() !== JSON_ERROR_NONE) {
+                        \Log::error('JSON decode error: ' . json_last_error_msg());
+                        $rotationSchedule = null;
+                    }
+                } else {
+                    $rotationSchedule = null;
+                }
+            }
+            
+            // Check if rotation_schedule is null, empty, or not an array
+            if (empty($rotationSchedule) || !is_array($rotationSchedule)) {
                 \Log::warning('Invalid rotation schedule format', [
                     'optometrist_id' => $request->optometrist_id,
-                    'rotation_schedule' => $rotation->rotation_schedule
+                    'rotation_schedule' => $rotationSchedule,
+                    'rotation_schedule_type' => gettype($rotationSchedule)
                 ]);
                 return response()->json([
-                    'error' => 'Invalid appointment: Optometrist rotation schedule is invalid'
+                    'error' => 'Invalid appointment: Optometrist rotation schedule is invalid or empty'
                 ], 400);
             }
 
             // Check if the optometrist is scheduled for this specific day and branch
             $isScheduledForDayAndBranch = false;
-            foreach ($rotation->rotation_schedule as $schedule) {
-                if (isset($schedule['day']) && isset($schedule['branch_id'])) {
-                    if ($schedule['day'] == $dayOfWeek && (int)$schedule['branch_id'] == (int)$request->branch_id) {
-                        $isScheduledForDayAndBranch = true;
-                        break;
-                    }
+            
+            // Normalize dayOfWeek to integer for comparison
+            $dayOfWeekInt = (int)$dayOfWeek;
+            $branchIdInt = (int)$request->branch_id;
+            
+            foreach ($rotationSchedule as $schedule) {
+                // Ensure schedule is an array
+                if (!is_array($schedule)) {
+                    continue;
+                }
+                
+                // Check if required keys exist
+                if (!isset($schedule['day']) || !isset($schedule['branch_id'])) {
+                    continue;
+                }
+                
+                // Normalize values for comparison (handle both string and int)
+                $scheduleDay = (int)$schedule['day'];
+                $scheduleBranchId = (int)$schedule['branch_id'];
+                
+                // Compare day and branch
+                if ($scheduleDay === $dayOfWeekInt && $scheduleBranchId === $branchIdInt) {
+                    $isScheduledForDayAndBranch = true;
+                    break;
                 }
             }
 
@@ -211,18 +298,31 @@ class AppointmentController extends Controller
                 \Log::warning('Optometrist not scheduled for day and branch', [
                     'optometrist_id' => $request->optometrist_id,
                     'branch_id' => $request->branch_id,
+                    'appointment_date' => $request->appointment_date,
                     'day_of_week' => $dayOfWeek,
-                    'rotation_schedule' => $rotation->rotation_schedule
+                    'day_of_week_int' => $dayOfWeekInt,
+                    'rotation_schedule' => $rotationSchedule
                 ]);
                 return response()->json([
                     'error' => 'Invalid appointment: Optometrist is not available at this branch on this day'
                 ], 400);
             }
+        } catch (\Carbon\Exceptions\InvalidDateException $e) {
+            \Log::error('Invalid date format in appointment validation: ' . $e->getMessage(), [
+                'optometrist_id' => $request->optometrist_id,
+                'branch_id' => $request->branch_id,
+                'appointment_date' => $request->appointment_date,
+            ]);
+            return response()->json([
+                'error' => 'Invalid appointment date format',
+                'message' => 'The appointment date provided is invalid'
+            ], 400);
         } catch (\Exception $e) {
             \Log::error('Error checking rotation schedule: ' . $e->getMessage(), [
                 'optometrist_id' => $request->optometrist_id,
                 'branch_id' => $request->branch_id,
                 'appointment_date' => $request->appointment_date,
+                'exception_class' => get_class($e),
                 'trace' => $e->getTraceAsString()
             ]);
             return response()->json([
@@ -231,22 +331,53 @@ class AppointmentController extends Controller
             ], 500);
         }
 
-        // Check for scheduling conflicts (exclude cancelled and completed appointments)
-        $conflict = Appointment::where('optometrist_id', $request->optometrist_id)
+        // Check for scheduling conflicts
+        // Two appointments overlap if:
+        // - New start < Existing end AND New end > Existing start
+        // We exclude cancelled and completed appointments from conflict checks
+        // (completed appointments are already finished and shouldn't block new bookings)
+        $conflictingAppointments = Appointment::where('optometrist_id', $request->optometrist_id)
             ->where('appointment_date', $request->appointment_date)
             ->where(function ($query) use ($request) {
-                $query->whereBetween('start_time', [$request->start_time, $request->end_time])
-                      ->orWhereBetween('end_time', [$request->start_time, $request->end_time])
-                      ->orWhere(function ($q) use ($request) {
-                          $q->where('start_time', '<=', $request->start_time)
-                            ->where('end_time', '>=', $request->end_time);
-                      });
+                // Check if new appointment overlaps with existing appointments
+                // Using raw SQL for accurate time comparison
+                $query->whereRaw('(start_time < ? AND end_time > ?)', [
+                    $request->end_time,
+                    $request->start_time
+                ]);
             })
             ->whereNotIn('status', ['cancelled', 'completed'])
-            ->exists();
+            ->get();
 
-        if ($conflict) {
-            return response()->json(['error' => 'Time slot is not available'], 422);
+        if ($conflictingAppointments->isNotEmpty()) {
+            $conflictingAppointment = $conflictingAppointments->first();
+            \Log::info('Appointment time slot conflict detected', [
+                'optometrist_id' => $request->optometrist_id,
+                'appointment_date' => $request->appointment_date,
+                'start_time' => $request->start_time,
+                'end_time' => $request->end_time,
+                'conflicting_appointment_id' => $conflictingAppointment->id,
+                'conflicting_appointment_status' => $conflictingAppointment->status,
+                'conflicting_appointment_start' => $conflictingAppointment->start_time,
+                'conflicting_appointment_end' => $conflictingAppointment->end_time,
+            ]);
+            
+            // Format conflicting appointment times for better error message
+            $conflictingStart = $conflictingAppointment->start_time;
+            $conflictingEnd = $conflictingAppointment->end_time;
+            
+            return response()->json([
+                'error' => 'Time slot is not available',
+                'message' => sprintf(
+                    'This time slot conflicts with an existing appointment (%s - %s). Please choose a different time.',
+                    $conflictingStart,
+                    $conflictingEnd
+                ),
+                'conflicting_slot' => [
+                    'start_time' => $conflictingStart,
+                    'end_time' => $conflictingEnd,
+                ]
+            ], 422);
         }
 
         // Enforce branch scoping for staff/optometrist creating appointments
@@ -313,6 +444,15 @@ class AppointmentController extends Controller
             } catch (\Exception $e) {
                 \Log::warning('Failed to create appointment notification: ' . $e->getMessage());
                 // Continue even if notification fails
+            }
+
+            // Send follow-up appointment notification if type is follow_up
+            if ($appointment->type === 'follow_up') {
+                try {
+                    \App\Services\CustomerNotificationService::notifyFollowUpSchedule($appointment);
+                } catch (\Exception $e) {
+                    \Log::warning('Failed to send follow-up notification: ' . $e->getMessage());
+                }
             }
 
             // Send real-time notification
@@ -449,7 +589,7 @@ class AppointmentController extends Controller
 
         $appointment->delete();
 
-        return response()->json(['message' => 'Appointment deleted successfully (soft deleted - data preserved in database)']);
+        return response()->json(['message' => 'Appointment deleted successfully']);
     }
 
     /**

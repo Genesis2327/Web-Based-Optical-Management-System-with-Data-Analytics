@@ -21,12 +21,14 @@ const CustomerAppointments: React.FC = () => {
   const { update: updateAppointment, loading: updateLoading } = useUpdateAppointment();
   const { remove: deleteAppointment, loading: deleteLoading } = useDeleteAppointment();
 
-  // Debug authentication state
-  console.log('CustomerAppointments - Auth state:', {
-    user: user,
-    hasToken: !!sessionStorage.getItem('auth_token'),
-    token: sessionStorage.getItem('auth_token')?.substring(0, 10) + '...'
-  });
+  // Debug authentication state (only in development)
+  if (import.meta.env.DEV) {
+    console.log('CustomerAppointments - Auth state:', {
+      user: user,
+      hasToken: !!sessionStorage.getItem('auth_token'),
+      token: sessionStorage.getItem('auth_token')?.substring(0, 10) + '...'
+    });
+  }
 
   const getStatusColor = (status: string) => {
     switch (status) {

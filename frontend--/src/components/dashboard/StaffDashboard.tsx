@@ -11,6 +11,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useQuery } from '@tanstack/react-query';
 import { getApiUrl, getAuthHeaders } from '@/config/api';
 import axios from 'axios';
+import PasswordChangeReminder from '@/components/auth/PasswordChangeReminder';
 
 const StaffDashboard = () => {
   const navigate = useNavigate();
@@ -150,7 +151,9 @@ const StaffDashboard = () => {
 
 
   return (
-    <div className="space-y-6">
+    <>
+      <PasswordChangeReminder />
+      <div className="space-y-6">
       {/* Welcome Section */}
       <div className="bg-gradient-staff rounded-lg p-6 text-white">
         <h1 className="text-2xl font-bold mb-2">Staff Control Center</h1>
@@ -379,6 +382,7 @@ const StaffDashboard = () => {
         </Card>
       </div>
     </div>
+    </>
   );
 };
 

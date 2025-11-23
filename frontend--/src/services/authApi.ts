@@ -133,6 +133,10 @@ export interface RegisterRequest {
   role: string;
   phone?: string;
   branch_id?: number;
+  privacy_policy_accepted: boolean;
+  terms_accepted: boolean;
+  privacy_policy_version: string;
+  terms_version: string;
 }
 
 export interface User {
@@ -143,6 +147,8 @@ export interface User {
   phone?: string;
   social_media?: string;
   address?: string;
+  date_of_birth?: string;
+  sex?: string;
   email_verified_at?: string;
   must_change_password?: boolean;
   created_at: string;
@@ -305,19 +311,66 @@ export const register = async (userData: RegisterRequest): Promise<AuthResponse>
     console.log('[AuthAPI] Register: Trying URL:', fullUrl);
     
     try {
+      console.log('[AuthAPI] Register: Attempting registration with URL:', fullUrl);
+      console.log('[AuthAPI] Register: Request data (passwords hidden):', { 
+        ...userData, 
+        password: '***', 
+        password_confirmation: '***' 
+      });
+      
       const response = await axios.post(fullUrl, userData, {
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         withCredentials: false,
         timeout: 10000, // 10 second timeout
       });
+      
       console.log('[AuthAPI] Register: Success with URL:', fullUrl);
+      console.log('[AuthAPI] Register: Response:', response.data);
       return response.data;
     } catch (err: any) {
-      console.error('[AuthAPI] Register: Failed with URL:', fullUrl, err.message);
+      console.error('[AuthAPI] Register: Failed with URL:', fullUrl);
+      console.error('[AuthAPI] Register: Error message:', err.message);
+      console.error('[AuthAPI] Register: Error response:', err.response?.data);
+      console.error('[AuthAPI] Register: Error status:', err.response?.status);
       lastErr = err;
       if (isNetworkError(err)) continue;
       throw err;
     }
+  }
+  
+  // All URLs failed - provide helpful error message
+  const currentHost = typeof window !== 'undefined' ? window.location.hostname : 'unknown';
+  const isNetworkAccess = /^\d+\.\d+\.\d+\.\d+$/.test(currentHost);
+  const expectedBackend = isNetworkAccess 
+    ? `http://${currentHost}:8000`
+    : 'http://localhost:8000';
+  
+  if (lastErr?.code === 'ECONNABORTED' || lastErr?.message?.includes('timeout') || isNetworkError(lastErr)) {
+    const backendPath = 'C:\\Users\\prota\\thesis_test1\\backend';
+    const healthCheckUrl = isNetworkAccess 
+      ? `http://${currentHost}:8000/api/health`
+      : 'http://127.0.0.1:8000/api/health';
+    
+    console.error('[AuthAPI] Register: All URLs failed. Last error:', lastErr?.message);
+    throw new Error(
+      `❌ Backend server is not responding at ${expectedBackend}\n\n` +
+      `The server appears to be offline or unreachable.\n\n` +
+      `🚀 QUICK FIX - Start the server:\n` +
+      `1. Open Windows Explorer\n` +
+      `2. Navigate to: ${backendPath}\n` +
+      `3. Double-click: RUN_AUTO_FIX.bat ⭐ (BEST - auto fixes everything)\n` +
+      `   OR: START_SERVER_HERE.bat (quick start)\n` +
+      `   OR: AUTO_FIX_AND_START.bat (full auto fix)\n` +
+      `4. Wait for server to start (you'll see "Server running on...")\n` +
+      `5. Keep that window OPEN and try registration again\n\n` +
+      `🔍 TROUBLESHOOTING:\n` +
+      `- Test server: Open ${healthCheckUrl} in browser\n` +
+      `- Check status: Run CHECK_SERVER_STATUS.bat\n` +
+      `- Port busy? Run FIX_AND_START_SERVER.bat\n` +
+      `- Firewall? Make sure port 8000 is not blocked\n\n` +
+      `📖 For detailed help, see: ${backendPath}\\SERVER_TROUBLESHOOTING.md\n\n` +
+      `⚠️ The server MUST be running before you can register.`
+    );
   }
   
   const errorMessage = lastErr?.message || 'Network Error: Could not connect to backend API';
@@ -382,7 +435,45 @@ export const getProfile = async (): Promise<User> => {
       throw err;
     }
   }
-  throw lastErr || new Error('Network Error');
+  
+  // All URLs failed - provide helpful error message
+  const currentHost = typeof window !== 'undefined' ? window.location.hostname : 'unknown';
+  const isNetworkAccess = /^\d+\.\d+\.\d+\.\d+$/.test(currentHost);
+  const expectedBackend = isNetworkAccess 
+    ? `http://${currentHost}:8000`
+    : 'http://localhost:8000';
+  
+  if (lastErr?.code === 'ECONNABORTED' || lastErr?.message?.includes('timeout') || isNetworkError(lastErr)) {
+    const backendPath = 'C:\\Users\\prota\\thesis_test1\\backend';
+    const healthCheckUrl = isNetworkAccess 
+      ? `http://${currentHost}:8000/api/health`
+      : 'http://127.0.0.1:8000/api/health';
+    
+    throw new Error(
+      `❌ Backend server is not responding at ${expectedBackend}\n\n` +
+      `The server appears to be offline or unreachable.\n\n` +
+      `🚀 QUICK FIX - Start the server:\n` +
+      `1. Open Windows Explorer\n` +
+      `2. Navigate to: ${backendPath}\n` +
+      `3. Double-click: RUN_AUTO_FIX.bat ⭐ (BEST - auto fixes everything)\n` +
+      `   OR: START_SERVER_HERE.bat (quick start)\n` +
+      `   OR: AUTO_FIX_AND_START.bat (full auto fix)\n` +
+      `4. Wait for server to start (you'll see "Server running on...")\n` +
+      `5. Keep that window OPEN and try again\n\n` +
+      `🔍 TROUBLESHOOTING:\n` +
+      `- Test server: Open ${healthCheckUrl} in browser\n` +
+      `- Check status: Run CHECK_SERVER_STATUS.bat\n` +
+      `- Port busy? Run FIX_AND_START_SERVER.bat\n` +
+      `- Firewall? Make sure port 8000 is not blocked\n\n` +
+      `📖 For detailed help, see: ${backendPath}\\SERVER_TROUBLESHOOTING.md\n\n` +
+      `⚠️ The server MUST be running before you can access your profile.`
+    );
+  }
+  
+  throw lastErr || new Error(
+    `Unable to connect to backend server at ${expectedBackend}. ` +
+    `Please ensure the server is running and accessible.`
+  );
 };
 
 

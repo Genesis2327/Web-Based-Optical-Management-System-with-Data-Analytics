@@ -6,8 +6,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { 
   Phone, 
   Mail, 
-  MapPin, 
-  Clock, 
   Building2,
   AlertCircle
 } from 'lucide-react';
@@ -170,24 +168,6 @@ const ContactButtons: React.FC<ContactButtonsProps> = ({
               <div className="text-sm opacity-90">{contact.email}</div>
             </div>
           </Button>
-        )}
-
-        {/* Additional Info */}
-        {(contact.address || contact.operating_hours) && (
-          <div className="pt-3 border-t space-y-2">
-            {contact.address && (
-              <div className="flex items-start gap-2 text-sm text-gray-600">
-                <MapPin className="h-4 w-4 mt-0.5" />
-                <span>{contact.address}</span>
-              </div>
-            )}
-            {contact.operating_hours && (
-              <div className="flex items-start gap-2 text-sm text-gray-600">
-                <Clock className="h-4 w-4 mt-0.5" />
-                <span>{contact.operating_hours}</span>
-              </div>
-            )}
-          </div>
         )}
       </CardContent>
     </Card>
