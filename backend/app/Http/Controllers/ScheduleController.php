@@ -23,7 +23,7 @@ class ScheduleController extends Controller
         try {
             // Find the doctor
             $doctor = User::where('id', $doctorId)
-                ->where('role', 'optometrist')
+                ->where('role', UserRole::Optometrist)
                 ->first();
 
             if (!$doctor) {
@@ -209,7 +209,7 @@ class ScheduleController extends Controller
     {
         try {
             // Get all optometrists with their schedules
-            $optometrists = User::where('role', 'optometrist')
+            $optometrists = User::where('role', UserRole::Optometrist)
                 ->where('is_approved', true)
                 ->get();
 

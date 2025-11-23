@@ -127,28 +127,48 @@ class ScheduleChangeRequestController extends Controller
             ], 403);
         }
 
-        // Check if there's already a pending request for this day
-        $existingRequest = ScheduleChangeRequest::where('staff_id', $request->staff_id)
+        // Check if there's already an approved schedule for this day (prevent duplicates)
+        $existingApproved = ScheduleChangeRequest::where('staff_id', $request->staff_id)
             ->where('day_of_week', $request->day_of_week)
-            ->where('status', 'pending')
+            ->where('status', 'approved')
+            ->whereDate('created_at', today()) // Only check today's requests to avoid conflicts with historical changes
             ->first();
 
-        if ($existingRequest) {
+        if ($existingApproved) {
             return response()->json([
-                'message' => 'You already have a pending request for this day. Please wait for it to be reviewed.'
+                'message' => 'Schedule for this day was already updated today.'
             ], 422);
         }
 
-        $requestData = $request->all();
-        $requestData['status'] = 'pending';
+        DB::beginTransaction();
+        try {
+            // Auto-approve all schedule change requests
+            $requestData = $request->all();
+            $requestData['status'] = 'approved';
+            $requestData['reviewed_by'] = $user->id; // Set requester as reviewer
+            $requestData['reviewed_at'] = now();
+            $requestData['admin_notes'] = 'Auto-approved';
 
-        $scheduleChangeRequest = ScheduleChangeRequest::create($requestData);
+            $scheduleChangeRequest = ScheduleChangeRequest::create($requestData);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Schedule change request submitted successfully',
-            'request' => $scheduleChangeRequest->load(['branch'])
-        ], 201);
+            // Immediately update the actual schedule
+            $this->updateSchedule($scheduleChangeRequest);
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Schedule change applied successfully',
+                'request' => $scheduleChangeRequest->load(['branch'])
+            ], 200);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => 'Failed to apply schedule change',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
     /**

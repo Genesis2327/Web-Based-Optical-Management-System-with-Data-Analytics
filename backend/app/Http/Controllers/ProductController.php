@@ -187,6 +187,7 @@ class ProductController extends Controller
                 'name' => $product->name,
                 'description' => $product->description,
                 'price' => $product->price,
+                'formatted_price' => $product->formatted_price, // P 1,250.00 format
                 'stock_quantity' => $product->stock_quantity ?? 0,
                 'is_active' => $product->is_active,
                 'image_paths' => $orderedImages, // Return ordered images
@@ -275,6 +276,18 @@ class ProductController extends Controller
                 'is_active' => 'nullable',
                 'images' => 'nullable|array|max:4',
                 'images.*' => 'image|mimes:jpeg,png,jpg,gif|max:2048', // 2MB max per image
+                'color' => 'nullable|string|max:255',
+                'shape' => 'nullable|string|max:255',
+                'lens_width' => 'nullable|numeric|min:0|max:100',
+                'bridge_width' => 'nullable|numeric|min:0|max:100',
+                'temple_length' => 'nullable|numeric|min:0|max:200',
+                'frame_material' => 'nullable|string|max:255',
+                'lens_material' => 'nullable|string|max:255',
+                'lens_type' => 'nullable|string|max:255',
+                'polarized' => 'nullable|boolean',
+                'uv_protection' => 'nullable|boolean',
+                'gender' => 'nullable|in:unisex,men,women',
+                'prescription_file_path' => 'nullable|string|max:500', // Path validation for stored file
             ];
             
             // Normalize category_id BEFORE validation - convert empty string to null
@@ -510,10 +523,14 @@ class ProductController extends Controller
                     \Log::warning('Failed to load creator relationship: ' . $e->getMessage());
                 }
 
-                return response()->json([
-                    'message' => 'Product created successfully',
-                    'product' => $product
-                ], 201);
+        // Load product with formatted price for response
+        $productData = $product->toArray();
+        $productData['formatted_price'] = $product->formatted_price;
+
+        return response()->json([
+            'message' => 'Product created successfully',
+            'product' => $productData
+        ], 201);
             } catch (\Exception $e) {
                 DB::rollBack();
                 \Log::error('Error creating product: ' . $e->getMessage(), [
@@ -627,6 +644,7 @@ class ProductController extends Controller
                 'name' => $product->name,
                 'description' => $product->description,
                 'price' => $product->price,
+                'formatted_price' => $product->formatted_price, // P 1,250.00 format
                 'stock_quantity' => $product->stock_quantity ?? 0,
                 'is_active' => $product->is_active,
                 'image_paths' => $orderedImages,
@@ -1047,6 +1065,17 @@ class ProductController extends Controller
             'existing_images' => 'nullable|string', // JSON string of existing image paths
             'images' => 'nullable|array|max:4',
             'images.*' => 'image|mimes:jpeg,png,jpg,gif|max:2048',
+            'color' => 'nullable|string|max:255',
+            'shape' => 'nullable|string|max:255',
+            'lens_width' => 'nullable|numeric|min:0|max:100',
+            'bridge_width' => 'nullable|numeric|min:0|max:100',
+            'temple_length' => 'nullable|numeric|min:0|max:200',
+            'frame_material' => 'nullable|string|max:255',
+            'lens_material' => 'nullable|string|max:255',
+            'lens_type' => 'nullable|string|max:255',
+            'polarized' => 'nullable|boolean',
+            'uv_protection' => 'nullable|boolean',
+            'gender' => 'nullable|in:unisex,men,women',
         ];
         
         // Only validate category_id exists if product_categories table exists
@@ -1499,9 +1528,12 @@ class ProductController extends Controller
         // Activate the product (approve it)
         $product->update(['is_active' => true]);
 
+        $productData = $product->load('creator')->toArray();
+        $productData['formatted_price'] = $product->formatted_price;
+
         return response()->json([
             'message' => 'Product approved and activated successfully',
-            'product' => $product->load('creator')
+            'product' => $productData
         ]);
     }
 

@@ -33,6 +33,7 @@ use App\Http\Controllers\BranchInventoryController;
 use App\Http\Controllers\BranchContactController;
 use App\Http\Controllers\GlassOrderController;
 use App\Http\Controllers\ScheduleChangeRequestController;
+use App\Http\Controllers\StockReturnController;
 
 /*
 |--------------------------------------------------------------------------
@@ -528,6 +529,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/inventory/realtime', [RealTimeInventoryController::class, 'getRealTimeInventory']);
     Route::post('/inventory/realtime/update', [RealTimeInventoryController::class, 'updateInventory']);
     Route::get('/inventory/realtime/alerts', [RealTimeInventoryController::class, 'getInventoryAlerts']);
+
+    // ABC Analysis routes
+    Route::get('/inventory/abc-analysis', [EnhancedInventoryController::class, 'getABCAnalysis']);
+    Route::get('/inventory/abc-recommendations', [EnhancedInventoryController::class, 'getABCRecommendations']);
     
     // Inventory transaction history
     Route::get('/inventory/transactions', [BranchInventoryController::class, 'getTransactionHistory']);
@@ -634,6 +639,15 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/receipts/{receipt}/download', [ReceiptController::class, 'downloadReceipt']);
     Route::get('/customers/{customerId}/receipts', [ReceiptController::class, 'getByCustomer']);
 
+    // Receipt/Invoice routes
+    Route::get('/receipts/validate', [ReceiptController::class, 'validateReceipt']);
+    Route::post('/receipts/standardized', [ReceiptController::class, 'createStandardReceipt']);
+    Route::get('/receipts/customer/{customerId}', [ReceiptController::class, 'getByCustomer']);
+    Route::get('/receipts/{receiptId}', [ReceiptController::class, 'getReceipt']);
+    Route::get('/receipts/{receiptId}/download', [ReceiptController::class, 'downloadReceipt']);
+    Route::post('/receipts', [ReceiptController::class, 'store']);
+    Route::get('/receipts', [ReceiptController::class, 'index']); // List all receipts for admin/staff
+
     // Feedback routes
     Route::get('/feedback', [FeedbackController::class, 'index']);
     Route::post('/feedback', [FeedbackController::class, 'store']);
@@ -674,6 +688,16 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/reservations/{reservation}/approve', [ReservationController::class, 'approve']);
     Route::put('/reservations/{reservation}/reject', [ReservationController::class, 'reject']);
     Route::put('/reservations/{reservation}/complete', [ReservationController::class, 'completeReservation']);
+
+    // Stock return routes
+    Route::get('/stock-returns', [StockReturnController::class, 'index']);
+    Route::post('/stock-returns', [StockReturnController::class, 'store']);
+    Route::get('/stock-returns/{id}', [StockReturnController::class, 'show']);
+    Route::put('/stock-returns/{id}', [StockReturnController::class, 'update']);
+    Route::delete('/stock-returns/{id}', [StockReturnController::class, 'destroy']);
+    Route::put('/stock-returns/{id}/approve', [StockReturnController::class, 'approve']);
+    Route::put('/stock-returns/{id}/reject', [StockReturnController::class, 'reject']);
+    Route::put('/stock-returns/{id}/process', [StockReturnController::class, 'markAsProcessed']);
 
     // Admin user management routes
     Route::post('/admin/users', [AuthController::class, 'createUser']);

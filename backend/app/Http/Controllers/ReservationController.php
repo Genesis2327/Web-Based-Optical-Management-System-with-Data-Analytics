@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Reservation;
 use App\Models\Product;
+use App\Models\Notification;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Validator;
@@ -192,6 +193,45 @@ class ReservationController extends Controller
             // Update reserved quantity in branch stock
             $branchStock->increment('reserved_quantity', $request->quantity);
 
+            // Send notification to customer
+            Notification::create([
+                'user_id' => $user->id,
+                'role' => 'customer',
+                'title' => 'Reservation Submitted',
+                'message' => "Your reservation for {$product->name} has been submitted and is pending approval.",
+                'type' => 'reservation_created',
+                'data' => [
+                    'reservation_id' => $reservation->id,
+                    'product_name' => $product->name,
+                    'quantity' => $request->quantity,
+                    'branch_name' => $branch->name,
+                ],
+                'status' => 'unread',
+            ]);
+
+            // Send notification to staff at the branch
+            $staffMembers = \App\Models\User::where('branch_id', $request->branch_id)
+                ->whereIn('role', ['admin', 'staff'])
+                ->get();
+
+            foreach ($staffMembers as $staff) {
+                Notification::create([
+                    'user_id' => $staff->id,
+                    'role' => $staff->role->value ?? (string)$staff->role,
+                    'title' => 'New Reservation Request',
+                    'message' => "New reservation request from {$user->name} for {$product->name} (Qty: {$request->quantity}).",
+                    'type' => 'reservation_pending',
+                    'data' => [
+                        'reservation_id' => $reservation->id,
+                        'customer_name' => $user->name,
+                        'customer_email' => $user->email,
+                        'product_name' => $product->name,
+                        'quantity' => $request->quantity,
+                    ],
+                    'status' => 'unread',
+                ]);
+            }
+
             \Log::info('Reservation created successfully', [
                 'reservation_id' => $reservation->id,
                 'user_id' => $user->id,
@@ -201,7 +241,7 @@ class ReservationController extends Controller
             ]);
 
             return response()->json([
-                'message' => 'Reservation created successfully',
+                'message' => 'Reservation created successfully. Notifications sent.',
                 'reservation' => $reservation->load(['product', 'user', 'branch'])
             ], 201);
             
@@ -526,8 +566,25 @@ class ReservationController extends Controller
         $branchStock->decrement('stock_quantity', $reservation->quantity);
         $branchStock->increment('reserved_quantity', $reservation->quantity);
 
+        // Send notification to customer
+        Notification::create([
+            'user_id' => $reservation->user_id,
+            'role' => 'customer',
+            'title' => 'Reservation Approved',
+            'message' => "Your reservation for {$reservation->product->name} has been approved. Please come to the branch to pick up your items.",
+            'type' => 'reservation_approved',
+            'data' => [
+                'reservation_id' => $reservation->id,
+                'product_name' => $reservation->product->name,
+                'quantity' => $reservation->quantity,
+                'branch_name' => $reservation->branch->name,
+                'approved_by' => $user->name,
+            ],
+            'status' => 'unread',
+        ]);
+
         return response()->json([
-            'message' => 'Reservation approved successfully',
+            'message' => 'Reservation approved successfully. Notification sent to customer.',
             'reservation' => $reservation->load(['product', 'user', 'branch'])
         ]);
     }
@@ -585,8 +642,27 @@ class ReservationController extends Controller
             'rejection_reason' => $request->get('reason'),
         ]);
 
+        // Send notification to customer
+        $rejectionReason = $request->get('reason') ? ". Reason: {$request->get('reason')}" : "";
+        Notification::create([
+            'user_id' => $reservation->user_id,
+            'role' => 'customer',
+            'title' => 'Reservation Rejected',
+            'message' => "Unfortunately, your reservation for {$reservation->product->name} has been rejected{$rejectionReason}. Please contact the branch for more information.",
+            'type' => 'reservation_rejected',
+            'data' => [
+                'reservation_id' => $reservation->id,
+                'product_name' => $reservation->product->name,
+                'quantity' => $reservation->quantity,
+                'branch_name' => $reservation->branch->name,
+                'rejected_by' => $user->name,
+                'rejection_reason' => $request->get('reason'),
+            ],
+            'status' => 'unread',
+        ]);
+
         return response()->json([
-            'message' => 'Reservation rejected successfully',
+            'message' => 'Reservation rejected successfully. Notification sent to customer.',
             'reservation' => $reservation->load(['product', 'user', 'branch'])
         ]);
     }

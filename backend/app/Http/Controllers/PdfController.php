@@ -43,8 +43,8 @@ class PdfController extends Controller
             // Load stored receipt data if available
             $receipt = \App\Models\Receipt::with('items')->where('appointment_id', $appointment->id)->first();
 
-            // Generate invoice number in format like 0601
-            $invoiceNumber = str_pad($appointment->id, 4, '0', STR_PAD_LEFT);
+            // Use receipt number from receipt if available, otherwise generate appointment-based
+            $invoiceNumber = $receipt ? $receipt->receipt_number : str_pad($appointment->id, 4, '0', STR_PAD_LEFT);
 
             if ($receipt) {
                 $data = [

@@ -10,6 +10,7 @@ use App\Models\GlassOrder;
 use App\Models\Prescription;
 use App\Services\WebSocketService;
 use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -232,7 +233,7 @@ class ReceiptController extends Controller
             'data' => $receipts->map(function($receipt) {
                 return [
                     'id' => $receipt->id,
-                    'receipt_number' => str_pad($receipt->appointment_id, 4, '0', STR_PAD_LEFT),
+                    'receipt_number' => $receipt->receipt_number ?? str_pad($receipt->appointment_id, 4, '0', STR_PAD_LEFT),
                     'customer_id' => $receipt->appointment->patient_id,
                     'appointment_id' => $receipt->appointment_id,
                     'subtotal' => $receipt->vatable_sales,
@@ -519,5 +520,152 @@ class ReceiptController extends Controller
             Log::error('Stack trace: ' . $e->getTraceAsString());
             // Don't fail the receipt creation if glass order creation fails
         }
+    }
+
+    /**
+     * Create a standardized official receipt
+     */
+    public function createStandardReceipt(Request $request): JsonResponse
+    {
+        $user = Auth::user();
+
+        // Handle role format
+        $userRole = null;
+        if (is_object($user->role)) {
+            $userRole = $user->role->value ?? (string)$user->role;
+        } else {
+            $userRole = (string)$user->role;
+        }
+
+        if (!in_array($userRole, ['staff', 'admin', 'optometrist'])) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        $validated = $request->validate([
+            'appointment_id' => 'required|exists:appointments,id',
+            'customer_name' => 'required|string',
+            'tin' => 'nullable|string',
+            'address' => 'nullable|string',
+            'items' => 'required|array|min:1',
+            'items.*.description' => 'required|string',
+            'items.*.qty' => 'required|integer|min:1',
+            'items.*.unit_price' => 'required|numeric|min:0',
+            'tax_rate' => 'numeric|min:0|max:1', // VAT rate (default 0.12 for 12%)
+            'discount_rate' => 'nullable|numeric|min:0|max:1', // Discount rate
+            'withholding_tax_rate' => 'nullable|numeric|min:0|max:1', // Withholding tax rate
+        ]);
+
+        $appointment = Appointment::findOrFail($validated['appointment_id']);
+        if (in_array($userRole, ['staff', 'optometrist']) && $appointment->branch_id !== $user->branch_id) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        return DB::transaction(function () use ($validated, $appointment, $user) {
+            // Calculate amounts based on standardized formulas
+            $taxRate = $validated['tax_rate'] ?? 0.12;
+            $discountRate = $validated['discount_rate'] ?? 0.0;
+            $withholdingTaxRate = $validated['withholding_tax_rate'] ?? 0.0;
+
+            // Calculate subtotal from items
+            $subtotal = 0;
+            foreach ($validated['items'] as $item) {
+                $subtotal += $item['qty'] * $item['unit_price'];
+            }
+
+            // Apply discount if any
+            $discountAmount = $subtotal * $discountRate;
+
+            // Calculate VAT components
+            $vatableSales = ($subtotal - $discountAmount) / (1 + $taxRate);
+            $vatAmount = $vatableSales * $taxRate;
+            $totalSales = $vatableSales + $vatAmount;
+
+            // Calculate withholding tax
+            $withholdingTax = $vatableSales * $withholdingTaxRate;
+
+            // Calculate final total
+            $totalDue = $totalSales - $withholdingTax;
+
+            $receipt = Receipt::create([
+                'customer_id' => $appointment->patient_id,
+                'branch_id' => $appointment->branch_id,
+                'appointment_id' => $validated['appointment_id'],
+                'sales_type' => $request->sales_type ?? 'cash',
+                'date' => $request->date ?? now(),
+                'customer_name' => $validated['customer_name'],
+                'tin' => $validated['tin'] ?? null,
+                'address' => $validated['address'] ?? null,
+
+                // Standardized amounts
+                'vatable_sales' => $vatableSales,
+                'vat_amount' => $vatAmount,
+                'zero_rated_sales' => 0.00,
+                'vat_exempt_sales' => 0.00,
+                'net_of_vat' => $vatableSales,
+                'less_vat' => $vatAmount,
+                'add_vat' => $vatAmount,
+                'discount' => $discountAmount,
+                'withholding_tax' => $withholdingTax,
+                'total_due' => $totalDue,
+            ]);
+
+            // Create receipt items with calculated amounts
+            foreach ($validated['items'] as $item) {
+                $receipt->items()->create([
+                    'description' => $item['description'],
+                    'qty' => $item['qty'],
+                    'unit_price' => $item['unit_price'],
+                    'amount' => $item['qty'] * $item['unit_price'],
+                ]);
+            }
+
+            return response()->json([
+                'message' => 'Standardized receipt created successfully',
+                'receipt' => $receipt->load('items'),
+                'calculations' => [
+                    'subtotal' => $subtotal,
+                    'discount_amount' => $discountAmount,
+                    'vatable_sales' => $vatableSales,
+                    'vat_amount' => $vatAmount,
+                    'withholding_tax' => $withholdingTax,
+                    'total_due' => $totalDue,
+                    'tax_rate' => $taxRate,
+                    'discount_rate' => $discountRate,
+                    'withholding_tax_rate' => $withholdingTaxRate,
+                ]
+            ], 201);
+        });
+    }
+
+    /**
+     * Validate receipt data for BIR compliance
+     */
+    public function validateReceipt(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'total_due' => 'required|numeric|min:0',
+            'vatable_sales' => 'required|numeric|min:0',
+            'vat_amount' => 'required|numeric|min:0',
+            'tax_rate' => 'numeric|min:0|max:1'
+        ]);
+
+        $expectedVat = $validated['vatable_sales'] * ($validated['tax_rate'] ?? 0.12);
+        $expectedTotal = $validated['vatable_sales'] + $expectedVat;
+
+        $isValid = abs($validated['vat_amount'] - $expectedVat) < 0.01 &&
+                   abs(($validated['vatable_sales'] + $validated['vat_amount']) - $validated['total_due']) < 0.01;
+
+        return response()->json([
+            'is_valid' => $isValid,
+            'expected_vat' => $expectedVat,
+            'expected_total' => $expectedTotal,
+            'variance_vat' => $validated['vat_amount'] - $expectedVat,
+            'variance_total' => $validated['total_due'] - $expectedTotal,
+            'validation_rules' => [
+                'vat_calculation' => 'VAT = Vatable Sales × Tax Rate (12%)',
+                'total_calculation' => 'Total = Vatable Sales + VAT - Withholding Tax - Discount',
+                'bir_compliance' => 'Must match BIR Authority to Print requirements'
+            ]
+        ]);
     }
 }

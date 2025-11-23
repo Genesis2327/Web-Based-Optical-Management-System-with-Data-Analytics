@@ -1358,4 +1358,308 @@ class EnhancedInventoryController extends Controller
             ], 500);
         }
     }
+
+    /**
+     * ABC Analysis for inventory classification
+     */
+    public function getABCAnalysis(Request $request): JsonResponse
+    {
+        try {
+            $user = Auth::user();
+
+            if (!$user) {
+                return response()->json(['message' => 'Unauthorized'], 401);
+            }
+
+            // Handle role format (enum or string)
+            $userRole = $user->role->value ?? (string)$user->role;
+
+            // Check if branch_stock table exists
+            if (!Schema::hasTable('branch_stock')) {
+                return response()->json([
+                    'message' => 'Branch stock table does not exist. Please run migrations.',
+                    'analysis' => [
+                        'A_items' => [],
+                        'B_items' => [],
+                        'C_items' => [],
+                        'summary' => [
+                            'total_items' => 0,
+                            'total_value' => 0,
+                            'A_percentage' => '0%',
+                            'B_percentage' => '0%',
+                            'C_percentage' => '0%'
+                        ]
+                    ]
+                ], 200);
+            }
+
+            // Get all branch stock with products
+            $query = BranchStock::with(['product', 'branch'])
+                ->whereHas('product', function($q) {
+                    $q->where('is_active', true);
+                })
+                ->where('stock_quantity', '>', 0); // Only items with stock
+
+            // Filter by branch if specified and user is admin
+            if ($userRole === 'admin' && $request->has('branch_id') && $request->branch_id) {
+                $query->where('branch_id', $request->branch_id);
+            } elseif ($userRole !== 'admin') {
+                // Staff can only see their own branch
+                $query->where('branch_id', $user->branch_id ?? null);
+            }
+
+            $branchStocks = $query->get();
+
+            if ($branchStocks->isEmpty()) {
+                return response()->json([
+                    'message' => 'No inventory items found for ABC analysis',
+                    'analysis' => [
+                        'A_items' => [],
+                        'B_items' => [],
+                        'C_items' => [],
+                        'summary' => [
+                            'total_items' => 0,
+                            'total_value' => 0,
+                            'A_percentage' => '0%',
+                            'B_percentage' => '0%',
+                            'C_percentage' => '0%'
+                        ]
+                    ]
+                ]);
+            }
+
+            // Calculate item values and prepare for ABC analysis
+            $inventoryItems = [];
+            foreach ($branchStocks as $stock) {
+                $effectivePrice = $stock->price_override ?? ($stock->product->price ?? 0);
+                $totalValue = $stock->stock_quantity * $effectivePrice;
+
+                $inventoryItems[] = [
+                    'id' => $stock->id,
+                    'branch_stock' => $stock,
+                    'product_name' => $stock->product->name ?? 'Unknown',
+                    'branch_name' => $stock->branch->name ?? 'Unknown',
+                    'quantity' => $stock->stock_quantity,
+                    'unit_price' => $effectivePrice,
+                    'total_value' => $totalValue,
+                    'status' => $stock->status,
+                ];
+            }
+
+            // Sort by total value (descending)
+            usort($inventoryItems, function($a, $b) {
+                return $b['total_value'] <=> $a['total_value'];
+            });
+
+            $totalItems = count($inventoryItems);
+            $totalInventoryValue = array_sum(array_column($inventoryItems, 'total_value'));
+
+            // Calculate category cutoffs based on Pareto principle (80/20 rule)
+            $cumulativeValue = 0;
+            $aCutoffValue = $totalInventoryValue * 0.80; // Top 80% of value
+            $cValueCutoff = $totalInventoryValue * 0.95; // First 95% of value goes to A+B
+
+            // Also calculate by item count percentages
+            $aCountCutoff = ceil($totalItems * 0.20); // Top 20% of items by count
+            $bCountCutoff = ceil($totalItems * 0.50); // Next 30% (20-50)
+
+            // Classify items
+            $A_items = [];
+            $B_items = [];
+            $C_items = [];
+
+            foreach ($inventoryItems as $index => $item) {
+                $cumulativeValue += $item['total_value'];
+                $item['cumulative_percentage'] = ($cumulativeValue / $totalInventoryValue) * 100;
+
+                // ABC Classification logic
+                if ($cumulativeValue <= $aCutoffValue && count($A_items) < $aCountCutoff) {
+                    $item['category'] = 'A';
+                    $item['category_description'] = 'High Value - Tight Control';
+                    $A_items[] = $item;
+                } elseif (($cumulativeValue <= $cValueCutoff && count($A_items) + count($B_items) < $bCountCutoff) ||
+                          ($cumulativeValue <= $aCutoffValue && count($A_items) < $aCountCutoff)) {
+                    $item['category'] = 'B';
+                    $item['category_description'] = 'Medium Value - Moderate Control';
+                    $B_items[] = $item;
+                } else {
+                    $item['category'] = 'C';
+                    $item['category_description'] = 'Low Value - Basic Control';
+                    $C_items[] = $item;
+                }
+            }
+
+            // Calculate summary statistics
+            $aTotalValue = array_sum(array_column($A_items, 'total_value'));
+            $bTotalValue = array_sum(array_column($B_items, 'total_value'));
+            $cTotalValue = array_sum(array_column($C_items, 'total_value'));
+
+            $summary = [
+                'total_items' => $totalItems,
+                'total_value' => $totalInventoryValue,
+                'A_percentage' => $totalItems > 0 ? number_format((count($A_items) / $totalItems) * 100, 1) . '%' : '0%',
+                'B_percentage' => $totalItems > 0 ? number_format((count($B_items) / $totalItems) * 100, 1) . '%' : '0%',
+                'C_percentage' => $totalItems > 0 ? number_format((count($C_items) / $totalItems) * 100, 1) . '%' : '0%',
+                'A_value_percentage' => $totalInventoryValue > 0 ? number_format(($aTotalValue / $totalInventoryValue) * 100, 1) . '%' : '0%',
+                'B_value_percentage' => $totalInventoryValue > 0 ? number_format(($bTotalValue / $totalInventoryValue) * 100, 1) . '%' : '0%',
+                'C_value_percentage' => $totalInventoryValue > 0 ? number_format(($cTotalValue / $totalInventoryValue) * 100, 1) . '%' : '0%',
+                'A_items_count' => count($A_items),
+                'B_items_count' => count($B_items),
+                'C_items_count' => count($C_items),
+                'A_value' => $aTotalValue,
+                'B_value' => $bTotalValue,
+                'C_value' => $cTotalValue,
+            ];
+
+            // Format items for response
+            $formatItem = function($item) {
+                return [
+                    'id' => $item['id'],
+                    'product_name' => $item['product_name'],
+                    'branch_name' => $item['branch_name'],
+                    'quantity' => $item['quantity'],
+                    'unit_price' => $item['unit_price'],
+                    'total_value' => $item['total_value'],
+                    'category' => $item['category'],
+                    'category_description' => $item['category_description'],
+                    'cumulative_percentage' => number_format($item['cumulative_percentage'], 1) . '%',
+                    'status' => $item['status'],
+                ];
+            };
+
+            return response()->json([
+                'analysis' => [
+                    'A_items' => array_map($formatItem, $A_items),
+                    'B_items' => array_map($formatItem, $B_items),
+                    'C_items' => array_map($formatItem, $C_items),
+                    'summary' => $summary,
+                ],
+                'meta' => [
+                    'generated_at' => now()->toISOString(),
+                    'branch_filtered' => $userRole === 'admin' && $request->has('branch_id') ? $request->branch_id : null,
+                    'methodology' => 'Pareto Principle (80/20 Rule): A-items represent ~20% of inventory but ~80% of value',
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            \Log::error('Error performing ABC analysis', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'user_id' => $user->id ?? null,
+            ]);
+
+            return response()->json([
+                'message' => 'Failed to perform ABC analysis',
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
+                'analysis' => [
+                    'A_items' => [],
+                    'B_items' => [],
+                    'C_items' => [],
+                    'summary' => [
+                        'total_items' => 0,
+                        'total_value' => 0,
+                        'A_percentage' => '0%',
+                        'B_percentage' => '0%',
+                        'C_percentage' => '0%',
+                        'A_value_percentage' => '0%',
+                        'B_value_percentage' => '0%',
+                        'C_value_percentage' => '0%',
+                        'A_items_count' => 0,
+                        'B_items_count' => 0,
+                        'C_items_count' => 0,
+                        'A_value' => 0,
+                        'B_value' => 0,
+                        'C_value' => 0,
+                    ]
+                ]
+            ], 500);
+        }
+    }
+
+    /**
+     * Get ABC analysis recommendations based on the results
+     */
+    public function getABCRecommendations(Request $request): JsonResponse
+    {
+        try {
+            // First get the ABC analysis
+            $analysisResponse = $this->getABCAnalysis($request);
+            $analysisData = json_decode($analysisResponse->getContent(), true);
+
+            if (!isset($analysisData['analysis'])) {
+                return response()->json([
+                    'message' => 'Could not generate recommendations',
+                    'recommendations' => []
+                ], 500);
+            }
+
+            $summary = $analysisData['analysis']['summary'];
+
+            $recommendations = [
+                'A_items' => [
+                    'description' => 'High-value items requiring tight control',
+                    'count' => $summary['A_items_count'],
+                    'value_percentage' => $summary['A_value_percentage'],
+                    'recommendations' => [
+                        'Implement strict inventory controls and frequent cycle counting',
+                        'Maintain detailed records with regular audits',
+                        'Store in secure, controlled-access areas',
+                        'Monitor demand patterns closely and use advanced forecasting',
+                        'Maintain higher safety stock levels despite low turnover',
+                        'Consider automated replenishment systems for these critical items'
+                    ]
+                ],
+                'B_items' => [
+                    'description' => 'Medium-value items requiring moderate control',
+                    'count' => $summary['B_items_count'],
+                    'value_percentage' => $summary['B_value_percentage'],
+                    'recommendations' => [
+                        'Use periodic inventory counting (monthly or quarterly)',
+                        'Implement simple classification system for storage',
+                        'Monitor usage patterns quarterly',
+                        'Maintain moderate safety stock levels',
+                        'Update reorder points based on usage analysis',
+                        'Implement basic tracking without excessive controls'
+                    ]
+                ],
+                'C_items' => [
+                    'description' => 'Low-value, high-volume items requiring basic control',
+                    'count' => $summary['C_items_count'],
+                    'value_percentage' => $summary['C_value_percentage'],
+                    'recommendations' => [
+                        'Use annual physical inventory counts',
+                        'Store using simple bulk storage methods',
+                        'Maintain minimal paperwork and documentation',
+                        'Use visual inventory levels and reorder when visually low',
+                        'Consider vendor-managed systems for automated replenishment',
+                        'Accept higher safety stock variances for these items'
+                    ]
+                ],
+                'general' => [
+                    'description' => 'Overall inventory management recommendations',
+                    'recommendations' => [
+                        'Focus 80% of inventory management efforts on A-items (' . $summary['A_value_percentage'] . ' of value)',
+                        'Allocate resources based on ABC classification priorities',
+                        'Implement item-specific ordering policies based on category',
+                        'Train staff on ABC classification importance',
+                        'Regularly review and update ABC classifications (quarterly)',
+                        'Use ABC analysis for budget allocation and staffing decisions'
+                    ]
+                ]
+            ];
+
+            return response()->json([
+                'recommendations' => $recommendations,
+                'analysis_summary' => $summary,
+                'generated_at' => now()->toISOString(),
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Failed to generate recommendations',
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
+                'recommendations' => []
+            ], 500);
+        }
+    }
 }

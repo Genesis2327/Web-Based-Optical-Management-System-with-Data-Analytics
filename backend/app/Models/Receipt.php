@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use App\Traits\Auditable;
+use App\Models\Branch;
 
 class Receipt extends Model
 {
@@ -114,7 +115,7 @@ class Receipt extends Model
         } else {
             $newNumber = 1;
         }
-        
+
         return $prefix . str_pad($newNumber, 4, '0', STR_PAD_LEFT);
     }
 
