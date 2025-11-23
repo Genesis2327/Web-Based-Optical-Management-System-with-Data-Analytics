@@ -53,6 +53,13 @@ return [
         'http://10.173.7.92:8080',
         'http://10.173.7.92:8081',
         'http://10.173.7.92:8082',
+        'http://10.35.44.92:3000',
+        'http://10.35.44.92:5173',
+        'http://10.35.44.92:5174',
+        'http://10.35.44.92:5176',
+        'http://10.35.44.92:8080',
+        'http://10.35.44.92:8081',
+        'http://10.35.44.92:8082',
         // Allow file:// protocol for local testing
         'null',
         // Production URLs - will be updated after deployment

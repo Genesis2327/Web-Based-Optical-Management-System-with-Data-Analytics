@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Calendar, Clock, MapPin, Edit, Save, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
-import { submitScheduleChangeRequest, updateScheduleDirectly, getAllOptometrists } from '@/services/scheduleApi';
+import { updateScheduleDirectly, getAllOptometrists } from '@/services/scheduleApi';
 import { getActiveBranches } from '@/services/branchApi';
 
 interface ScheduleEditModalProps {
@@ -46,8 +46,7 @@ const ScheduleEditModal: React.FC<ScheduleEditModalProps> = ({
   const [formData, setFormData] = useState({
     branch_id: currentSchedule?.branch_id || null,
     start_time: currentSchedule?.start_time || '',
-    end_time: currentSchedule?.end_time || '',
-    reason: ''
+    end_time: currentSchedule?.end_time || ''
   });
 
   const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -78,8 +77,7 @@ const ScheduleEditModal: React.FC<ScheduleEditModalProps> = ({
       setFormData({
         branch_id: currentSchedule?.branch_id || null,
         start_time: currentSchedule?.start_time || '',
-        end_time: currentSchedule?.end_time || '',
-        reason: ''
+        end_time: currentSchedule?.end_time || ''
       });
     }
   }, [isOpen, currentSchedule]);
@@ -88,7 +86,7 @@ const ScheduleEditModal: React.FC<ScheduleEditModalProps> = ({
     e.preventDefault();
     
     // Check if branches are available for selection
-    if (isAvailable && branches.length === 0) {
+    if (formData.branch_id !== null && branches.length === 0) {
       toast({
         title: "Branches Not Available",
         description: "Unable to load branch information. Please contact your administrator.",
@@ -117,45 +115,29 @@ const ScheduleEditModal: React.FC<ScheduleEditModalProps> = ({
 
     setLoading(true);
     try {
-      if (user?.role === 'admin') {
-        // Admin can update directly
-        await updateScheduleDirectly(
-          user.id,
-          dayOfWeek,
-          formData.branch_id,
-          formData.start_time,
-          formData.end_time
-        );
-        
+      // Only admins can update schedules directly
+      if (user?.role !== 'admin') {
         toast({
-          title: "Schedule Updated",
-          description: `Schedule for ${currentDayName} has been updated successfully`,
+          title: "Access Denied",
+          description: "Only administrators can update schedules",
+          variant: "destructive",
         });
-      } else {
-        // Optometrist needs to submit a request
-        if (!formData.reason.trim()) {
-          toast({
-            title: "Validation Error",
-            description: "Please provide a reason for the schedule change",
-            variant: "destructive",
-          });
-          return;
-        }
-
-        await submitScheduleChangeRequest({
-          optometrist_id: user?.id || 0,
-          day_of_week: dayOfWeek,
-          branch_id: formData.branch_id,
-          start_time: formData.start_time,
-          end_time: formData.end_time,
-          reason: formData.reason
-        });
-
-        toast({
-          title: "Change Request Submitted",
-          description: `Schedule change request for ${currentDayName} has been submitted for admin approval. You'll be notified when it's reviewed.`,
-        });
+        setLoading(false);
+        return;
       }
+
+      await updateScheduleDirectly(
+        user.id,
+        dayOfWeek,
+        formData.branch_id,
+        formData.start_time,
+        formData.end_time
+      );
+      
+      toast({
+        title: "Schedule Updated",
+        description: `Schedule for ${currentDayName} has been updated successfully`,
+      });
 
       onSuccess?.();
       onOpenChange(false);
@@ -175,7 +157,6 @@ const ScheduleEditModal: React.FC<ScheduleEditModalProps> = ({
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  const isAvailable = formData.branch_id !== null;
   const selectedBranch = branches.find(b => b.id === formData.branch_id);
 
   return (
@@ -187,41 +168,14 @@ const ScheduleEditModal: React.FC<ScheduleEditModalProps> = ({
             <span>Edit {currentDayName} Schedule</span>
           </DialogTitle>
           <DialogDescription>
-            {user?.role === 'admin' 
-              ? 'Update the schedule directly' 
-              : 'Request a schedule change (requires admin approval)'
-            }
+            Update the schedule directly
           </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Availability Toggle */}
-          <div className="space-y-2">
-            <Label>Availability</Label>
-            <div className="flex items-center space-x-4">
-              <Button
-                type="button"
-                variant={isAvailable ? "default" : "outline"}
-                size="sm"
-                onClick={() => handleInputChange('branch_id', isAvailable ? null : 1)}
-              >
-                Available
-              </Button>
-              <Button
-                type="button"
-                variant={!isAvailable ? "default" : "outline"}
-                size="sm"
-                onClick={() => handleInputChange('branch_id', null)}
-              >
-                Not Available
-              </Button>
-            </div>
-          </div>
-
           {/* Branch Selection */}
-          {isAvailable && (
-            <div className="space-y-2">
-              <Label htmlFor="branch">Branch</Label>
+          <div className="space-y-2">
+            <Label htmlFor="branch">Branch</Label>
               {branchesLoading ? (
                 <div className="p-3 text-center text-sm text-gray-500">
                   Loading branches...
@@ -250,12 +204,10 @@ const ScheduleEditModal: React.FC<ScheduleEditModalProps> = ({
                   </SelectContent>
                 </Select>
               )}
-            </div>
-          )}
+          </div>
 
           {/* Time Selection */}
-          {isAvailable && (
-            <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="start_time">Start Time</Label>
                 <div className="relative">
@@ -285,22 +237,6 @@ const ScheduleEditModal: React.FC<ScheduleEditModalProps> = ({
                 </div>
               </div>
             </div>
-          )}
-
-          {/* Reason (for optometrist) */}
-          {user?.role === 'optometrist' && (
-            <div className="space-y-2">
-              <Label htmlFor="reason">Reason for Change</Label>
-              <Textarea
-                id="reason"
-                placeholder="Please explain why you need to change this schedule..."
-                value={formData.reason}
-                onChange={(e) => handleInputChange('reason', e.target.value)}
-                rows={3}
-                required
-              />
-            </div>
-          )}
 
           {/* Preview */}
           <Card>
@@ -311,23 +247,17 @@ const ScheduleEditModal: React.FC<ScheduleEditModalProps> = ({
                   <Calendar className="h-4 w-4 text-gray-500" />
                   <span className="text-sm">{currentDayName}</span>
                 </div>
-                {isAvailable ? (
-                  <>
-                    <div className="flex items-center space-x-2">
-                      <MapPin className="h-4 w-4 text-gray-500" />
-                      <span className="text-sm">{selectedBranch?.name || (branches.length === 0 ? 'Branches not available' : 'Select a branch')}</span>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <Clock className="h-4 w-4 text-gray-500" />
-                      <span className="text-sm">
-                        {formData.start_time} - {formData.end_time}
-                      </span>
-                    </div>
-                    <Badge variant="default" className="text-xs">Available</Badge>
-                  </>
-                ) : (
-                  <Badge variant="secondary" className="text-xs">Not Available</Badge>
-                )}
+                <div className="flex items-center space-x-2">
+                  <MapPin className="h-4 w-4 text-gray-500" />
+                  <span className="text-sm">{selectedBranch?.name || (branches.length === 0 ? 'Branches not available' : 'Select a branch')}</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Clock className="h-4 w-4 text-gray-500" />
+                  <span className="text-sm">
+                    {formData.start_time} - {formData.end_time}
+                  </span>
+                </div>
+                <Badge variant="default" className="text-xs">Available</Badge>
               </div>
             </CardContent>
           </Card>
@@ -349,7 +279,7 @@ const ScheduleEditModal: React.FC<ScheduleEditModalProps> = ({
               ) : (
                 <Save className="h-4 w-4 mr-2" />
               )}
-              {user?.role === 'admin' ? 'Update Schedule' : 'Submit Request'}
+              Update Schedule
             </Button>
           </div>
         </form>

@@ -20,14 +20,33 @@ class ProductController extends Controller
     public function index(Request $request): JsonResponse
     {
         try {
-            // Check if products table exists
-            if (!Schema::hasTable('products')) {
-                \Log::info('Products table does not exist, returning empty list');
+            // Check database connection first
+            try {
+                DB::connection()->getPdo();
+            } catch (\Exception $e) {
+                \Log::error('Database connection failed in ProductController@index: ' . $e->getMessage());
                 return response()->json([
-                    'products' => [],
-                    'count' => 0,
-                    'message' => 'Products table does not exist. Please run migrations.'
-                ], 200);
+                    'message' => 'Database connection failed',
+                    'error' => config('app.debug') ? $e->getMessage() : 'Unable to connect to database'
+                ], 500);
+            }
+            
+            // Check if products table exists
+            try {
+                if (!Schema::hasTable('products')) {
+                    \Log::info('Products table does not exist, returning empty list');
+                    return response()->json([
+                        'products' => [],
+                        'count' => 0,
+                        'message' => 'Products table does not exist. Please run migrations.'
+                    ], 200);
+                }
+            } catch (\Exception $e) {
+                \Log::error('Error checking products table: ' . $e->getMessage());
+                return response()->json([
+                    'message' => 'Database error',
+                    'error' => config('app.debug') ? $e->getMessage() : 'Unable to access database'
+                ], 500);
             }
             
             $user = Auth::user();
@@ -46,9 +65,12 @@ class ProductController extends Controller
             $isCustomerOrGuest = !$user || $userRole === 'customer';
             $isAdminOrStaff = $userRole && in_array($userRole, ['admin', 'staff']);
             
+            // Check if show_all parameter is set (for public gallery to show all products)
+            $showAll = $request->has('show_all') && $request->boolean('show_all');
+            
             // Filter by active status and approval for customers and unauthenticated users
-            // Only admin/staff can see inactive products
-            if ($isCustomerOrGuest) {
+            // Only admin/staff can see inactive products, unless show_all is true
+            if ($isCustomerOrGuest && !$showAll) {
                 $query->where('is_active', true)
                       ->where(function ($q) {
                           // Allow products with approved status or no explicit status (null)
@@ -68,8 +90,9 @@ class ProductController extends Controller
             }
             
             // Filter by active status - only allow admin/staff to filter by active status
-            // Customers and guests should never see inactive products
-            if ($request->has('active') && $isAdminOrStaff) {
+            // Customers and guests should never see inactive products (unless show_all is true)
+            // If show_all is true, don't apply active filter (show all products)
+            if ($request->has('active') && $isAdminOrStaff && !$showAll) {
                 $query->where('is_active', $request->boolean('active'));
             }
             

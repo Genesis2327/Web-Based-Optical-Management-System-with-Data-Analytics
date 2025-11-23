@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ShoppingCart, Receipt } from 'lucide-react';
+import { ShoppingCart, FileText } from 'lucide-react';
 import StaffReservationDashboard from './StaffReservationDashboard';
 import AppointmentsAndReceipts from './AppointmentsAndReceipts';
 
@@ -33,7 +33,7 @@ const UnifiedReservationsDashboard: React.FC = () => {
             <span className="sm:hidden">Reservations</span>
           </TabsTrigger>
           <TabsTrigger value="transactions" className="flex items-center gap-2">
-            <Receipt className="h-4 w-4" />
+            <FileText className="h-4 w-4" />
             <span className="hidden sm:inline">Receipts & Transactions</span>
             <span className="sm:hidden">Receipts</span>
           </TabsTrigger>
@@ -62,7 +62,7 @@ const UnifiedReservationsDashboard: React.FC = () => {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Receipt className="h-5 w-5 text-staff" />
+                <FileText className="h-5 w-5 text-staff" />
                 Appointments & Receipts
               </CardTitle>
               <CardDescription>

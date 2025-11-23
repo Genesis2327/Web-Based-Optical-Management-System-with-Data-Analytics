@@ -4,8 +4,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { FileText, Calendar, User, Download, Plus, Eye, Receipt as ReceiptIcon } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { FileText, Calendar, User, Download, Plus, Eye, RefreshCw } from 'lucide-react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useToast } from '@/hooks/use-toast';
 import { PatientTransactionList } from '@/components/transactions/PatientTransactionList';
 import { getApiUrl, getAuthHeaders } from '@/config/api';
@@ -36,6 +36,7 @@ interface Appointment {
  */
 export const AppointmentsAndReceipts: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { toast } = useToast();
   const [completedAppointments, setCompletedAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,6 +44,13 @@ export const AppointmentsAndReceipts: React.FC = () => {
   useEffect(() => {
     loadCompletedAppointments();
   }, []);
+
+  // Refresh appointments when navigating back to this page
+  useEffect(() => {
+    if (location.pathname.includes('/reservations') || location.pathname.includes('/appointments')) {
+      loadCompletedAppointments();
+    }
+  }, [location.pathname]);
 
   const loadCompletedAppointments = async () => {
     try {
@@ -60,7 +68,17 @@ export const AppointmentsAndReceipts: React.FC = () => {
       }
 
       const data = await response.json();
-      setCompletedAppointments(data.data || data || []);
+      // Handle paginated response
+      const appointments = data.data || data || [];
+      // Ensure has_receipt is properly set for each appointment
+      const appointmentsWithReceiptStatus = Array.isArray(appointments) 
+        ? appointments.map((apt: any) => ({
+            ...apt,
+            has_receipt: apt.has_receipt ?? false,
+            receipt_id: apt.receipt_id ?? null
+          }))
+        : [];
+      setCompletedAppointments(appointmentsWithReceiptStatus);
     } catch (error) {
       console.error('Error loading appointments:', error);
       toast({
@@ -101,7 +119,7 @@ export const AppointmentsAndReceipts: React.FC = () => {
           Create Receipts
         </TabsTrigger>
         <TabsTrigger value="transaction-history">
-          <ReceiptIcon className="h-4 w-4 mr-2" />
+          <FileText className="h-4 w-4 mr-2" />
           Transaction History
         </TabsTrigger>
       </TabsList>
@@ -110,13 +128,26 @@ export const AppointmentsAndReceipts: React.FC = () => {
       <TabsContent value="create-receipts" className="mt-6">
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <FileText className="h-5 w-5 text-staff" />
-              Completed Appointments - Create Receipts
-            </CardTitle>
-            <p className="text-sm text-muted-foreground mt-2">
-              Click "Create Receipt" for completed appointments that don't have a receipt yet
-            </p>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <FileText className="h-5 w-5 text-staff" />
+                  Completed Appointments - Create Receipts
+                </CardTitle>
+                <p className="text-sm text-muted-foreground mt-2">
+                  Click "Create Receipt" for completed appointments that don't have a receipt yet
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={loadCompletedAppointments}
+                disabled={loading}
+              >
+                <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+                Refresh
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             {loading ? (
@@ -176,7 +207,7 @@ export const AppointmentsAndReceipts: React.FC = () => {
                       <TableCell>
                         {appointment.has_receipt ? (
                           <Badge className="bg-green-100 text-green-800">
-                            <ReceiptIcon className="h-3 w-3 mr-1" />
+                            <FileText className="h-3 w-3 mr-1" />
                             Has Receipt
                           </Badge>
                         ) : (
@@ -204,7 +235,7 @@ export const AppointmentsAndReceipts: React.FC = () => {
                               disabled
                               className="text-gray-500"
                             >
-                              <ReceiptIcon className="h-3 w-3 mr-1" />
+                              <FileText className="h-3 w-3 mr-1" />
                               Receipt Created
                             </Button>
                           )}

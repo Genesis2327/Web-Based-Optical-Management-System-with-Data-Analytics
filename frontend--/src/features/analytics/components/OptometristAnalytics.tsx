@@ -64,12 +64,6 @@ const OptometristAnalytics = () => {
     }
   ];
 
-  const appointmentTypes = [
-    { name: 'Eye Examinations', value: analytics?.appointments?.by_type?.['Eye Exam'] || 0, color: '#3b82f6' },
-    { name: 'Prescription Check', value: analytics?.appointments?.by_type?.['Prescription Check'] || 0, color: '#10b981' },
-    { name: 'Frame Fitting', value: analytics?.appointments?.by_type?.['Frame Fitting'] || 0, color: '#f59e0b' },
-    { name: 'Follow-up', value: analytics?.appointments?.by_type?.['Follow-up'] || 0, color: '#ef4444' }
-  ];
 
   const prescriptionTypes = [
     { name: 'Single Vision', value: analytics?.prescriptions?.by_type?.['Single Vision'] || 0, color: '#3b82f6' },
@@ -77,6 +71,7 @@ const OptometristAnalytics = () => {
     { name: 'Bifocal', value: analytics?.prescriptions?.by_type?.['Bifocal'] || 0, color: '#f59e0b' },
     { name: 'Reading', value: analytics?.prescriptions?.by_type?.['Reading'] || 0, color: '#ef4444' }
   ];
+
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -171,35 +166,6 @@ const OptometristAnalytics = () => {
               </CardContent>
             </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle>Appointments by Type</CardTitle>
-                <CardDescription>Distribution of appointment types</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ResponsiveContainer width="100%" height={300}>
-                  <PieChart>
-                    <Pie
-                      data={appointmentTypes}
-                      dataKey="value"
-                      nameKey="name"
-                      cx="50%"
-                      cy="50%"
-                      outerRadius={80}
-                      label={(props) => {
-                        const { name, value } = props;
-                        return `${name ?? ''}: ${value ?? 0}`;
-                      }}
-                    >
-                      {appointmentTypes.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip />
-                  </PieChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
           </div>
         </TabsContent>
 

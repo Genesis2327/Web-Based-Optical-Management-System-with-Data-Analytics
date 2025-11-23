@@ -36,11 +36,14 @@ class GlassOrder extends Model
         'sent_to_manufacturer_at',
         'expected_delivery_date',
         'manufacturer_feedback',
+        'staff_notes',
+        'status_history',
     ];
 
     protected $casts = [
         'reserved_products' => 'array',
         'prescription_data' => 'array',
+        'status_history' => 'array',
         'blue_light_filter' => 'boolean',
         'progressive_lens' => 'boolean',
         'bifocal_lens' => 'boolean',
@@ -133,7 +136,7 @@ class GlassOrder extends Model
      */
     public function isReadyForManufacturer(): bool
     {
-        return $this->status === 'pending' && 
+        return $this->status === 'Pending Confirmation' && 
                !empty($this->reserved_products) && 
                !empty($this->prescription_data);
     }
@@ -144,8 +147,51 @@ class GlassOrder extends Model
     public function markAsSentToManufacturer(): void
     {
         $this->update([
-            'status' => 'sent_to_manufacturer',
+            'status' => 'For Manufacturing',
             'sent_to_manufacturer_at' => now(),
         ]);
+    }
+
+    /**
+     * Update status and track history.
+     */
+    public function updateStatus(string $newStatus, ?string $notes = null, ?int $updatedBy = null): void
+    {
+        $oldStatus = $this->status;
+        
+        // Get or initialize status history
+        $history = $this->status_history ?? [];
+        
+        // Add new history entry
+        $history[] = [
+            'from_status' => $oldStatus,
+            'to_status' => $newStatus,
+            'updated_at' => now()->toISOString(),
+            'updated_by' => $updatedBy,
+            'notes' => $notes,
+        ];
+        
+        $this->update([
+            'status' => $newStatus,
+            'status_history' => $history,
+        ]);
+    }
+
+    /**
+     * Get available next statuses based on current status.
+     */
+    public function getAvailableNextStatuses(): array
+    {
+        $statusFlow = [
+            'Pending Confirmation' => ['For Manufacturing', 'Cancelled'],
+            'For Manufacturing' => ['In Production', 'Cancelled'],
+            'In Production' => ['Assembly / Quality Check', 'Cancelled'],
+            'Assembly / Quality Check' => ['Ready for Pickup', 'In Production', 'Cancelled'],
+            'Ready for Pickup' => ['Delivered', 'Cancelled'],
+            'Delivered' => [],
+            'Cancelled' => [],
+        ];
+
+        return $statusFlow[$this->status] ?? [];
     }
 }

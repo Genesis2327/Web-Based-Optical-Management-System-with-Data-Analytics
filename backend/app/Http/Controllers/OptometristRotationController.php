@@ -186,6 +186,11 @@ class OptometristRotationController extends Controller
 
         // Verify optometrist exists and has correct role
         $optometrist = User::find($request->optometrist_id);
+        
+        if (!$optometrist) {
+            return response()->json(['message' => 'Optometrist not found'], 422);
+        }
+        
         $optometristRole = null;
         if (is_object($optometrist->role)) {
             $optometristRole = $optometrist->role->value ?? (string)$optometrist->role;
@@ -193,13 +198,22 @@ class OptometristRotationController extends Controller
             $optometristRole = (string)$optometrist->role;
         }
         
-        if (!$optometrist || $optometristRole !== 'optometrist') {
+        if ($optometristRole !== 'optometrist') {
             return response()->json(['message' => 'Invalid optometrist or role mismatch'], 422);
         }
 
         try {
+            // Check if deleted_at column exists to handle soft deletes
+            $hasDeletedAt = Schema::hasColumn('optometrist_rotations', 'deleted_at');
+            $query = OptometristRotation::query();
+            
+            // Disable soft deletes scope if deleted_at column doesn't exist
+            if (!$hasDeletedAt) {
+                $query->withoutGlobalScopes();
+            }
+            
             // Check if rotation already exists for this optometrist
-            $existingRotation = OptometristRotation::where('optometrist_id', $request->optometrist_id)
+            $existingRotation = $query->where('optometrist_id', $request->optometrist_id)
                 ->where('is_active', true)
                 ->first();
 
@@ -223,7 +237,16 @@ class OptometristRotationController extends Controller
                 ]);
             }
 
-            $rotation->load(['optometrist', 'creator', 'updater']);
+            // Safely load relationships
+            try {
+                $rotation->load(['optometrist', 'creator', 'updater']);
+            } catch (\Exception $e) {
+                \Log::warning('Failed to load rotation relationships: ' . $e->getMessage());
+                // Reload optometrist separately if needed
+                if (!$rotation->optometrist) {
+                    $rotation->optometrist = $optometrist;
+                }
+            }
 
             // Notify all admins about schedule update (except the creator)
             try {
@@ -231,17 +254,19 @@ class OptometristRotationController extends Controller
                     ->where('id', '!=', $user->id)
                     ->get();
                 
+                $optometristName = $rotation->optometrist ? $rotation->optometrist->name : $optometrist->name;
+                
                 foreach ($admins as $admin) {
                     Notification::create([
                         'user_id' => $admin->id,
                         'role' => 'admin',
                         'title' => 'Employee Schedule Updated',
-                        'message' => "Admin {$user->name} updated schedule for optometrist {$rotation->optometrist->name}",
+                        'message' => "Admin {$user->name} updated schedule for optometrist {$optometristName}",
                         'type' => 'system',
                         'data' => json_encode([
                             'rotation_id' => $rotation->id,
                             'optometrist_id' => $rotation->optometrist_id,
-                            'optometrist_name' => $rotation->optometrist->name,
+                            'optometrist_name' => $optometristName,
                             'is_active' => $rotation->is_active,
                             'updated_by' => $user->id,
                             'updated_by_name' => $user->name,
@@ -253,25 +278,63 @@ class OptometristRotationController extends Controller
                 \Log::warning('Failed to send schedule update notification: ' . $e->getMessage());
             }
 
+            // Safely get optometrist data
+            $optometristData = [
+                'id' => $rotation->optometrist_id,
+                'name' => $optometrist->name,
+                'email' => $optometrist->email,
+            ];
+            
+            if ($rotation->optometrist) {
+                $optometristData = [
+                    'id' => $rotation->optometrist->id ?? $rotation->optometrist_id,
+                    'name' => $rotation->optometrist->name ?? $optometrist->name,
+                    'email' => $rotation->optometrist->email ?? $optometrist->email,
+                ];
+            }
+
+            // Safely get formatted schedule
+            $formattedSchedule = [];
+            try {
+                if (method_exists($rotation, 'getFormattedSchedule')) {
+                    $formattedSchedule = $rotation->getFormattedSchedule();
+                }
+            } catch (\Exception $e) {
+                \Log::warning('Failed to get formatted schedule: ' . $e->getMessage());
+            }
+
+            // Safely get all branches
+            $allBranches = [];
+            try {
+                if (method_exists($rotation, 'getAllBranches')) {
+                    $allBranches = $rotation->getAllBranches();
+                }
+            } catch (\Exception $e) {
+                \Log::warning('Failed to get all branches: ' . $e->getMessage());
+            }
+
             return response()->json([
                 'message' => 'Optometrist rotation updated successfully',
                 'rotation' => [
                     'id' => $rotation->id,
                     'optometrist_id' => $rotation->optometrist_id,
-                    'optometrist' => [
-                        'id' => $rotation->optometrist->id,
-                        'name' => $rotation->optometrist->name,
-                        'email' => $rotation->optometrist->email,
-                    ],
-                    'rotation_schedule' => $rotation->getFormattedSchedule(),
-                    'all_branches' => $rotation->getAllBranches(),
+                    'optometrist' => $optometristData,
+                    'rotation_schedule' => $formattedSchedule,
+                    'all_branches' => $allBranches,
                     'is_active' => $rotation->is_active,
                 ]
             ]);
         } catch (\Exception $e) {
+            \Log::error('Error creating optometrist rotation: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'request_data' => $request->all()
+            ]);
+            
             return response()->json([
                 'message' => 'Error creating optometrist rotation',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
             ], 500);
         }
     }
@@ -286,34 +349,80 @@ class OptometristRotationController extends Controller
             $branchId = $request->get('branch_id');
             $dayOfWeek = $request->get('day_of_week');
 
-            $query = OptometristRotation::with(['optometrist'])
-                ->where('is_active', true);
+            // Check if table exists
+            if (!Schema::hasTable('optometrist_rotations')) {
+                return response()->json([
+                    'available_optometrists' => []
+                ]);
+            }
 
-            if ($branchId) {
-                $query->whereRaw('JSON_CONTAINS(rotation_schedule, JSON_OBJECT("branch_id", ?))', [$branchId]);
+            // Check if deleted_at column exists to handle soft deletes
+            $hasDeletedAt = Schema::hasColumn('optometrist_rotations', 'deleted_at');
+            $query = OptometristRotation::query();
+            
+            // Disable soft deletes scope if deleted_at column doesn't exist
+            if (!$hasDeletedAt) {
+                $query->withoutGlobalScopes();
+            }
+
+            // Load optometrist relationship safely
+            try {
+                if (Schema::hasTable('users') && Schema::hasColumn('optometrist_rotations', 'optometrist_id')) {
+                    $query->with(['optometrist']);
+                }
+            } catch (\Exception $e) {
+                \Log::warning('Could not load optometrist relationship: ' . $e->getMessage());
+            }
+
+            // Filter by is_active if column exists
+            if (Schema::hasColumn('optometrist_rotations', 'is_active')) {
+                $query->where('is_active', true);
             }
 
             $rotations = $query->get();
 
             $availability = [];
             foreach ($rotations as $rotation) {
+                // Skip if rotation_schedule is null or not an array
+                if (!$rotation->rotation_schedule || !is_array($rotation->rotation_schedule)) {
+                    continue;
+                }
+
                 foreach ($rotation->rotation_schedule as $schedule) {
-                    if ($dayOfWeek && $schedule['day'] != $dayOfWeek) {
-                        continue;
-                    }
-                    if ($branchId && $schedule['branch_id'] != $branchId) {
+                    // Skip if schedule is not an array
+                    if (!is_array($schedule)) {
                         continue;
                     }
 
-                    $availability[] = [
-                        'optometrist_id' => $rotation->optometrist_id,
-                        'optometrist_name' => $rotation->optometrist->name,
-                        'branch_id' => $schedule['branch_id'],
-                        'day_of_week' => $schedule['day'],
-                        'start_time' => $schedule['start_time'],
-                        'end_time' => $schedule['end_time'],
-                        'formatted_time' => $schedule['start_time'] . ' - ' . $schedule['end_time'],
-                    ];
+                    // Filter by day_of_week if provided
+                    if ($dayOfWeek && isset($schedule['day']) && $schedule['day'] != $dayOfWeek) {
+                        continue;
+                    }
+
+                    // Filter by branch_id if provided
+                    if ($branchId && isset($schedule['branch_id']) && $schedule['branch_id'] != $branchId) {
+                        continue;
+                    }
+
+                    // Safely get optometrist name
+                    $optometristName = 'Unknown Optometrist';
+                    if ($rotation->optometrist) {
+                        $optometristName = $rotation->optometrist->name ?? 'Unknown Optometrist';
+                    }
+
+                    // Only add if we have required fields
+                    if (isset($schedule['day']) && isset($schedule['branch_id']) && 
+                        isset($schedule['start_time']) && isset($schedule['end_time'])) {
+                        $availability[] = [
+                            'optometrist_id' => $rotation->optometrist_id,
+                            'optometrist_name' => $optometristName,
+                            'branch_id' => $schedule['branch_id'],
+                            'day_of_week' => $schedule['day'],
+                            'start_time' => $schedule['start_time'],
+                            'end_time' => $schedule['end_time'],
+                            'formatted_time' => $schedule['start_time'] . ' - ' . $schedule['end_time'],
+                        ];
+                    }
                 }
             }
 
@@ -321,9 +430,16 @@ class OptometristRotationController extends Controller
                 'available_optometrists' => $availability
             ]);
         } catch (\Exception $e) {
+            \Log::error('Error in getAvailability: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine()
+            ]);
+            
             return response()->json([
                 'message' => 'Error fetching optometrist availability',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
+                'available_optometrists' => []
             ], 500);
         }
     }
@@ -337,22 +453,72 @@ class OptometristRotationController extends Controller
         try {
             $dayOfWeek = $request->get('day_of_week');
 
-            $rotations = OptometristRotation::with(['optometrist'])
-                ->where('is_active', true)
-                ->whereRaw('JSON_CONTAINS(rotation_schedule, JSON_OBJECT("branch_id", ?))', [$branchId])
-                ->get();
+            // Check if table exists
+            if (!Schema::hasTable('optometrist_rotations')) {
+                return response()->json([
+                    'optometrists' => []
+                ]);
+            }
+
+            // Check if deleted_at column exists to handle soft deletes
+            $hasDeletedAt = Schema::hasColumn('optometrist_rotations', 'deleted_at');
+            $query = OptometristRotation::query();
+            
+            // Disable soft deletes scope if deleted_at column doesn't exist
+            if (!$hasDeletedAt) {
+                $query->withoutGlobalScopes();
+            }
+
+            // Load optometrist relationship safely
+            try {
+                if (Schema::hasTable('users') && Schema::hasColumn('optometrist_rotations', 'optometrist_id')) {
+                    $query->with(['optometrist']);
+                }
+            } catch (\Exception $e) {
+                \Log::warning('Could not load optometrist relationship: ' . $e->getMessage());
+            }
+
+            // Filter by is_active if column exists
+            if (Schema::hasColumn('optometrist_rotations', 'is_active')) {
+                $query->where('is_active', true);
+            }
+
+            $rotations = $query->get();
 
             $optometrists = [];
             foreach ($rotations as $rotation) {
-                foreach ($rotation->rotation_schedule as $schedule) {
-                    if ($schedule['branch_id'] == $branchId) {
-                        if ($dayOfWeek && $schedule['day'] != $dayOfWeek) {
-                            continue;
-                        }
+                // Skip if rotation_schedule is null or not an array
+                if (!$rotation->rotation_schedule || !is_array($rotation->rotation_schedule)) {
+                    continue;
+                }
 
+                foreach ($rotation->rotation_schedule as $schedule) {
+                    // Skip if schedule is not an array
+                    if (!is_array($schedule)) {
+                        continue;
+                    }
+
+                    // Filter by branch_id
+                    if (!isset($schedule['branch_id']) || $schedule['branch_id'] != $branchId) {
+                        continue;
+                    }
+
+                    // Filter by day_of_week if provided
+                    if ($dayOfWeek && isset($schedule['day']) && $schedule['day'] != $dayOfWeek) {
+                        continue;
+                    }
+
+                    // Safely get optometrist name
+                    $optometristName = 'Unknown Optometrist';
+                    if ($rotation->optometrist) {
+                        $optometristName = $rotation->optometrist->name ?? 'Unknown Optometrist';
+                    }
+
+                    // Only add if we have required fields
+                    if (isset($schedule['day']) && isset($schedule['start_time']) && isset($schedule['end_time'])) {
                         $optometrists[] = [
                             'optometrist_id' => $rotation->optometrist_id,
-                            'optometrist_name' => $rotation->optometrist->name,
+                            'optometrist_name' => $optometristName,
                             'day_of_week' => $schedule['day'],
                             'start_time' => $schedule['start_time'],
                             'end_time' => $schedule['end_time'],
@@ -366,9 +532,16 @@ class OptometristRotationController extends Controller
                 'optometrists' => $optometrists
             ]);
         } catch (\Exception $e) {
+            \Log::error('Error in getOptometristsForBranch: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine()
+            ]);
+            
             return response()->json([
                 'message' => 'Error fetching optometrists for branch',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error',
+                'optometrists' => []
             ], 500);
         }
     }

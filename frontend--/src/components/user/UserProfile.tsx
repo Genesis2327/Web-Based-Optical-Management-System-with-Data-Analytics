@@ -4,10 +4,11 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { MapPin, Building2, Mail, User, Shield, Phone, MessageCircle, Lock, Eye, EyeOff, AlertTriangle } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { MapPin, Building2, Mail, User, Shield, Phone, MessageCircle, Lock, Eye, EyeOff, AlertTriangle, Edit2, Save, X, Calendar } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
-import { API_BASE_URL, getAuthHeaders } from '@/config/api';
+import { getApiUrl, getAuthHeaders } from '@/config/api';
 
 const UserProfile: React.FC = () => {
   const { user } = useAuth();
@@ -23,6 +24,16 @@ const UserProfile: React.FC = () => {
   });
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [mustChangePassword, setMustChangePassword] = useState(false);
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [profileData, setProfileData] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    address: '',
+    date_of_birth: '',
+    sex: '',
+  });
 
   // Check if user must change password
   useEffect(() => {
@@ -31,6 +42,110 @@ const UserProfile: React.FC = () => {
       setShowPasswordChange(true); // Auto-expand password change form
     }
   }, [user]);
+
+  // Initialize profile data when user loads
+  useEffect(() => {
+    if (user) {
+      setProfileData({
+        name: user.name || '',
+        email: user.email || '',
+        phone: user.phone || '',
+        address: user.address || '',
+        date_of_birth: user.date_of_birth || '',
+        sex: user.sex || '',
+      });
+    }
+  }, [user]);
+
+  // Calculate age from date of birth
+  const calculateAge = (dateOfBirth: string | null | undefined): number | null => {
+    if (!dateOfBirth) return null;
+    const birthDate = new Date(dateOfBirth);
+    const today = new Date();
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const monthDiff = today.getMonth() - birthDate.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+      age--;
+    }
+    return age;
+  };
+
+  const handleProfileUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSavingProfile(true);
+
+    try {
+      const response = await fetch(getApiUrl('/profile'), {
+        method: 'PUT',
+        headers: {
+          ...getAuthHeaders(),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ...profileData,
+          // Ensure date_of_birth and sex are sent even if empty (to allow clearing)
+          date_of_birth: profileData.date_of_birth || null,
+          sex: profileData.sex || null,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        // Handle validation errors
+        if (data.errors) {
+          const errorMessages = Object.values(data.errors).flat().join(', ');
+          throw new Error(errorMessages || data.message || 'Failed to update profile');
+        }
+        throw new Error(data.message || 'Failed to update profile');
+      }
+
+      toast({
+        title: "Profile Updated",
+        description: "Your profile information has been successfully updated.",
+      });
+
+      setIsEditingProfile(false);
+      
+      // Update profileData state with the response data immediately
+      if (data.user) {
+        setProfileData({
+          name: data.user.name || '',
+          email: data.user.email || '',
+          phone: data.user.phone || '',
+          address: data.user.address || '',
+          date_of_birth: data.user.date_of_birth || '',
+          sex: data.user.sex || '',
+        });
+      }
+      
+      // Refresh user data from profile endpoint to update context
+      try {
+        const profileResponse = await fetch(getApiUrl('/profile'), {
+          headers: getAuthHeaders(),
+        });
+        if (profileResponse.ok) {
+          const profileData = await profileResponse.json();
+          const updatedUser = { ...user, ...profileData };
+          sessionStorage.setItem('auth_current_user', JSON.stringify(updatedUser));
+          // Reload to update auth context with new data
+          window.location.reload();
+        }
+      } catch (error) {
+        console.error('Failed to refresh user profile:', error);
+        // Even if refresh fails, the profileData state is already updated
+        // so the UI will show the correct values
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to update profile. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
 
   if (!user) {
     return <div>Loading...</div>;
@@ -62,7 +177,7 @@ const UserProfile: React.FC = () => {
 
     setIsChangingPassword(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/profile`, {
+      const response = await fetch(getApiUrl('/profile'), {
         method: 'PUT',
         headers: {
           ...getAuthHeaders(),
@@ -97,7 +212,7 @@ const UserProfile: React.FC = () => {
 
       // Update user in context - refresh profile to get updated must_change_password status
       try {
-        const profileResponse = await fetch(`${API_BASE_URL}/profile`, {
+        const profileResponse = await fetch(getApiUrl('/profile'), {
           headers: getAuthHeaders(),
         });
         if (profileResponse.ok) {
@@ -170,57 +285,239 @@ const UserProfile: React.FC = () => {
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <User className="h-5 w-5" />
-            Profile Information
-          </CardTitle>
-          <CardDescription>
-            Your account details and branch assignment
-          </CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <User className="h-5 w-5" />
+                Profile Information
+              </CardTitle>
+              <CardDescription>
+                {user.role === 'customer' 
+                  ? 'Your personal information and account details'
+                  : 'Your account details and branch assignment'}
+              </CardDescription>
+            </div>
+            {user.role === 'customer' && (
+              <Button
+                variant={isEditingProfile ? "outline" : "default"}
+                size="sm"
+                onClick={() => {
+                  if (isEditingProfile) {
+                    // Reset to original values
+                    setProfileData({
+                      name: user.name || '',
+                      email: user.email || '',
+                      phone: user.phone || '',
+                      address: user.address || '',
+                      date_of_birth: user.date_of_birth || '',
+                      sex: user.sex || '',
+                    });
+                  }
+                  setIsEditingProfile(!isEditingProfile);
+                }}
+              >
+                {isEditingProfile ? (
+                  <>
+                    <X className="h-4 w-4 mr-2" />
+                    Cancel
+                  </>
+                ) : (
+                  <>
+                    <Edit2 className="h-4 w-4 mr-2" />
+                    Edit
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-500">Full Name</label>
-              <p className="text-sm font-medium">{user.name}</p>
-            </div>
-            
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-500">Email</label>
-              <div className="flex items-center gap-2">
-                <Mail className="h-4 w-4 text-gray-400" />
-                <p className="text-sm font-medium">{user.email}</p>
+          {user.role === 'customer' && isEditingProfile ? (
+            <form onSubmit={handleProfileUpdate} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="name">Full Name</Label>
+                  <Input
+                    id="name"
+                    value={profileData.name}
+                    onChange={(e) => setProfileData({ ...profileData, name: e.target.value })}
+                    required
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="sex">Sex</Label>
+                  <Select
+                    value={profileData.sex}
+                    onValueChange={(value) => setProfileData({ ...profileData, sex: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select sex" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Male">Male</SelectItem>
+                      <SelectItem value="Female">Female</SelectItem>
+                      <SelectItem value="Other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="date_of_birth">Date of Birth</Label>
+                  <Input
+                    id="date_of_birth"
+                    type="date"
+                    value={profileData.date_of_birth}
+                    onChange={(e) => setProfileData({ ...profileData, date_of_birth: e.target.value })}
+                    max={new Date().toISOString().split('T')[0]}
+                  />
+                  {profileData.date_of_birth && (
+                    <p className="text-xs text-gray-500">
+                      Age: {calculateAge(profileData.date_of_birth) ?? 'N/A'} years old
+                    </p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="address">Address</Label>
+                  <Input
+                    id="address"
+                    value={profileData.address}
+                    onChange={(e) => setProfileData({ ...profileData, address: e.target.value })}
+                    placeholder="Enter your address"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="phone">Contact Number</Label>
+                  <Input
+                    id="phone"
+                    type="tel"
+                    value={profileData.phone}
+                    onChange={(e) => setProfileData({ ...profileData, phone: e.target.value })}
+                    placeholder="Enter contact number"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email Address</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    value={profileData.email}
+                    onChange={(e) => setProfileData({ ...profileData, email: e.target.value })}
+                    required
+                  />
+                </div>
               </div>
-            </div>
-            
-            {user.phone && (
+
+              <div className="flex gap-2 pt-4">
+                <Button
+                  type="submit"
+                  disabled={isSavingProfile}
+                  className="flex-1 sm:flex-none"
+                >
+                  {isSavingProfile ? (
+                    "Saving..."
+                  ) : (
+                    <>
+                      <Save className="h-4 w-4 mr-2" />
+                      Save Changes
+                    </>
+                  )}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setProfileData({
+                      name: user.name || '',
+                      email: user.email || '',
+                      phone: user.phone || '',
+                      address: user.address || '',
+                      date_of_birth: user.date_of_birth || '',
+                      sex: user.sex || '',
+                    });
+                    setIsEditingProfile(false);
+                  }}
+                  disabled={isSavingProfile}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-500">Phone Number</label>
+                <label className="text-sm font-medium text-gray-500">Full Name</label>
+                <p className="text-sm font-medium">{user.name}</p>
+              </div>
+              
+              {user.role === 'customer' && (
+                <>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-gray-500">Sex</label>
+                    <p className="text-sm font-medium">{user.sex || 'Not specified'}</p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-gray-500">Date of Birth / Age</label>
+                    <div className="flex items-center gap-2">
+                      {user.date_of_birth ? (
+                        <>
+                          <Calendar className="h-4 w-4 text-gray-400" />
+                          <p className="text-sm font-medium">
+                            {new Date(user.date_of_birth).toLocaleDateString()} 
+                            {calculateAge(user.date_of_birth) !== null && (
+                              <span className="text-gray-500 ml-2">
+                                ({calculateAge(user.date_of_birth)} years old)
+                              </span>
+                            )}
+                          </p>
+                        </>
+                      ) : (
+                        <p className="text-sm text-gray-400">Not specified</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-gray-500">Address</label>
+                    <p className="text-sm font-medium">{user.address || 'Not specified'}</p>
+                  </div>
+                </>
+              )}
+              
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-500">Contact Number</label>
                 <div className="flex items-center gap-2">
                   <Phone className="h-4 w-4 text-gray-400" />
-                  <p className="text-sm font-medium">{user.phone}</p>
+                  <p className="text-sm font-medium">{user.phone || 'Not specified'}</p>
                 </div>
               </div>
-            )}
-            
-            {user.social_media && (
+              
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-500">Social Media</label>
+                <label className="text-sm font-medium text-gray-500">Email Address</label>
                 <div className="flex items-center gap-2">
-                  <MessageCircle className="h-4 w-4 text-gray-400" />
-                  <p className="text-sm font-medium">{user.social_media}</p>
+                  <Mail className="h-4 w-4 text-gray-400" />
+                  <p className="text-sm font-medium">{user.email}</p>
                 </div>
               </div>
-            )}
-            
-            {user.role === 'customer' && !user.phone && (
-              <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                <p className="text-sm text-blue-800">
-                  <strong>Contact Information:</strong> Add your phone number and social media handle when booking your next appointment to help us communicate with you better.
-                </p>
-              </div>
-            )}
-            
+              
+              {user.social_media && (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-500">Social Media</label>
+                  <div className="flex items-center gap-2">
+                    <MessageCircle className="h-4 w-4 text-gray-400" />
+                    <p className="text-sm font-medium">{user.social_media}</p>
+                  </div>
+                </div>
+              )}
+              
+            </div>
+          )}
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
             <div className="space-y-2">
               <label className="text-sm font-medium text-gray-500">Role</label>
               <Badge className={`${getRoleColor(user.role)} flex items-center gap-1 w-fit`}>

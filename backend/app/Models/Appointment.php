@@ -32,6 +32,13 @@ class Appointment extends Model
     ];
 
     /**
+     * The accessors to append to the model's array form.
+     *
+     * @var array
+     */
+    protected $appends = ['has_receipt', 'receipt_id'];
+
+    /**
      * Get has_receipt attribute
      */
     public function getHasReceiptAttribute(): bool

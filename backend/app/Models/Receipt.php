@@ -60,24 +60,55 @@ class Receipt extends Model
 
         static::creating(function ($receipt) {
             if (empty($receipt->receipt_number)) {
-                $receipt->receipt_number = static::generateReceiptNumber();
+                $receipt->receipt_number = static::generateReceiptNumber($receipt->branch_id);
             }
         });
     }
 
     /**
-     * Generate unique receipt number
+     * Generate unique receipt number with branch code to prevent duplicates across branches
+     * 
+     * Format: REC-{BRANCH_CODE}-{YYYYMMDD}-{0001}
+     * Example: REC-BR1-20251117-0001, REC-MAIN-20251117-0001
+     * 
+     * @param int|null $branchId The branch ID for this receipt
+     * @return string Unique receipt number
      */
-    public static function generateReceiptNumber(): string
+    public static function generateReceiptNumber($branchId = null): string
     {
         $date = now()->format('Ymd');
-        $prefix = "REC-{$date}-";
         
-        $lastReceipt = static::where('receipt_number', 'like', $prefix . '%')
-            ->orderBy('receipt_number', 'desc')
-            ->first();
+        // Get branch code if branch_id is provided
+        $branchCode = 'MAIN'; // Default fallback
+        if ($branchId) {
+            $branch = Branch::find($branchId);
+            if ($branch) {
+                // Use branch code if available, otherwise use first 3 uppercase letters of name
+                $branchCode = $branch->code 
+                    ? strtoupper(substr($branch->code, 0, 3))
+                    : strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $branch->name), 0, 3));
+                
+                // Ensure branch code is at least 3 characters
+                if (strlen($branchCode) < 3) {
+                    $branchCode = str_pad($branchCode, 3, 'X', STR_PAD_RIGHT);
+                }
+            }
+        }
+        
+        $prefix = "REC-{$branchCode}-{$date}-";
+        
+        // Query for last receipt with same prefix (same branch and date)
+        $query = static::where('receipt_number', 'like', $prefix . '%');
+        
+        // Also filter by branch_id if provided for extra safety
+        if ($branchId) {
+            $query->where('branch_id', $branchId);
+        }
+        
+        $lastReceipt = $query->orderBy('receipt_number', 'desc')->first();
         
         if ($lastReceipt) {
+            // Extract the last 4 digits from the receipt number
             $lastNumber = (int) substr($lastReceipt->receipt_number, -4);
             $newNumber = $lastNumber + 1;
         } else {

@@ -30,7 +30,8 @@ import {
   RefreshCw,
   Search,
   Download,
-  Upload
+  Upload,
+  X
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { API_BASE_URL } from '@/config/api';
@@ -122,16 +123,39 @@ const fetchBranches = async () => {
   }
 };
 
-const createSchedule = async (scheduleData: any) => {
+const createSchedule = async (scheduleData: any, editingRotation?: OptometristRotation | null) => {
   try {
     if (scheduleData.staff_role === 'optometrist') {
-      // Create optometrist rotation
-      const rotationSchedule = scheduleData.days_of_week.map((day: number, index: number) => ({
-        day: day,
-        branch_id: scheduleData.rotation_branches[index],
-        start_time: scheduleData.start_time,
-        end_time: scheduleData.end_time
-      }));
+      // Build rotation schedule from rotation_branches array
+      // rotation_branches should be an array of objects with day, branch_id, start_time, end_time
+      let rotationSchedule: any[] = [];
+      
+      // Build rotation schedule from days_of_week and rotation_branches arrays
+      // rotation_branches is an array of branch IDs corresponding to each day in days_of_week
+      if (scheduleData.days_of_week && scheduleData.days_of_week.length > 0) {
+        rotationSchedule = scheduleData.days_of_week.map((day: number, index: number) => {
+          // Get branch_id from rotation_branches array at the same index
+          const branchId = scheduleData.rotation_branches?.[index] || null;
+          
+          // Check if rotation_branches contains objects (old format) or just IDs (new format)
+          let finalBranchId = branchId;
+          if (branchId && typeof branchId === 'object' && branchId.branch_id) {
+            finalBranchId = branchId.branch_id;
+          } else if (branchId && typeof branchId === 'number') {
+            finalBranchId = branchId;
+          }
+          
+          return {
+            day: day,
+            branch_id: finalBranchId || scheduleData.branch_id,
+            start_time: convert12To24Hour(scheduleData.start_time),
+            end_time: convert12To24Hour(scheduleData.end_time)
+          };
+        });
+      } else {
+        // Fallback: empty schedule
+        rotationSchedule = [];
+      }
 
       const response = await fetch(`${API_URL}/optometrist-rotations`, {
         method: 'POST',
@@ -141,26 +165,48 @@ const createSchedule = async (scheduleData: any) => {
           'Accept': 'application/json',
         },
         body: JSON.stringify({
-          optometrist_id: scheduleData.staff_id,
+          optometrist_id: parseInt(scheduleData.staff_id),
           rotation_schedule: rotationSchedule,
-          is_active: scheduleData.is_active
+          is_active: scheduleData.is_active !== undefined ? scheduleData.is_active : true
         }),
       });
 
       if (!response.ok) {
-        throw new Error('Failed to create optometrist rotation');
+        const errorData = await response.json().catch(() => ({}));
+        const errorMessage = errorData.message || errorData.error || (editingRotation ? 'Failed to update optometrist rotation' : 'Failed to create optometrist rotation');
+        throw new Error(errorMessage);
       }
 
       const result = await response.json();
-      console.log('Optometrist rotation created:', result);
+      console.log(editingRotation ? 'Optometrist rotation updated:' : 'Optometrist rotation created:', result);
       return result;
     } else {
       // Create regular staff schedule
+      // Ensure IDs are numbers and convert times to 24-hour format
+      const payload = {
+        ...scheduleData,
+        staff_id: parseInt(scheduleData.staff_id),
+        branch_id: parseInt(scheduleData.branch_id),
+        days_of_week: scheduleData.days_of_week.map((day: any) => parseInt(day)),
+        start_time: convert12To24Hour(scheduleData.start_time),
+        end_time: convert12To24Hour(scheduleData.end_time),
+      };
+      
+      console.log('Creating staff schedule with payload:', payload);
+      
       const response = await fetch(`${API_URL}/staff-schedules`, {
         method: 'POST',
         headers: getHeaders(),
-        body: JSON.stringify(scheduleData),
+        body: JSON.stringify(payload),
       });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        const errorMessage = errorData.message || errorData.error || 'Failed to create schedule';
+        console.error('Schedule creation error:', errorData);
+        throw new Error(errorMessage);
+      }
+      
       const data = await response.json();
       return data;
     }
@@ -170,14 +216,55 @@ const createSchedule = async (scheduleData: any) => {
   }
 };
 
+// Utility functions for time conversion
+const convert24To12Hour = (time24: string): string => {
+  if (!time24) return '';
+  const [hours, minutes] = time24.split(':');
+  const hour = parseInt(hours, 10);
+  const ampm = hour >= 12 ? 'PM' : 'AM';
+  const hour12 = hour % 12 || 12;
+  return `${hour12.toString().padStart(2, '0')}:${minutes} ${ampm}`;
+};
+
+const convert12To24Hour = (time12: string): string => {
+  if (!time12) return '';
+  const trimmed = time12.trim();
+  const match = trimmed.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+  if (!match) {
+    // If already in 24-hour format, return as is
+    if (trimmed.match(/^\d{2}:\d{2}$/)) {
+      return trimmed;
+    }
+    return '';
+  }
+  let hour = parseInt(match[1], 10);
+  const minutes = match[2];
+  const ampm = match[3].toUpperCase();
+  
+  if (ampm === 'PM' && hour !== 12) {
+    hour += 12;
+  } else if (ampm === 'AM' && hour === 12) {
+    hour = 0;
+  }
+  
+  return `${hour.toString().padStart(2, '0')}:${minutes}`;
+};
+
 const updateSchedule = async (scheduleId: number, scheduleData: any) => {
   try {
-    console.log('Updating schedule API call:', { scheduleId, scheduleData });
+    // Convert times to 24-hour format before sending
+    const dataToSend = {
+      ...scheduleData,
+      start_time: convert12To24Hour(scheduleData.start_time),
+      end_time: convert12To24Hour(scheduleData.end_time),
+    };
+    
+    console.log('Updating schedule API call:', { scheduleId, scheduleData: dataToSend });
     
     const response = await fetch(`${API_URL}/staff-schedules/${scheduleId}`, {
       method: 'PUT',
       headers: getHeaders(),
-      body: JSON.stringify(scheduleData),
+      body: JSON.stringify(dataToSend),
     });
     
     if (!response.ok) {
@@ -274,6 +361,7 @@ interface Branch {
   id: number;
   name: string;
   address: string;
+  code?: string;
 }
 
 const SimplifiedEmployeeScheduleManagement: React.FC = () => {
@@ -293,7 +381,9 @@ const SimplifiedEmployeeScheduleManagement: React.FC = () => {
   // Modal states
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
-  const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null);
+  const [editingSchedule, setEditingSchedule] = useState<Schedule | OptometristRotation | null>(null);
+  const [showEditDayModal, setShowEditDayModal] = useState(false);
+  const [editingDay, setEditingDay] = useState<{rotation: OptometristRotation, dayIndex: number, daySchedule: any} | null>(null);
   
   // Form data
   const [formData, setFormData] = useState({
@@ -302,8 +392,8 @@ const SimplifiedEmployeeScheduleManagement: React.FC = () => {
     branch_id: '',
     days_of_week: [1], // Array of days (1=Monday, 2=Tuesday, etc.)
     rotation_branches: [], // For optometrist rotations: branch for each day
-    start_time: '09:00',
-    end_time: '17:00',
+    start_time: '09:00 AM',
+    end_time: '05:00 PM',
     is_active: true
   });
 
@@ -343,16 +433,37 @@ const SimplifiedEmployeeScheduleManagement: React.FC = () => {
 
   const handleCreateSchedule = async () => {
     try {
+      // Check if we're editing an optometrist rotation
+      const isEditingOptometristRotation = editingSchedule && 
+        (editingSchedule as any).optometrist_id !== undefined && 
+        formData.staff_role === 'optometrist';
+      
       // Validation for optometrist rotations
       if (formData.staff_role === 'optometrist') {
-        if (formData.days_of_week.length === 0) {
+        if (formData.days_of_week.length === 0 && (!formData.rotation_branches || formData.rotation_branches.length === 0)) {
           toast.error('Please add at least one day to the rotation schedule');
           return;
         }
         
-        const hasEmptyBranches = formData.rotation_branches?.some(branch => !branch);
-        if (hasEmptyBranches) {
-          toast.error('Please select a branch for all days in the rotation schedule');
+        // Validate rotation_branches - check that each enabled day has a branch selected
+        if (formData.days_of_week.length > 0) {
+          // rotation_branches is an array of branch IDs (numbers) corresponding to days_of_week
+          const missingBranches: string[] = [];
+          formData.days_of_week.forEach((day: number, index: number) => {
+            const branchId = formData.rotation_branches?.[index];
+            // Check if branchId is null, undefined, 0, or empty string
+            if (!branchId || branchId === null || branchId === 0 || branchId === '') {
+              const dayName = getDayName(day);
+              missingBranches.push(dayName);
+            }
+          });
+          
+          if (missingBranches.length > 0) {
+            toast.error(`Please select a branch for: ${missingBranches.join(', ')}`);
+            return;
+          }
+        } else {
+          toast.error('Please select at least one day for the rotation schedule');
           return;
         }
       } else {
@@ -367,13 +478,15 @@ const SimplifiedEmployeeScheduleManagement: React.FC = () => {
         }
       }
 
-      await createSchedule(formData);
-      toast.success('Schedule created successfully');
+      await createSchedule(formData, isEditingOptometristRotation ? (editingSchedule as any) : null);
+      toast.success(isEditingOptometristRotation ? 'Optometrist rotation updated successfully' : 'Schedule created successfully');
       setShowCreateModal(false);
+      setEditingSchedule(null);
       resetForm();
       loadData();
-    } catch (error) {
-      toast.error('Failed to create schedule');
+    } catch (error: any) {
+      console.error('Error creating/updating schedule:', error);
+      toast.error(error?.message || 'Failed to create schedule');
     }
   };
 
@@ -389,11 +502,11 @@ const SimplifiedEmployeeScheduleManagement: React.FC = () => {
       return;
     }
     
+    // Validation for staff schedules (optometrist schedules cannot be edited)
     if (!formData.branch_id) {
       toast.error('Please select a branch');
       return;
     }
-    
     if (formData.days_of_week.length === 0) {
       toast.error('Please select at least one day');
       return;
@@ -401,15 +514,24 @@ const SimplifiedEmployeeScheduleManagement: React.FC = () => {
     
     try {
       console.log('Updating schedule:', editingSchedule.id, 'with data:', formData);
+      
+      // Update regular staff schedule (optometrist schedules cannot be edited)
       await updateSchedule(editingSchedule.id, formData);
       toast.success('Schedule updated successfully');
+      
       setShowEditModal(false);
       setEditingSchedule(null);
       resetForm();
       await loadData(); // Refresh the data after update
     } catch (error: any) {
       console.error('Error updating schedule:', error);
-      toast.error(`Failed to update schedule: ${error?.message || 'Unknown error'}`);
+      const errorMessage = error?.message || 'Unknown error';
+      // Show validation errors if available
+      if (errorMessage.includes('Validation failed')) {
+        toast.error(errorMessage);
+      } else {
+        toast.error(`Failed to update schedule: ${errorMessage}`);
+      }
     }
   };
 
@@ -459,6 +581,43 @@ const SimplifiedEmployeeScheduleManagement: React.FC = () => {
         return;
       }
       
+      // Handle optometrist schedules differently - they use rotations
+      const staffRole = schedule.staff_role || schedule.staff?.role || 'staff';
+      if (staffRole === 'optometrist') {
+        // For optometrist schedules, we need to edit the rotation
+        // Find the rotation for this optometrist
+        const rotation = optometristRotations.find(r => r.optometrist_id === schedule.staff_id || r.optometrist_id === schedule.staff?.id);
+        if (rotation) {
+          // Open edit modal for optometrist rotation
+          setEditingSchedule(rotation);
+          // Convert rotation schedule to form data format
+          const rotationSchedule = rotation.rotation_schedule || [];
+          // Sort by day to ensure consistent ordering
+          const sortedSchedule = [...rotationSchedule].sort((a: any, b: any) => (a.day || a.day_of_week) - (b.day || b.day_of_week));
+          
+          // Get start_time and end_time from first schedule entry (they should be the same for all days)
+          const firstSchedule = sortedSchedule[0] as any || {};
+          const startTime = firstSchedule?.start_time ? convert24To12Hour(firstSchedule.start_time) : '09:00 AM';
+          const endTime = firstSchedule?.end_time ? convert24To12Hour(firstSchedule.end_time) : '05:00 PM';
+          
+          setFormData({
+            staff_id: rotation.optometrist_id.toString(),
+            staff_role: 'optometrist',
+            branch_id: '',
+            days_of_week: sortedSchedule.map((s: any) => s.day || s.day_of_week).filter(Boolean),
+            rotation_branches: sortedSchedule.map((s: any) => s.branch_id), // Just branch IDs, not objects
+            start_time: startTime,
+            end_time: endTime,
+            is_active: rotation.is_active !== undefined ? rotation.is_active : true
+          });
+          setShowCreateModal(true);
+          return;
+        } else {
+          toast.error('Optometrist rotation not found. Please create a new rotation.');
+          return;
+        }
+      }
+      
       // Get branch_id from schedule or schedule.branch
       const branchId = (schedule as any).branch_id || schedule.branch?.id;
       
@@ -482,15 +641,18 @@ const SimplifiedEmployeeScheduleManagement: React.FC = () => {
       
       console.log('Days of week:', daysOfWeek);
       
+      // Note: Optometrist schedules cannot be edited, so we don't need to populate rotation_branches
+      // This code is kept for backward compatibility but won't be reached due to early return above
+      
     setEditingSchedule(schedule);
     setFormData({
         staff_id: schedule.staff_id?.toString() || schedule.staff?.id?.toString() || '',
-        staff_role: schedule.staff_role || schedule.staff?.role || 'staff',
+        staff_role: staffRole,
         branch_id: branchId.toString(),
         days_of_week: daysOfWeek,
         rotation_branches: [],
-        start_time: schedule.start_time || '09:00',
-        end_time: schedule.end_time || '17:00',
+        start_time: schedule.start_time ? convert24To12Hour(schedule.start_time) : '09:00 AM',
+        end_time: schedule.end_time ? convert24To12Hour(schedule.end_time) : '05:00 PM',
         is_active: schedule.is_active !== undefined ? schedule.is_active : true
       });
       
@@ -511,8 +673,8 @@ const SimplifiedEmployeeScheduleManagement: React.FC = () => {
       branch_id: '',
       days_of_week: [1],
       rotation_branches: [],
-      start_time: '09:00',
-      end_time: '17:00',
+      start_time: '09:00 AM',
+      end_time: '05:00 PM',
       is_active: true
     });
   };
@@ -791,7 +953,7 @@ const SimplifiedEmployeeScheduleManagement: React.FC = () => {
                           <div className="flex items-center gap-1.5">
                             <Clock className="h-3 w-3 text-gray-500 flex-shrink-0" />
                             <span className="text-xs text-gray-600">
-                            {schedule.start_time} - {schedule.end_time}
+                            {schedule.start_time ? convert24To12Hour(schedule.start_time) : 'N/A'} - {schedule.end_time ? convert24To12Hour(schedule.end_time) : 'N/A'}
                           </span>
                         </div>
                       </div>
@@ -910,7 +1072,7 @@ const SimplifiedEmployeeScheduleManagement: React.FC = () => {
                             <div className="flex items-center gap-1.5">
                               <Clock className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-gray-500 flex-shrink-0" />
                               <span className="text-xs text-gray-700">
-                              {schedule.start_time} - {schedule.end_time}
+                              {schedule.start_time ? convert24To12Hour(schedule.start_time) : 'N/A'} - {schedule.end_time ? convert24To12Hour(schedule.end_time) : 'N/A'}
                             </span>
                           </div>
                             <div className="flex items-center">
@@ -1007,8 +1169,24 @@ const SimplifiedEmployeeScheduleManagement: React.FC = () => {
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                     {rotation.rotation_schedule.map((schedule, index) => (
                       <div key={index} className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
-                        <div className="mb-3">
+                        <div className="mb-3 flex items-center justify-between">
                           <h4 className="text-lg font-semibold text-gray-900">{schedule.day_name}</h4>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setEditingDay({
+                                rotation: rotation,
+                                dayIndex: index,
+                                daySchedule: schedule
+                              });
+                              setShowEditDayModal(true);
+                            }}
+                            className="h-6 w-6 p-0"
+                            title={`Edit ${schedule.day_name} schedule`}
+                          >
+                            <Edit className="h-3 w-3" />
+                          </Button>
                         </div>
                         <div className="space-y-2">
                           <div className="flex items-center gap-2">
@@ -1027,14 +1205,47 @@ const SimplifiedEmployeeScheduleManagement: React.FC = () => {
                   </div>
                   
                   <div className="mt-4 pt-4 border-t border-gray-200">
-                    <div className="flex items-center justify-between text-sm text-gray-600">
-                      <div className="flex items-center gap-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-4 text-sm text-gray-600">
                         <span>Total Days: {rotation.rotation_schedule.length}</span>
                         <span>Branches: {rotation.all_branches.length}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
                         <span>Created: {new Date(rotation.created_at).toLocaleDateString()}</span>
                         <span>Updated: {new Date(rotation.updated_at).toLocaleDateString()}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            // Set editing schedule to rotation
+                            setEditingSchedule(rotation);
+                            // Convert rotation schedule to form data format
+                            const rotationSchedule = rotation.rotation_schedule || [];
+                            // Sort by day to ensure consistent ordering
+                            const sortedSchedule = [...rotationSchedule].sort((a: any, b: any) => (a.day || a.day_of_week) - (b.day || b.day_of_week));
+                            
+                            // Get start_time and end_time from first schedule entry (they should be the same for all days)
+                            const firstSchedule = sortedSchedule[0] as any || {};
+                            const startTime = firstSchedule?.start_time ? convert24To12Hour(firstSchedule.start_time) : '09:00 AM';
+                            const endTime = firstSchedule?.end_time ? convert24To12Hour(firstSchedule.end_time) : '05:00 PM';
+                            
+                            setFormData({
+                              staff_id: rotation.optometrist_id.toString(),
+                              staff_role: 'optometrist',
+                              branch_id: '',
+                              days_of_week: sortedSchedule.map((s: any) => s.day || s.day_of_week).filter(Boolean),
+                              rotation_branches: sortedSchedule.map((s: any) => s.branch_id), // Just branch IDs, not objects
+                              start_time: startTime,
+                              end_time: endTime,
+                              is_active: rotation.is_active !== undefined ? rotation.is_active : true
+                            });
+                            setShowCreateModal(true);
+                          }}
+                          className="flex items-center gap-2"
+                        >
+                          <Edit className="h-4 w-4" />
+                          Edit Rotation
+                        </Button>
                       </div>
                     </div>
                   </div>
@@ -1064,12 +1275,22 @@ const SimplifiedEmployeeScheduleManagement: React.FC = () => {
         <DialogContent className="w-[95vw] sm:w-full max-w-2xl max-h-[90vh] overflow-y-auto mx-4 sm:mx-auto">
           <DialogHeader>
             <DialogTitle>
-              {formData.staff_role === 'optometrist' ? 'Create Optometrist Rotation' : 'Create New Schedule'}
+              {editingSchedule && (editingSchedule as any).optometrist_id !== undefined
+                ? 'Edit Optometrist Rotation'
+                : formData.staff_role === 'optometrist' 
+                  ? 'Create Optometrist Rotation' 
+                  : editingSchedule 
+                    ? 'Edit Schedule'
+                    : 'Create New Schedule'}
             </DialogTitle>
             <DialogDescription>
-              {formData.staff_role === 'optometrist' 
-                ? 'Create a rotation schedule for an optometrist across multiple branches'
-                : 'Create a new schedule for an employee'
+              {editingSchedule && (editingSchedule as any).optometrist_id !== undefined
+                ? 'Update the rotation schedule for this optometrist'
+                : formData.staff_role === 'optometrist' 
+                  ? 'Create a rotation schedule for an optometrist across multiple branches'
+                  : editingSchedule
+                    ? 'Update the schedule for this employee'
+                    : 'Create a new schedule for an employee'
               }
             </DialogDescription>
           </DialogHeader>
@@ -1127,69 +1348,108 @@ const SimplifiedEmployeeScheduleManagement: React.FC = () => {
 
             {formData.staff_role === 'optometrist' ? (
               <div>
-                <Label>Rotation Schedule</Label>
-                <div className="max-h-60 overflow-y-auto space-y-2 mt-2 border rounded-lg p-3">
-                  {formData.days_of_week.map((day, index) => (
-                    <div key={index} className="flex items-center gap-2 p-2 bg-gray-50 rounded border">
-                      <div className="w-20 text-sm font-medium">
-                        {getDayName(day)}
+                <Label>Rotation Schedule - Select days and assign branches</Label>
+                <div className="mt-2 space-y-2 max-h-96 overflow-y-auto border rounded-lg p-3">
+                  {[
+                    { value: 1, label: 'Monday' },
+                    { value: 2, label: 'Tuesday' },
+                    { value: 3, label: 'Wednesday' },
+                    { value: 4, label: 'Thursday' },
+                    { value: 5, label: 'Friday' },
+                    { value: 6, label: 'Saturday' },
+                    { value: 7, label: 'Sunday' }
+                  ].map((day) => {
+                    const dayIndex = formData.days_of_week.indexOf(day.value);
+                    const isEnabled = dayIndex !== -1;
+                    // Get branch value - handle both number and string formats
+                    const branchId = isEnabled ? formData.rotation_branches?.[dayIndex] : null;
+                    const branchValue = branchId && branchId !== null && branchId !== undefined && branchId !== ''
+                      ? branchId.toString() 
+                      : '';
+                    
+                    return (
+                      <div key={day.value} className={`p-3 rounded-lg border transition-all ${isEnabled ? 'bg-blue-50 border-blue-200' : 'bg-gray-50 border-gray-200'}`}>
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center space-x-2 min-w-[100px]">
+                            <Checkbox
+                              id={`opt-day-${day.value}`}
+                              checked={isEnabled}
+                              onCheckedChange={(checked) => {
+                                if (checked) {
+                                  // Add day
+                                  const newDays = [...formData.days_of_week, day.value].sort();
+                                  const newBranches = [...(formData.rotation_branches || [])];
+                                  // Find the correct position in the sorted array
+                                  const insertIndex = newDays.indexOf(day.value);
+                                  // Ensure array is long enough
+                                  while (newBranches.length < insertIndex) {
+                                    newBranches.push(null);
+                                  }
+                                  // Insert null at correct position (will be replaced when user selects branch)
+                                  newBranches.splice(insertIndex, 0, null);
+                                  // Trim array to match days_of_week length
+                                  while (newBranches.length > newDays.length) {
+                                    newBranches.pop();
+                                  }
+                                  setFormData({
+                                    ...formData,
+                                    days_of_week: newDays,
+                                    rotation_branches: newBranches
+                                  });
+                                } else {
+                                  // Remove day - remove both the day and its corresponding branch
+                                  const dayIndex = formData.days_of_week.indexOf(day.value);
+                                  const newDays = formData.days_of_week.filter(d => d !== day.value);
+                                  const newBranches = [...(formData.rotation_branches || [])];
+                                  if (dayIndex !== -1) {
+                                    newBranches.splice(dayIndex, 1);
+                                  }
+                                  setFormData({
+                                    ...formData,
+                                    days_of_week: newDays,
+                                    rotation_branches: newBranches
+                                  });
+                                }
+                              }}
+                            />
+                            <Label htmlFor={`opt-day-${day.value}`} className="text-sm font-medium cursor-pointer">
+                              {day.label}
+                            </Label>
+                          </div>
+                          {isEnabled && (
+                            <div className="flex-1">
+                              <Select 
+                                value={branchValue}
+                                onValueChange={(value) => {
+                                  const newBranches = [...(formData.rotation_branches || [])];
+                                  const currentIndex = formData.days_of_week.indexOf(day.value);
+                                  if (currentIndex !== -1) {
+                                    newBranches[currentIndex] = parseInt(value);
+                                    setFormData({...formData, rotation_branches: newBranches});
+                                  }
+                                }}
+                              >
+                                <SelectTrigger className="h-9">
+                                  <SelectValue placeholder="Select branch" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {branches.map((branch) => (
+                                    <SelectItem key={branch.id} value={branch.id.toString()}>
+                                      {branch.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                      <div className="flex-1">
-                        <Select 
-                          value={formData.rotation_branches?.[index]?.toString() || ''} 
-                          onValueChange={(value) => {
-                            const newBranches = [...(formData.rotation_branches || [])];
-                            newBranches[index] = parseInt(value);
-                            setFormData({...formData, rotation_branches: newBranches});
-                          }}
-                        >
-                          <SelectTrigger className="h-8">
-                            <SelectValue placeholder="Select branch" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {branches.map((branch) => (
-                              <SelectItem key={branch.id} value={branch.id.toString()}>
-                                {branch.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-8 w-8 p-0"
-                        onClick={() => {
-                          const newDays = formData.days_of_week.filter((_, i) => i !== index);
-                          const newBranches = formData.rotation_branches?.filter((_, i) => i !== index) || [];
-                          setFormData({...formData, days_of_week: newDays, rotation_branches: newBranches});
-                        }}
-                      >
-                        <XCircle className="w-3 h-3" />
-                      </Button>
-                    </div>
-                  ))}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      const availableDays = [1, 2, 3, 4, 5, 6, 7].filter(day => !formData.days_of_week.includes(day));
-                      if (availableDays.length > 0) {
-                        setFormData({
-                          ...formData, 
-                          days_of_week: [...formData.days_of_week, availableDays[0]],
-                          rotation_branches: [...(formData.rotation_branches || []), null]
-                        });
-                      }
-                    }}
-                    className="w-full h-8"
-                  >
-                    <Plus className="w-3 h-3 mr-1" />
-                    Add Day
-                  </Button>
+                    );
+                  })}
                 </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  Check the days you want to schedule, then select a branch for each enabled day.
+                </p>
               </div>
             ) : (
               <div>
@@ -1224,18 +1484,24 @@ const SimplifiedEmployeeScheduleManagement: React.FC = () => {
                 <Label htmlFor="start-time">Start Time</Label>
                 <Input
                   id="start-time"
-                  type="time"
+                  type="text"
+                  placeholder="09:00 AM"
                   value={formData.start_time}
                   onChange={(e) => setFormData({...formData, start_time: e.target.value})}
+                  pattern="\d{1,2}:\d{2}\s*(AM|PM)"
+                  title="Format: HH:MM AM/PM (e.g., 09:00 AM)"
                 />
               </div>
               <div>
                 <Label htmlFor="end-time">End Time</Label>
                 <Input
                   id="end-time"
-                  type="time"
+                  type="text"
+                  placeholder="05:00 PM"
                   value={formData.end_time}
                   onChange={(e) => setFormData({...formData, end_time: e.target.value})}
+                  pattern="\d{1,2}:\d{2}\s*(AM|PM)"
+                  title="Format: HH:MM AM/PM (e.g., 05:00 PM)"
                 />
               </div>
             </div>
@@ -1265,7 +1531,11 @@ const SimplifiedEmployeeScheduleManagement: React.FC = () => {
               disabled={!formData.staff_id || (formData.staff_role === 'staff' && !formData.branch_id)}
             >
               <Save className="w-4 h-4 mr-2" />
-              Create Schedule
+              {editingSchedule && (editingSchedule as any).optometrist_id !== undefined
+                ? 'Update Rotation'
+                : editingSchedule
+                  ? 'Update Schedule'
+                  : 'Create Schedule'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1277,7 +1547,7 @@ const SimplifiedEmployeeScheduleManagement: React.FC = () => {
           <DialogHeader>
             <DialogTitle>Edit Schedule</DialogTitle>
             <DialogDescription>
-              Update the schedule for {editingSchedule?.staff.name}
+              Update the schedule for {(editingSchedule as Schedule)?.staff?.name || (editingSchedule as OptometristRotation)?.optometrist?.name || 'employee'}
             </DialogDescription>
           </DialogHeader>
 
@@ -1360,18 +1630,24 @@ const SimplifiedEmployeeScheduleManagement: React.FC = () => {
                 <Label htmlFor="edit-start-time">Start Time</Label>
                 <Input
                   id="edit-start-time"
-                  type="time"
+                  type="text"
+                  placeholder="09:00 AM"
                   value={formData.start_time}
                   onChange={(e) => setFormData({...formData, start_time: e.target.value})}
+                  pattern="\d{1,2}:\d{2}\s*(AM|PM)"
+                  title="Format: HH:MM AM/PM (e.g., 09:00 AM)"
                 />
               </div>
               <div>
                 <Label htmlFor="edit-end-time">End Time</Label>
                 <Input
                   id="edit-end-time"
-                  type="time"
+                  type="text"
+                  placeholder="05:00 PM"
                   value={formData.end_time}
                   onChange={(e) => setFormData({...formData, end_time: e.target.value})}
+                  pattern="\d{1,2}:\d{2}\s*(AM|PM)"
+                  title="Format: HH:MM AM/PM (e.g., 05:00 PM)"
                 />
               </div>
             </div>
@@ -1407,7 +1683,246 @@ const SimplifiedEmployeeScheduleManagement: React.FC = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Edit Single Day Modal */}
+      <Dialog open={showEditDayModal} onOpenChange={setShowEditDayModal}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center space-x-2">
+              <Edit className="h-5 w-5" />
+              <span>Edit {editingDay?.daySchedule?.day_name || 'Day'} Schedule</span>
+            </DialogTitle>
+            <DialogDescription>
+              Update the schedule for {editingDay?.rotation?.optometrist?.name || 'this optometrist'}
+            </DialogDescription>
+          </DialogHeader>
+
+          {editingDay && (
+            <EditSingleDayForm
+              rotation={editingDay.rotation}
+              dayIndex={editingDay.dayIndex}
+              daySchedule={editingDay.daySchedule}
+              branches={branches}
+              onSuccess={async () => {
+                setShowEditDayModal(false);
+                setEditingDay(null);
+                await loadData();
+                toast.success('Day schedule updated successfully');
+              }}
+              onCancel={() => {
+                setShowEditDayModal(false);
+                setEditingDay(null);
+              }}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
+  );
+};
+
+// Component for editing a single day
+interface EditSingleDayFormProps {
+  rotation: OptometristRotation;
+  dayIndex: number;
+  daySchedule: any;
+  branches: Branch[];
+  onSuccess: () => void;
+  onCancel: () => void;
+}
+
+const EditSingleDayForm: React.FC<EditSingleDayFormProps> = ({
+  rotation,
+  dayIndex,
+  daySchedule,
+  branches,
+  onSuccess,
+  onCancel
+}) => {
+  const [loading, setLoading] = useState(false);
+  // Convert times from 24-hour to 12-hour format for display
+  const getInitialTime = (time24: string): string => {
+    if (!time24) return '';
+    // Check if already in 12-hour format
+    if (time24.includes('AM') || time24.includes('PM')) {
+      return time24;
+    }
+    // Convert from 24-hour to 12-hour
+    return convert24To12Hour(time24);
+  };
+  
+  const [dayFormData, setDayFormData] = useState({
+    branch_id: daySchedule.branch_id || '',
+    start_time: getInitialTime(daySchedule.start_time || ''),
+    end_time: getInitialTime(daySchedule.end_time || '')
+  });
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!dayFormData.branch_id || !dayFormData.start_time || !dayFormData.end_time) {
+      toast.error('Please fill in all fields');
+      return;
+    }
+
+    // Validate time format and compare times properly
+    const startTime24 = dayFormData.start_time.includes(':') && !dayFormData.start_time.includes('AM') && !dayFormData.start_time.includes('PM')
+      ? dayFormData.start_time
+      : convert12To24Hour(dayFormData.start_time);
+    const endTime24 = dayFormData.end_time.includes(':') && !dayFormData.end_time.includes('AM') && !dayFormData.end_time.includes('PM')
+      ? dayFormData.end_time
+      : convert12To24Hour(dayFormData.end_time);
+    
+    if (!startTime24 || !endTime24) {
+      toast.error('Please enter valid times in 12-hour format (e.g., 09:00 AM, 05:00 PM)');
+      return;
+    }
+    
+    if (startTime24 >= endTime24) {
+      toast.error('End time must be after start time');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // Get the current rotation schedule
+      const currentSchedule = [...rotation.rotation_schedule];
+      
+      // startTime24 and endTime24 are already converted above
+      
+      // Update the specific day - preserve day_name and formatted_time for display
+      const dayNumber = daySchedule.day || daySchedule.day_of_week;
+      const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+      const dayName = dayNames[dayNumber - 1] || daySchedule.day_name || '';
+      
+      currentSchedule[dayIndex] = {
+        day: dayNumber,
+        branch_id: parseInt(dayFormData.branch_id.toString()),
+        start_time: startTime24,
+        end_time: endTime24,
+        // These are for display only, backend doesn't need them
+        day_name: dayName,
+        formatted_time: `${convert24To12Hour(startTime24)} - ${convert24To12Hour(endTime24)}`
+      };
+
+      // Prepare rotation schedule for API (only send required fields)
+      const apiSchedule = currentSchedule.map((schedule: any) => ({
+        day: schedule.day,
+        branch_id: schedule.branch_id,
+        start_time: schedule.start_time,
+        end_time: schedule.end_time
+      }));
+
+      // Update the rotation via API
+      const response = await fetch(`${API_URL}/optometrist-rotations`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${sessionStorage.getItem('auth_token')}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({
+          optometrist_id: rotation.optometrist_id,
+          rotation_schedule: apiSchedule,
+          is_active: rotation.is_active
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || errorData.error || 'Failed to update day schedule');
+      }
+
+      onSuccess();
+    } catch (error: any) {
+      console.error('Error updating day schedule:', error);
+      toast.error(error?.message || 'Failed to update day schedule');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="space-y-2">
+        <Label htmlFor="day-branch">Branch</Label>
+        <Select
+          value={dayFormData.branch_id?.toString() || ''}
+          onValueChange={(value) => setDayFormData({...dayFormData, branch_id: value})}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Select a branch" />
+          </SelectTrigger>
+          <SelectContent>
+            {branches.map((branch) => (
+              <SelectItem key={branch.id} value={branch.id.toString()}>
+                <div className="flex items-center space-x-2">
+                  <MapPin className="h-4 w-4" />
+                  <span>{branch.name}{branch.code ? ` (${branch.code})` : ''}</span>
+                </div>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="day-start-time">Start Time</Label>
+          <div className="relative">
+            <Clock className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+            <Input
+              id="day-start-time"
+              type="text"
+              placeholder="09:00 AM"
+              value={dayFormData.start_time}
+              onChange={(e) => setDayFormData({...dayFormData, start_time: e.target.value})}
+              className="pl-10"
+              pattern="\d{1,2}:\d{2}\s*(AM|PM)"
+              title="Format: HH:MM AM/PM (e.g., 09:00 AM)"
+              required
+            />
+          </div>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="day-end-time">End Time</Label>
+          <div className="relative">
+            <Clock className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+            <Input
+              id="day-end-time"
+              type="text"
+              placeholder="05:00 PM"
+              value={dayFormData.end_time}
+              onChange={(e) => setDayFormData({...dayFormData, end_time: e.target.value})}
+              className="pl-10"
+              pattern="\d{1,2}:\d{2}\s*(AM|PM)"
+              title="Format: HH:MM AM/PM (e.g., 05:00 PM)"
+              required
+            />
+          </div>
+        </div>
+      </div>
+
+      <DialogFooter>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={onCancel}
+          disabled={loading}
+        >
+          <X className="h-4 w-4 mr-2" />
+          Cancel
+        </Button>
+        <Button type="submit" disabled={loading}>
+          {loading ? (
+            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
+          ) : (
+            <Save className="h-4 w-4 mr-2" />
+          )}
+          Update Day
+        </Button>
+      </DialogFooter>
+    </form>
   );
 };
 

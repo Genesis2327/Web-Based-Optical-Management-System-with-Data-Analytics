@@ -187,23 +187,11 @@ class RevenueAnalyticsController extends Controller
 
     /**
      * Get revenue from reservations
+     * Not counted - reservations are included in receipts when approved
      */
     private function getReservationRevenue($startDate, $endDate, $branchId = null)
     {
-        $query = Reservation::with('product')
-            ->whereIn('status', ['approved', 'completed'])
-            ->whereBetween('created_at', [$startDate, $endDate]);
-
-        if ($branchId) {
-            $query->where('branch_id', $branchId);
-        }
-
-        $reservations = $query->get();
-        
-        // Calculate revenue properly (total_price is a calculated attribute, not a column)
-        return $reservations->sum(function ($reservation) {
-            return $reservation->quantity * ($reservation->product->price ?? 0);
-        });
+        return 0;
     }
 
     /**
@@ -264,24 +252,8 @@ class RevenueAnalyticsController extends Controller
 
         $receiptTotal = $receiptRevenue->sum('receipt_items.amount');
 
-        // From reservations (frames category)
-        $reservationRevenue = DB::table('reservation_items')
-            ->join('reservations', 'reservation_items.reservation_id', '=', 'reservations.id')
-            ->join('products', 'reservation_items.product_id', '=', 'products.id')
-            ->leftJoin('product_categories', 'products.category_id', '=', 'product_categories.id')
-            ->where('reservations.status', 'completed')
-            ->whereBetween('reservations.created_at', [$startDate, $endDate])
-            ->where(function($query) {
-                $query->where('product_categories.name', 'LIKE', '%frame%')
-                      ->orWhere('product_categories.name', 'LIKE', '%eyeglass%')
-                      ->orWhere('products.name', 'LIKE', '%frame%');
-            });
-
-        if ($branchId) {
-            $reservationRevenue->where('reservations.branch_id', $branchId);
-        }
-
-        $reservationTotal = $reservationRevenue->sum(DB::raw('reservation_items.quantity * products.price'));
+        // From reservations - Not counted (reservations are included in receipts when approved)
+        $reservationTotal = 0;
 
         return $receiptTotal + $reservationTotal;
     }
@@ -304,23 +276,8 @@ class RevenueAnalyticsController extends Controller
 
         $receiptTotal = $receiptRevenue->sum('receipt_items.amount');
 
-        // From reservations
-        $reservationRevenue = DB::table('reservation_items')
-            ->join('reservations', 'reservation_items.reservation_id', '=', 'reservations.id')
-            ->join('products', 'reservation_items.product_id', '=', 'products.id')
-            ->leftJoin('product_categories', 'products.category_id', '=', 'product_categories.id')
-            ->where('reservations.status', 'completed')
-            ->whereBetween('reservations.created_at', [$startDate, $endDate])
-            ->where(function($query) {
-                $query->where('product_categories.name', 'LIKE', '%contact%')
-                      ->orWhere('products.name', 'LIKE', '%contact%');
-            });
-
-        if ($branchId) {
-            $reservationRevenue->where('reservations.branch_id', $branchId);
-        }
-
-        $reservationTotal = $reservationRevenue->sum(DB::raw('reservation_items.quantity * products.price'));
+        // From reservations - Not counted (reservations are included in receipts when approved)
+        $reservationTotal = 0;
 
         return $receiptTotal + $reservationTotal;
     }

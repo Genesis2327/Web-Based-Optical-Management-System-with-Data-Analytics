@@ -39,6 +39,7 @@ import CustomerVisionHistory from "@/features/customer/components/CustomerVision
 import CustomerPrescriptions from "@/features/customer/components/CustomerPrescriptions";
 import CustomerFeedback from "@/features/feedback/components/CustomerFeedback";
 import CustomerReceipts from "@/features/customer/components/CustomerReceipts";
+import CustomerProductTracking from "@/features/customer/components/CustomerProductTracking";
 import { CustomerAppointmentsLocalStorage } from "@/features/customer/components/CustomerAppointmentsLocalStorage";
 import { CustomerPrescriptionsLocalStorage } from "@/features/customer/components/CustomerPrescriptionsLocalStorage";
 
@@ -60,10 +61,12 @@ import UnifiedReservationsDashboard from "@/features/staff/components/UnifiedRes
 import StaffRestockRequests from "@/features/staff/components/StaffRestockRequests";
 import StaffCreateReceipt from "@/features/receipts/components/StaffCreateReceipt";
 import EnhancedStaffCreateReceipt from "@/features/receipts/components/EnhancedStaffCreateReceipt";
+import StaffProductTrackingDashboard from "@/features/products/components/StaffProductTrackingDashboard";
 
 // Admin Components
 import AdminStockManagement from "@/features/admin/components/AdminStockManagement";
 import AdminProductManagement from "@/features/admin/components/AdminProductManagement";
+import AdminProductTrackingDashboard from "@/features/admin/components/AdminProductTrackingDashboard";
 import { RealtimeProvider } from "@/contexts/RealtimeProvider";
 
 // Optometrist Components
@@ -121,6 +124,7 @@ const App = () => (
               <Route path="prescriptions" element={<CustomerPrescriptions />} />
               <Route path="receipts" element={<CustomerReceipts />} />
               <Route path="feedback" element={<CustomerFeedback />} />
+              <Route path="product-tracking" element={<CustomerProductTracking />} />
               <Route path="notifications" element={<NotificationCenter />} />
               <Route path="products" element={<ProductGallery />} />
               <Route path="products/:productId" element={<ProductDetails />} />
@@ -158,6 +162,7 @@ const App = () => (
               {/* Provide appointmentId via URL; wrapper component extracts param */}
               <Route path="create-receipt/:appointmentId" element={<CreateReceiptRouteWrapper />} />
               <Route path="restock-requests" element={<StaffRestockRequests />} />
+              <Route path="product-tracking" element={<StaffProductTrackingDashboard />} />
               <Route path="inventory" element={<UnifiedStaffInventory />} />
               <Route path="inventory/legacy" element={<StaffInventoryManagement />} />
               <Route path="patients" element={<ComprehensivePatientManagement />} />
@@ -183,6 +188,7 @@ const App = () => (
                   <AdminProductManagement />
                 </ErrorBoundary>
               } />
+              <Route path="product-tracking" element={<AdminProductTrackingDashboard />} />
               <Route path="notifications" element={<NotificationCenter />} />
               <Route path="patients" element={<ComprehensivePatientManagement />} />
               <Route path="sales" element={<AnalyticsDashboard />} />

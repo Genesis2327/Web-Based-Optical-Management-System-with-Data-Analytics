@@ -34,7 +34,7 @@ const CustomerDashboard: React.FC = () => {
   };
 
   const handleBookAppointment = () => {
-    navigate('/customer/book-appointment');
+    navigate('/customer/appointments'); // Could navigate to a booking form
   };
 
   const handleViewProducts = () => {
@@ -44,17 +44,17 @@ const CustomerDashboard: React.FC = () => {
   
 
   return (
-    <div className="space-y-4 sm:space-y-6">
-      <div className="bg-gradient-to-r from-blue-600 to-cyan-600 rounded-lg p-4 sm:p-6 text-white">
-        <h1 className="text-xl sm:text-2xl font-bold mb-2">
+    <div className="space-y-6">
+      <div className="bg-gradient-to-r from-blue-600 to-cyan-600 rounded-lg p-6 text-white">
+        <h1 className="text-2xl font-bold mb-2">
           Welcome back, {user?.name || 'Customer'}!
         </h1>
-        <p className="text-sm sm:text-base text-blue-100">
+        <p className="text-blue-100">
           Manage your appointments, prescriptions, and eye care needs in one place.
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex items-center justify-between">
             <div>

@@ -8,7 +8,7 @@ interface AuthContextType {
   user: User | null;
   login: (email: string, password: string, role: UserRole) => Promise<User>;
   logout: () => void;
-  register: (name: string, email: string, password: string, confirmPassword: string, role: UserRole, phone?: string, branchId?: string) => Promise<void>;
+  register: (name: string, email: string, password: string, confirmPassword: string, role: UserRole, phone?: string, branchId?: string, privacyPolicyVersion?: string, termsVersion?: string) => Promise<void>;
   isLoading: boolean;
 }
 
@@ -138,7 +138,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const register = async (name: string, email: string, password: string, confirmPassword: string, role: UserRole, phone?: string, branchId?: string) => {
+  const register = async (name: string, email: string, password: string, confirmPassword: string, role: UserRole, phone?: string, branchId?: string, privacyPolicyVersion?: string, termsVersion?: string) => {
     try {
       setIsLoading(true);
 
@@ -152,6 +152,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error('Passwords do not match. Please try again.');
       }
 
+      // Validate policy acceptance
+      if (!privacyPolicyVersion || !termsVersion) {
+        throw new Error('Policy acceptance is required. Please accept both Privacy Policy and Terms and Conditions.');
+      }
+
       // Use real API registration
       const response = await apiRegister({
         name: name.trim(),
@@ -161,6 +166,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         role,
         ...(phone ? { phone: phone.trim() } : {}),
         ...(branchId ? { branch_id: parseInt(branchId) } : {}),
+        privacy_policy_accepted: true,
+        terms_accepted: true,
+        privacy_policy_version: privacyPolicyVersion,
+        terms_version: termsVersion,
       });
 
       // Only store auth data if a token is issued (customer). Pending roles get no token

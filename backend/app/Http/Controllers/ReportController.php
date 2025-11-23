@@ -86,20 +86,8 @@ class ReportController extends Controller
             
             $receiptRevenue = $receiptQuery->sum('total_due') ?? 0;
 
-            // 2. Reservation Revenue (calculate properly using quantity * product price, matching system)
-            $reservationQuery = Reservation::with('product')
-                ->whereIn('status', ['approved', 'completed'])
-                ->whereDate('created_at', '>=', $startDate->format('Y-m-d'))
-                ->whereDate('created_at', '<=', $endDate->format('Y-m-d'));
-            
-            if ($branchId) {
-                $reservationQuery->where('branch_id', $branchId);
-            }
-            
-            $reservations = $reservationQuery->get();
-            $reservationRevenue = $reservations->sum(function ($reservation) {
-                return $reservation->quantity * ($reservation->product->price ?? 0);
-            });
+            // 2. Reservation Revenue - Not counted (reservations are included in receipts when approved)
+            $reservationRevenue = 0;
 
             // 3. Transaction Revenue (completed transactions, matching system)
             $transactionQuery = Transaction::where('status', 'Completed')
@@ -112,8 +100,8 @@ class ReportController extends Controller
             
             $transactionRevenue = $transactionQuery->sum('total_amount') ?? 0;
 
-            // Total Revenue (matching system display calculation)
-            $totalRevenue = $receiptRevenue + $reservationRevenue + $transactionRevenue;
+            // Total Revenue (only receipts and transactions - reservations are included in receipts)
+            $totalRevenue = $receiptRevenue + $transactionRevenue;
 
             // Appointment Analytics (matching system display)
             $appointmentsQuery = Appointment::whereDate('appointment_date', '>=', $startDate->format('Y-m-d'))
@@ -185,17 +173,8 @@ class ReportController extends Controller
                     }
                 }
 
-                // 2. Reservation Revenue (matching system calculation)
-                $branchReservations = Reservation::with('product')
-                    ->where('branch_id', $branch->id)
-                    ->whereIn('status', ['approved', 'completed'])
-                    ->whereDate('created_at', '>=', $startDate->format('Y-m-d'))
-                    ->whereDate('created_at', '<=', $endDate->format('Y-m-d'))
-                    ->get();
-                
-                $branchReservationRevenue = $branchReservations->sum(function ($reservation) {
-                    return $reservation->quantity * ($reservation->product->price ?? 0);
-                });
+                // 2. Reservation Revenue - Not counted (reservations are included in receipts when approved)
+                $branchReservationRevenue = 0;
 
                 // 3. Transaction Revenue (matching system calculation)
                 $branchTransactionRevenue = 0;
@@ -209,8 +188,8 @@ class ReportController extends Controller
                     \Log::warning('Branch transaction revenue calculation failed for branch ' . $branch->id . ': ' . $e->getMessage());
                 }
 
-                // Total Branch Revenue
-                $branchTotalRevenue = $branchReceiptRevenue + $branchReservationRevenue + $branchTransactionRevenue;
+                // Total Branch Revenue (only receipts and transactions - reservations are included in receipts)
+                $branchTotalRevenue = $branchReceiptRevenue + $branchTransactionRevenue;
                     
                 $branchFeedback = Feedback::whereBetween('created_at', [$startDate, $endDate])
                     ->where('branch_id', $branch->id)
@@ -329,16 +308,8 @@ class ReportController extends Controller
                 }
                 $weekReceiptRevenue = $receiptQuery->sum('total_due') ?? 0;
 
-                $weekReservations = Reservation::with('product')
-                    ->whereIn('status', ['approved', 'completed'])
-                    ->whereDate('created_at', '>=', $weekStart->format('Y-m-d'))
-                    ->whereDate('created_at', '<=', $weekEnd->format('Y-m-d'));
-                if ($branchId) {
-                    $weekReservations->where('branch_id', $branchId);
-                }
-                $weekReservationRevenue = $weekReservations->get()->sum(function ($reservation) {
-                    return $reservation->quantity * ($reservation->product->price ?? 0);
-                });
+                // Reservation Revenue - Not counted (reservations are included in receipts when approved)
+                $weekReservationRevenue = 0;
 
                 $weekTransactionRevenue = 0;
                 try {
@@ -381,15 +352,8 @@ class ReportController extends Controller
                 }
                 $dayReceiptRevenue = $receiptQuery->sum('total_due') ?? 0;
 
-                $dayReservations = Reservation::with('product')
-                    ->whereIn('status', ['approved', 'completed'])
-                    ->whereDate('created_at', $dateStr);
-                if ($branchId) {
-                    $dayReservations->where('branch_id', $branchId);
-                }
-                $dayReservationRevenue = $dayReservations->get()->sum(function ($reservation) {
-                    return $reservation->quantity * ($reservation->product->price ?? 0);
-                });
+                // Reservation Revenue - Not counted (reservations are included in receipts when approved)
+                $dayReservationRevenue = 0;
 
                 $dayTransactionRevenue = 0;
                 try {

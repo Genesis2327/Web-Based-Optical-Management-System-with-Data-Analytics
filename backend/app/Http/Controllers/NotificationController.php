@@ -269,7 +269,7 @@ class NotificationController extends Controller
     /**
      * Mark notification as read
      */
-    public function markAsRead(Request $request, int $notificationId): JsonResponse
+    public function markAsRead(Request $request): JsonResponse
     {
         $user = $request->user();
         
@@ -277,6 +277,18 @@ class NotificationController extends Controller
             return response()->json(['error' => 'Unauthorized'], 401);
         }
 
+        $validator = Validator::make($request->all(), [
+            'notification_id' => 'required|integer|exists:notifications,id'
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $notificationId = $request->input('notification_id');
         $notification = Notification::where('user_id', $user->id)
             ->where('id', $notificationId)
             ->first();

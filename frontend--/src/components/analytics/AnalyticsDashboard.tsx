@@ -9,7 +9,7 @@ import { Button } from '../ui/button';
 import { useQuery } from '@tanstack/react-query';
 import { analyticsApi, AdminAnalytics, AnalyticsTrends } from '@/services/analyticsApi';
 import { getFeedbackAnalytics, FeedbackAnalytics } from '@/services/feedbackApi';
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, ComposedChart } from 'recharts';
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area, ComposedChart } from 'recharts';
 import { useBranch } from '@/contexts/BranchContext';
 import { useAuth } from '@/contexts/AuthContext';
 import BranchFilter from '../common/BranchFilter';
@@ -33,14 +33,16 @@ const AnalyticsDashboard = () => {
   const { data: adminAnalytics, isLoading: adminLoading, error: adminError, refetch: refetchAdminData } = useQuery<AdminAnalytics>({
     queryKey: ['admin-analytics', timeRange, selectedBranchId],
     queryFn: () => {
-      console.log('Fetching admin analytics...');
+      console.log('Fetching admin analytics...', { timeRange, selectedBranchId });
       return analyticsApi.getAdminAnalytics({
         period: parseInt(timeRange),
         branch_id: selectedBranchId !== 'all' ? parseInt(selectedBranchId) : undefined
       });
     },
     refetchInterval: 60000, // Refetch every minute
-    retry: 3
+    retry: 3,
+    staleTime: 0, // Always consider data stale to force refetch
+    gcTime: 0, // Don't cache data (formerly cacheTime)
   });
 
   // Log errors for debugging
@@ -80,17 +82,19 @@ const AnalyticsDashboard = () => {
   }, [realTimeError]);
 
   // Fetch trends data
-  const { data: trendsData, isLoading: trendsLoading, error: trendsError } = useQuery<AnalyticsTrends>({
+  const { data: trendsData, isLoading: trendsLoading, error: trendsError, refetch: refetchTrends } = useQuery<AnalyticsTrends>({
     queryKey: ['analytics-trends', timeRange, selectedBranchId],
     queryFn: () => {
-      console.log('Fetching analytics trends...');
+      console.log('Fetching analytics trends...', { timeRange, selectedBranchId });
       return analyticsApi.getAnalyticsTrends({
         period: parseInt(timeRange),
         branch_id: selectedBranchId !== 'all' ? parseInt(selectedBranchId) : undefined
       });
     },
     refetchInterval: 300000, // Refetch every 5 minutes
-    retry: 3
+    retry: 3,
+    staleTime: 0, // Always consider data stale to force refetch
+    gcTime: 0, // Don't cache data (formerly cacheTime)
   });
 
   // Log errors for debugging
@@ -99,6 +103,13 @@ const AnalyticsDashboard = () => {
       console.error('Analytics trends error:', trendsError);
     }
   }, [trendsError]);
+
+  // Refetch data when branch or time range changes
+  useEffect(() => {
+    console.log('Branch or time range changed, refetching data...', { selectedBranchId, timeRange });
+    refetchAdminData();
+    refetchTrends();
+  }, [selectedBranchId, timeRange]);
 
   // Fetch feedback analytics data
   const { data: feedbackData, isLoading: feedbackLoading, error: feedbackError, refetch: refetchFeedbackData } = useQuery<FeedbackAnalytics>({
@@ -140,13 +151,6 @@ const AnalyticsDashboard = () => {
     revenue: item.revenue,
     appointments: item.appointments,
     patients: item.patients
-  })) || [];
-
-  // Get appointment types from real data
-  const appointmentsByType = trendsData?.appointment_types?.map((item, index) => ({
-    name: item.name,
-    value: item.value,
-    color: ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'][index % 6]
   })) || [];
 
   // Transform appointment trend data for charts
@@ -229,16 +233,18 @@ const AnalyticsDashboard = () => {
         <Button
           onClick={() => {
             refetchAdminData();
+            refetchTrends();
             refetchRealTime();
             refetchFeedbackData();
+            toast.success('Analytics data refreshed');
           }}
           variant="outline"
           size="sm"
           className="min-w-[100px] disabled:opacity-50"
-          disabled={adminLoading || realTimeLoading || feedbackLoading}
+          disabled={adminLoading || trendsLoading || realTimeLoading || feedbackLoading}
         >
-          <RefreshCw className={`h-4 w-4 mr-2 ${(adminLoading || realTimeLoading || feedbackLoading) ? 'animate-spin' : ''}`} />
-          {(adminLoading || realTimeLoading || feedbackLoading) ? 'Refreshing...' : 'Refresh'}
+          <RefreshCw className={`h-4 w-4 mr-2 ${(adminLoading || trendsLoading || realTimeLoading || feedbackLoading) ? 'animate-spin' : ''}`} />
+          {(adminLoading || trendsLoading || realTimeLoading || feedbackLoading) ? 'Refreshing...' : 'Refresh'}
         </Button>
         <Button
           onClick={async () => {
@@ -439,109 +445,55 @@ const AnalyticsDashboard = () => {
         </TabsContent>
 
         <TabsContent value="appointments" className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Appointment Trends</CardTitle>
-                <CardDescription>Daily appointment volumes over time</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {trendsLoading ? (
-                  <div className="flex items-center justify-center h-[300px]">
-                    <div className="text-center">
-                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
-                      <p className="text-sm text-muted-foreground">Loading appointment trends...</p>
-                    </div>
+          <Card>
+            <CardHeader>
+              <CardTitle>Appointment Trends</CardTitle>
+              <CardDescription>Daily appointment volumes over time</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {trendsLoading ? (
+                <div className="flex items-center justify-center h-[300px]">
+                  <div className="text-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
+                    <p className="text-sm text-muted-foreground">Loading appointment trends...</p>
                   </div>
-                ) : appointmentTrendData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={appointmentTrendData}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis 
-                        dataKey="date" 
-                        tick={{ fontSize: 12 }}
-                        interval="preserveStartEnd"
-                      />
-                      <YAxis />
-                      <Tooltip 
-                        labelFormatter={(value, payload) => {
-                          const data = payload?.[0]?.payload;
-                          return data ? new Date(data.fullDate).toLocaleDateString() : value;
-                        }}
-                        formatter={(value, name) => [
-                          value,
-                          name === 'total' ? 'Total' : 
-                          name === 'completed' ? 'Completed' : 
-                          name === 'cancelled' ? 'Cancelled' : name
-                        ]}
-                      />
-                      <Bar dataKey="total" fill="#3b82f6" name="total" />
-                      <Bar dataKey="completed" fill="#10b981" name="completed" />
-                      <Bar dataKey="cancelled" fill="#ef4444" name="cancelled" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="flex items-center justify-center h-[300px]">
-                    <div className="text-center">
-                      <p className="text-muted-foreground">No appointment data available</p>
-                    </div>
+                </div>
+              ) : appointmentTrendData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={appointmentTrendData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis 
+                      dataKey="date" 
+                      tick={{ fontSize: 12 }}
+                      interval="preserveStartEnd"
+                    />
+                    <YAxis />
+                    <Tooltip 
+                      labelFormatter={(value, payload) => {
+                        const data = payload?.[0]?.payload;
+                        return data ? new Date(data.fullDate).toLocaleDateString() : value;
+                      }}
+                      formatter={(value, name) => [
+                        value,
+                        name === 'total' ? 'Total' : 
+                        name === 'completed' ? 'Completed' : 
+                        name === 'cancelled' ? 'Cancelled' : name
+                      ]}
+                    />
+                    <Bar dataKey="total" fill="#3b82f6" name="total" />
+                    <Bar dataKey="completed" fill="#10b981" name="completed" />
+                    <Bar dataKey="cancelled" fill="#ef4444" name="cancelled" />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex items-center justify-center h-[300px]">
+                  <div className="text-center">
+                    <p className="text-muted-foreground">No appointment data available</p>
                   </div>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Appointments by Type</CardTitle>
-                <CardDescription>Distribution of appointment types</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {trendsLoading ? (
-                  <div className="flex items-center justify-center h-[300px]">
-                    <div className="text-center">
-                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
-                      <p className="text-sm text-muted-foreground">Loading appointment types...</p>
-                    </div>
-                  </div>
-                ) : appointmentsByType.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={300}>
-                    <PieChart>
-                      <Pie
-                        data={appointmentsByType}
-                        dataKey="value"
-                        nameKey="name"
-                        cx="50%"
-                        cy="50%"
-                        outerRadius={80}
-                        label={(props) => {
-                          const { name, value } = props;
-                          const total = appointmentsByType.reduce((sum, item) => sum + item.value, 0);
-                          const percentage = total > 0 ? Math.round((value / total) * 100) : 0;
-                          return `${name ?? ''}: ${percentage}%`;
-                        }}
-                      >
-                        {appointmentsByType.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} />
-                        ))}
-                      </Pie>
-                      <Tooltip 
-                        formatter={(value, name) => [
-                          value,
-                          name
-                        ]}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="flex items-center justify-center h-[300px]">
-                    <div className="text-center">
-                      <p className="text-muted-foreground">No appointment type data available</p>
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
         </TabsContent>
 

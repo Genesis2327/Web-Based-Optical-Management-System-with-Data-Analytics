@@ -105,6 +105,12 @@ class BranchStockController extends Controller
         // Explicitly cast to int to ensure 0 is saved properly
         $stockQuantity = (int) $request->stock_quantity;
 
+        // Get existing stock before update
+        $existingStock = BranchStock::where('product_id', $product->id)
+            ->where('branch_id', $branch->id)
+            ->first();
+        $previousStock = $existingStock ? ($existingStock->stock_quantity - ($existingStock->reserved_quantity ?? 0)) : 0;
+
         // Update or create branch stock record
         $branchStock = BranchStock::updateOrCreate(
             ['product_id' => $product->id, 'branch_id' => $branch->id],
@@ -136,6 +142,15 @@ class BranchStockController extends Controller
                 $availableQuantity,
                 $minThreshold
             );
+        }
+
+        // Check if product became available (was 0, now has stock) and notify customers
+        if ($previousStock == 0 && $availableQuantity > 0) {
+            try {
+                \App\Services\CustomerNotificationService::notifyProductAvailability($product, $branch->id);
+            } catch (\Exception $e) {
+                \Log::warning('Failed to send product availability notification: ' . $e->getMessage());
+            }
         }
 
         return response()->json([

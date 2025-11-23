@@ -21,7 +21,6 @@ import {
   Mail,
   Globe,
   MapPin,
-  Eye,
   BarChart3,
   ChevronDown,
   ChevronRight,
@@ -627,12 +626,6 @@ const AdminCentralInventory: React.FC = () => {
                             </div>
                           )}
                         </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Button variant="outline" size="sm">
-                          <Eye className="h-4 w-4 mr-1" />
-                                        View
-                        </Button>
                       </div>
                     </div>
                   </CardContent>

@@ -32,6 +32,10 @@ class AuthController extends Controller
                 // Allow user to choose desired role; actual account starts as customer
                 'role' => ['required', 'string', new Enum(\App\Enums\UserRole::class)],
                 'branch_id' => 'nullable|exists:branches,id',
+                'privacy_policy_accepted' => 'required|boolean|accepted',
+                'terms_accepted' => 'required|boolean|accepted',
+                'privacy_policy_version' => 'required|string',
+                'terms_version' => 'required|string',
             ], [
                 'name.required' => 'Full name is required. Please enter your full name.',
                 'name.string' => 'Full name must contain only text characters.',
@@ -50,12 +54,43 @@ class AuthController extends Controller
                 'role.required' => 'Role selection is required. Please select a role.',
                 'role.Enum' => 'Invalid role selected. Please select a valid role from the options.',
                 'branch_id.exists' => 'The selected branch does not exist. Please select a valid branch.',
+                'privacy_policy_accepted.required' => 'You must accept the Privacy Policy to create an account.',
+                'privacy_policy_accepted.accepted' => 'You must accept the Privacy Policy to create an account.',
+                'terms_accepted.required' => 'You must accept the Terms and Conditions to create an account.',
+                'terms_accepted.accepted' => 'You must accept the Terms and Conditions to create an account.',
+                'privacy_policy_version.required' => 'Privacy policy version is required.',
+                'terms_version.required' => 'Terms and conditions version is required.',
             ]);
 
             if ($validator->fails()) {
                 return response()->json([
                     'message' => 'Validation failed',
                     'errors' => $validator->errors()
+                ], 422);
+            }
+
+            // Validate policy versions exist and are active
+            $privacyPolicy = \App\Models\Policy::where('type', 'privacy_policy')
+                ->where('version', $request->privacy_policy_version)
+                ->where('is_active', true)
+                ->first();
+
+            if (!$privacyPolicy) {
+                return response()->json([
+                    'message' => 'Invalid or inactive privacy policy version. Please refresh the page and try again.',
+                    'errors' => ['privacy_policy_version' => ['Invalid privacy policy version']]
+                ], 422);
+            }
+
+            $termsPolicy = \App\Models\Policy::where('type', 'terms_conditions')
+                ->where('version', $request->terms_version)
+                ->where('is_active', true)
+                ->first();
+
+            if (!$termsPolicy) {
+                return response()->json([
+                    'message' => 'Invalid or inactive terms and conditions version. Please refresh the page and try again.',
+                    'errors' => ['terms_version' => ['Invalid terms and conditions version']]
                 ], 422);
             }
 
@@ -102,6 +137,10 @@ class AuthController extends Controller
             }
 
             $user = User::create($userData);
+
+            // Record policy acceptance
+            $user->acceptPrivacyPolicy($request->privacy_policy_version);
+            $user->acceptTerms($request->terms_version);
 
             // Create notification for user signup (wrapped in try-catch to prevent registration failure)
             try {
@@ -174,7 +213,7 @@ class AuthController extends Controller
 
         // Check for brute force attempts BEFORE proceeding
         $maxAttempts = 5;
-        $lockoutMinutes = 15;
+        $lockoutMinutes = 1; // Lock for 1 minute after 5 failed attempts
         
         // Helper function to check and enforce lockout after recording a failed attempt
         $checkLockoutAfterFailedAttempt = function($currentAttempts) use ($email, $ipAddress, $maxAttempts, $lockoutMinutes) {
@@ -251,7 +290,7 @@ class AuthController extends Controller
         
         if ($validator->fails()) {
             // Get current attempt count before recording
-            $currentAttempts = LoginAttempt::getFailedAttempts($email, $ipAddress, 15);
+            $currentAttempts = LoginAttempt::getFailedAttempts($email, $ipAddress, $lockoutMinutes);
             // Record failed attempt for validation errors
             LoginAttempt::recordAttempt($email, $ipAddress, false);
             
@@ -277,6 +316,8 @@ class AuthController extends Controller
         
         // CRITICAL: Check lockout BEFORE any user lookup or processing
         // This must happen FIRST to block ALL attempts when locked out
+        // If there are 5+ failed attempts within the last 1 minute, block ALL login attempts
+        // (including correct passwords) until 1 minute has passed since the 5th attempt
         $currentFailedAttempts = LoginAttempt::getFailedAttempts($email, $ipAddress, $lockoutMinutes);
         
         \Log::info('Lockout check before processing', [
@@ -288,87 +329,45 @@ class AuthController extends Controller
         ]);
         
         if ($currentFailedAttempts >= $maxAttempts) {
-            // Get the 5th failed attempt (the one that triggered lockout)
+            // Get all failed attempts within the lockout window, ordered from oldest to newest
             $failedAttempts = LoginAttempt::where('email', $email)
                 ->where('ip_address', $ipAddress)
                 ->where('successful', false)
                 ->where('attempted_at', '>=', now()->subMinutes($lockoutMinutes))
-                ->orderBy('attempted_at', 'asc') // Order from oldest to newest
+                ->orderBy('attempted_at', 'asc')
                 ->get();
             
-            // Calculate lockout from the 5th attempt (index 4, since it's 0-based)
-            $fifthAttempt = $failedAttempts->get(4); // The 5th attempt (0,1,2,3,4 = 5 attempts)
+            // Get the 5th attempt (index 4, since it's 0-based: 0,1,2,3,4 = 5 attempts)
+            $fifthAttempt = $failedAttempts->get(4);
             
-            $remainingSeconds = 0;
             if ($fifthAttempt) {
+                // Calculate lockout end time: 1 minute from the 5th attempt
                 $lockoutEnd = $fifthAttempt->attempted_at->copy()->addMinutes($lockoutMinutes);
+                $remainingSeconds = max(0, $lockoutEnd->diffInSeconds(now()));
                 
-                // If lockout period has expired, check
-                if ($lockoutEnd->isPast()) {
-                    $remainingSeconds = 0;
-                } else {
-                    $remainingSeconds = max(0, $lockoutEnd->diffInSeconds(now()));
-                }
-            } else {
-                // Fallback to standard method
-                $remainingSeconds = LoginAttempt::getRemainingLockoutTime($email, $ipAddress, $lockoutMinutes);
-            }
-            
-            \Log::info('Lockout check result', [
-                'email' => $email,
-                'failed_attempts' => $currentFailedAttempts,
-                'fifth_attempt_time' => $fifthAttempt ? $fifthAttempt->attempted_at->toDateTimeString() : 'none',
-                'remaining_seconds' => $remainingSeconds,
-                'will_block' => $remainingSeconds > 0
-            ]);
-            
-            // CRITICAL: If we have 5+ attempts within the lockout window, ALWAYS block
-            // The lockout period starts from when the 5th attempt was made
-            if ($remainingSeconds > 0 || $fifthAttempt) {
-                // Calculate remaining time more accurately
-                if ($fifthAttempt) {
-                    $lockoutEnd = $fifthAttempt->attempted_at->copy()->addMinutes($lockoutMinutes);
-                    $remainingSeconds = max(0, $lockoutEnd->diffInSeconds(now()));
-                }
+                \Log::info('Lockout check result', [
+                    'email' => $email,
+                    'failed_attempts' => $currentFailedAttempts,
+                    'fifth_attempt_time' => $fifthAttempt->attempted_at->toDateTimeString(),
+                    'lockout_end_time' => $lockoutEnd->toDateTimeString(),
+                    'remaining_seconds' => $remainingSeconds,
+                    'will_block' => $remainingSeconds > 0
+                ]);
                 
-                // Only proceed if lockout has truly expired AND attempts have dropped
-                if ($remainingSeconds <= 0) {
-                    // Lockout period expired - verify attempts have dropped below limit
-                    $recheckAttempts = LoginAttempt::getFailedAttempts($email, $ipAddress, $lockoutMinutes);
-                    if ($recheckAttempts < $maxAttempts) {
-                        // Attempts dropped below limit - allow login
-                        \Log::info('Lockout expired, attempts below limit - allowing login', [
-                            'email' => $email,
-                            'previous_attempts' => $currentFailedAttempts,
-                            'current_attempts' => $recheckAttempts
-                        ]);
-                        // Continue to login processing
-                    } else {
-                        // Still have 5+ attempts - recalculate from most recent
-                        $remainingSeconds = LoginAttempt::getRemainingLockoutTime($email, $ipAddress, $lockoutMinutes);
-                        if ($remainingSeconds > 0) {
-                            // Still locked - block
-                        } else {
-                            // Lockout expired - allow
-                            \Log::info('Lockout expired - allowing login', ['email' => $email]);
-                            // Continue to login processing
-                        }
-                    }
-                } else {
-                    // Lockout is still active - MUST block
-                    // Lockout is active - block ALL attempts
+                // If lockout period has NOT expired, BLOCK ALL attempts (including correct passwords)
+                if ($remainingSeconds > 0) {
                     $remainingMinutes = ceil($remainingSeconds / 60);
                     $remainingMinutes = max(1, $remainingMinutes);
                     
                     $displayAttemptNumber = min($currentFailedAttempts, $maxAttempts);
                     
-                    \Log::warning('Login BLOCKED: Account locked - blocking before any processing', [
+                    \Log::warning('Login BLOCKED: Account locked - blocking ALL attempts including correct password', [
                         'email' => $email,
                         'ip_address' => $ipAddress,
                         'failed_attempts' => $currentFailedAttempts,
                         'remaining_seconds' => $remainingSeconds,
                         'remaining_minutes' => $remainingMinutes,
-                        'status' => 'COMPLETE_LOCKOUT_BLOCKED'
+                        'status' => 'LOCKOUT_ACTIVE'
                     ]);
                     
                     return response()->json([
@@ -381,55 +380,84 @@ class AuthController extends Controller
                         'max_attempts' => $maxAttempts,
                         'lockout_active' => true
                     ], 429);
-                }
-            } else {
-                // Lockout period expired - verify attempts have actually dropped below limit
-                // Re-check to make sure old attempts are no longer counted
-                $recheckAttempts = LoginAttempt::getFailedAttempts($email, $ipAddress, $lockoutMinutes);
-                
-                if ($recheckAttempts >= $maxAttempts) {
-                    // Still have 5+ attempts - recalculate lockout from most recent attempt
-                    $lastAttempt = LoginAttempt::where('email', $email)
-                        ->where('ip_address', $ipAddress)
-                        ->where('successful', false)
-                        ->orderBy('attempted_at', 'desc')
-                        ->first();
+                } else {
+                    // Lockout period has expired - verify attempts have dropped below limit
+                    // Re-check to ensure old attempts are no longer in the 1-minute window
+                    $recheckAttempts = LoginAttempt::getFailedAttempts($email, $ipAddress, $lockoutMinutes);
                     
-                    if ($lastAttempt) {
-                        $lockoutEnd = $lastAttempt->attempted_at->copy()->addMinutes($lockoutMinutes);
-                        $newRemainingSeconds = max(0, $lockoutEnd->diffInSeconds(now()));
+                    if ($recheckAttempts >= $maxAttempts) {
+                        // Still have 5+ attempts - recalculate from the new 5th attempt
+                        $newFailedAttempts = LoginAttempt::where('email', $email)
+                            ->where('ip_address', $ipAddress)
+                            ->where('successful', false)
+                            ->where('attempted_at', '>=', now()->subMinutes($lockoutMinutes))
+                            ->orderBy('attempted_at', 'asc')
+                            ->get();
                         
-                        if ($newRemainingSeconds > 0) {
-                            $remainingMinutes = ceil($newRemainingSeconds / 60);
-                            $remainingMinutes = max(1, $remainingMinutes);
+                        $newFifthAttempt = $newFailedAttempts->get(4);
+                        
+                        if ($newFifthAttempt) {
+                            $newLockoutEnd = $newFifthAttempt->attempted_at->copy()->addMinutes($lockoutMinutes);
+                            $newRemainingSeconds = max(0, $newLockoutEnd->diffInSeconds(now()));
                             
-                            \Log::warning('Login BLOCKED: Account locked - recalculated lockout', [
-                                'email' => $email,
-                                'failed_attempts' => $recheckAttempts,
-                                'remaining_seconds' => $newRemainingSeconds,
-                                'status' => 'LOCKOUT_RECALCULATED'
-                            ]);
-                            
-                            return response()->json([
-                                'message' => 'Too many failed login attempts. Your account has been temporarily locked. Please wait ' . $remainingMinutes . ' minute(s) before trying again.',
-                                'errors' => [
-                                    'email' => ['Account temporarily locked due to multiple failed login attempts (' . $maxAttempts . ' attempts). You must wait ' . $remainingMinutes . ' minute(s) before attempting to sign in again, even with the correct password.'],
-                                ],
-                                'lockout_remaining_seconds' => $newRemainingSeconds,
-                                'attempt_number' => $maxAttempts,
-                                'max_attempts' => $maxAttempts,
-                                'lockout_active' => true
-                            ], 429);
+                            if ($newRemainingSeconds > 0) {
+                                $remainingMinutes = ceil($newRemainingSeconds / 60);
+                                $remainingMinutes = max(1, $remainingMinutes);
+                                
+                                \Log::warning('Login BLOCKED: Account still locked - new 5th attempt found', [
+                                    'email' => $email,
+                                    'failed_attempts' => $recheckAttempts,
+                                    'remaining_seconds' => $newRemainingSeconds,
+                                    'status' => 'LOCKOUT_RECALCULATED'
+                                ]);
+                                
+                                return response()->json([
+                                    'message' => 'Too many failed login attempts. Your account has been temporarily locked. Please wait ' . $remainingMinutes . ' minute(s) before trying again.',
+                                    'errors' => [
+                                        'email' => ['Account temporarily locked due to multiple failed login attempts (' . $maxAttempts . ' attempts). You must wait ' . $remainingMinutes . ' minute(s) before attempting to sign in again, even with the correct password.'],
+                                    ],
+                                    'lockout_remaining_seconds' => $newRemainingSeconds,
+                                    'attempt_number' => $maxAttempts,
+                                    'max_attempts' => $maxAttempts,
+                                    'lockout_active' => true
+                                ], 429);
+                            }
                         }
                     }
+                    
+                    // Lockout expired and attempts dropped below limit - allow login
+                    \Log::info('Lockout expired, allowing login attempt', [
+                        'email' => $email,
+                        'previous_attempts' => $currentFailedAttempts,
+                        'current_attempts' => $recheckAttempts ?? $currentFailedAttempts
+                    ]);
                 }
+            } else {
+                // Fallback: if we can't find the 5th attempt, use the standard method
+                $remainingSeconds = LoginAttempt::getRemainingLockoutTime($email, $ipAddress, $lockoutMinutes);
                 
-                // Lockout truly expired and attempts dropped below limit - allow to proceed
-                \Log::info('Lockout expired, allowing login attempt', [
-                    'email' => $email,
-                    'previous_attempts' => $currentFailedAttempts,
-                    'current_attempts' => $recheckAttempts
-                ]);
+                if ($remainingSeconds > 0) {
+                    $remainingMinutes = ceil($remainingSeconds / 60);
+                    $remainingMinutes = max(1, $remainingMinutes);
+                    
+                    \Log::warning('Login BLOCKED: Account locked - fallback method', [
+                        'email' => $email,
+                        'failed_attempts' => $currentFailedAttempts,
+                        'remaining_seconds' => $remainingSeconds,
+                        'status' => 'LOCKOUT_FALLBACK'
+                    ]);
+                    
+                    return response()->json([
+                        'message' => 'Too many failed login attempts. Your account has been temporarily locked. Please wait ' . $remainingMinutes . ' minute(s) before trying again.',
+                        'errors' => [
+                            'email' => ['Account temporarily locked due to multiple failed login attempts (' . $maxAttempts . ' attempts). You must wait ' . $remainingMinutes . ' minute(s) before attempting to sign in again, even with the correct password.'],
+                        ],
+                        'lockout_remaining_seconds' => $remainingSeconds,
+                        'attempt_number' => $maxAttempts,
+                        'max_attempts' => $maxAttempts,
+                        'lockout_active' => true
+                    ], 429);
+                }
             }
         }
         
@@ -438,7 +466,7 @@ class AuthController extends Controller
 
         if (!$user) {
             // Get current attempt count before recording
-            $currentAttempts = LoginAttempt::getFailedAttempts($email, $ipAddress, 15);
+            $currentAttempts = LoginAttempt::getFailedAttempts($email, $ipAddress, $lockoutMinutes);
             // Record failed attempt
             LoginAttempt::recordAttempt($email, $ipAddress, false);
             
@@ -471,7 +499,7 @@ class AuthController extends Controller
         $userRoleValue = $user->role->value ?? (string)$user->role;
         if ($request->role !== $userRoleValue) {
             // Get current attempt count before recording
-            $currentAttempts = LoginAttempt::getFailedAttempts($email, $ipAddress, 15);
+            $currentAttempts = LoginAttempt::getFailedAttempts($email, $ipAddress, $lockoutMinutes);
             // Record failed attempt
             LoginAttempt::recordAttempt($email, $ipAddress, false);
             
@@ -511,7 +539,7 @@ class AuthController extends Controller
         // Step 3: Check if account is approved (only after email and role are verified)
         if (!$user->is_approved) {
             // Get current attempt count before recording
-            $currentAttempts = LoginAttempt::getFailedAttempts($email, $ipAddress, 15);
+            $currentAttempts = LoginAttempt::getFailedAttempts($email, $ipAddress, $lockoutMinutes);
             LoginAttempt::recordAttempt($email, $ipAddress, false);
             
             // Check if this attempt triggered a lockout
@@ -538,9 +566,23 @@ class AuthController extends Controller
         }
 
         // Step 4: Verify password (lockout already checked above, so safe to proceed)
-        if (!Hash::check($request->password, $user->password)) {
+        $passwordValid = false;
+        try {
+            $passwordValid = Hash::check($request->password, $user->password);
+        } catch (\RuntimeException $e) {
+            // Password is not properly hashed (e.g., stored as plain text or wrong algorithm)
+            \Log::error('Password hash check failed: ' . $e->getMessage(), [
+                'email' => $email,
+                'user_id' => $user->id,
+                'error' => $e->getMessage()
+            ]);
+            // Treat as invalid password
+            $passwordValid = false;
+        }
+        
+        if (!$passwordValid) {
             // Password is WRONG - record failed attempt and check if this triggers lockout
-            $currentAttempts = LoginAttempt::getFailedAttempts($email, $ipAddress, 15);
+            $currentAttempts = LoginAttempt::getFailedAttempts($email, $ipAddress, $lockoutMinutes);
             LoginAttempt::recordAttempt($email, $ipAddress, false);
             
             // Check if this attempt triggered a lockout (5th attempt)
@@ -672,6 +714,8 @@ class AuthController extends Controller
             'phone' => $user->phone,
             'social_media' => $user->social_media,
             'address' => $user->address,
+            'date_of_birth' => $user->date_of_birth ? $user->date_of_birth->format('Y-m-d') : null,
+            'sex' => $user->sex,
             'must_change_password' => $user->must_change_password ?? false,
             'branch' => $user->branch ? [
                 'id' => $user->branch->id,
@@ -694,6 +738,8 @@ class AuthController extends Controller
             'phone' => 'sometimes|nullable|string|max:20',
             'social_media' => 'sometimes|nullable|string|max:255',
             'address' => 'sometimes|nullable|string|max:500',
+            'date_of_birth' => 'sometimes|nullable|date',
+            'sex' => 'sometimes|nullable|string|in:Male,Female,Other',
             'current_password' => 'required_with:password|string',
             'password' => 'sometimes|string|min:8',
             'password_confirmation' => 'required_with:password|string|same:password',
@@ -735,24 +781,34 @@ class AuthController extends Controller
 
         // Handle other profile updates
         $updateData = [];
-        if ($request->has('name')) {
+        if ($request->has('name') && $request->filled('name')) {
             $updateData['name'] = $request->name;
         }
-        if ($request->has('email')) {
+        if ($request->has('email') && $request->filled('email')) {
             $updateData['email'] = $request->email;
         }
         if ($request->has('phone')) {
-            $updateData['phone'] = $request->phone;
+            $updateData['phone'] = $request->phone ?: null;
         }
         if ($request->has('social_media')) {
-            $updateData['social_media'] = $request->social_media;
+            $updateData['social_media'] = $request->social_media ?: null;
         }
         if ($request->has('address')) {
-            $updateData['address'] = $request->address;
+            $updateData['address'] = $request->address ?: null;
+        }
+        // Handle date_of_birth - allow empty string to set to null
+        if ($request->has('date_of_birth')) {
+            $updateData['date_of_birth'] = $request->date_of_birth ?: null;
+        }
+        // Handle sex - allow empty string to set to null
+        if ($request->has('sex')) {
+            $updateData['sex'] = $request->sex ?: null;
         }
 
         if (!empty($updateData)) {
             $user->update($updateData);
+            // Refresh the model to ensure we get the latest data
+            $user->refresh();
         }
 
         return response()->json([
@@ -763,6 +819,8 @@ class AuthController extends Controller
                 'phone' => $user->phone,
                 'social_media' => $user->social_media,
                 'address' => $user->address,
+                'date_of_birth' => $user->date_of_birth ? $user->date_of_birth->format('Y-m-d') : null,
+                'sex' => $user->sex,
             ]
         ], 200);
     }

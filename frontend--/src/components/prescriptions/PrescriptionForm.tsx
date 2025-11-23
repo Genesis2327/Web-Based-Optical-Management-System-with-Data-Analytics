@@ -556,29 +556,13 @@ const PrescriptionForm: React.FC<PrescriptionFormProps> = ({ appointment, onSucc
                       <SelectValue placeholder="Select lens type" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="single">Single Vision</SelectItem>
-                      <SelectItem value="bifocal">Bifocal</SelectItem>
-                      <SelectItem value="progressive">Progressive</SelectItem>
-                      <SelectItem value="reading">Reading</SelectItem>
-                      <SelectItem value="computer">Computer</SelectItem>
+                      <SelectItem value="ordinary">Ordinary Lens</SelectItem>
+                      <SelectItem value="anti_radiation">Anti-Radiation Lens</SelectItem>
+                      <SelectItem value="photochromic_lens">Photochromic Lens</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
-                <div>
-                  <Label htmlFor="coating">Coating</Label>
-                  <Select value={formData.coating} onValueChange={(value) => setFormData(prev => ({ ...prev, coating: value }))}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select coating" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">None</SelectItem>
-                      <SelectItem value="anti_reflective">Anti-Reflective</SelectItem>
-                      <SelectItem value="uv_protection">UV Protection</SelectItem>
-                      <SelectItem value="blue_light">Blue Light Filter</SelectItem>
-                      <SelectItem value="photochromic">Photochromic</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+                {/* Coating removed - not part of client services */}
               </div>
 
               <div>

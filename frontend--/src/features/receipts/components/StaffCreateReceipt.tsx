@@ -62,7 +62,8 @@ export const StaffCreateReceipt: React.FC<Props> = ({ appointmentId, defaultCust
         console.log(`Loading reservations for customer ID: ${customerId}, Appointment ID: ${appointmentId}`);
 
         // Fetch all reservations for this branch (staff only see their branch)
-        const response = await fetch(`${apiBaseUrl}/reservations?status=approved`, {
+        // Include both approved and completed reservations
+        const response = await fetch(`${apiBaseUrl}/reservations`, {
           headers: {
             'Authorization': token ? `Bearer ${token}` : '',
             'Content-Type': 'application/json',
@@ -76,13 +77,16 @@ export const StaffCreateReceipt: React.FC<Props> = ({ appointmentId, defaultCust
         const allReservations: Reservation[] = await response.json();
         
         // Filter to only get reservations for THIS specific customer
+        // Include both approved and completed reservations (completed means ready for receipt)
         const customerReservations = allReservations.filter(reservation => {
           // Ensure the reservation belongs to this specific customer
           const reservationUserId = reservation.user?.id || reservation.user_id;
-          return reservationUserId === customerId;
+          const isCorrectCustomer = reservationUserId === customerId;
+          const isApprovedOrCompleted = reservation.status === 'approved' || reservation.status === 'completed';
+          return isCorrectCustomer && isApprovedOrCompleted;
         });
 
-        console.log(`Found ${customerReservations.length} approved reservation(s) for customer ${defaultCustomerName} (ID: ${customerId})`);
+        console.log(`Found ${customerReservations.length} approved/completed reservation(s) for customer ${defaultCustomerName} (ID: ${customerId})`);
 
         // Convert reservations to receipt items
         if (customerReservations && customerReservations.length > 0) {

@@ -38,6 +38,29 @@ const NotificationBell: React.FC = () => {
     }
   };
 
+  // Define available notification types per role
+  const getRoleNotificationTypes = (role?: string): string[] => {
+    switch (role) {
+      case 'admin':
+        return ['inventory', 'inventory_update', 'low_stock_alert', 'user_signup'];
+      case 'staff':
+        return ['appointment', 'inventory', 'inventory_update', 'low_stock_alert'];
+      case 'optometrist':
+        return ['appointment', 'prescription'];
+      case 'customer':
+        return ['appointment', 'prescription', 'reminder', 'eyewear_condition'];
+      default:
+        return [];
+    }
+  };
+
+  // Filter notifications based on user role
+  const allowedTypes = getRoleNotificationTypes(user?.role);
+  const filteredNotifications = notifications.filter(n => {
+    const notificationType = n.type || '';
+    return allowedTypes.length === 0 || allowedTypes.includes(notificationType);
+  });
+
   const getNavigationPath = (notification: any): string | null => {
     const notifData = typeof notification.data === 'string' 
       ? JSON.parse(notification.data) 
@@ -47,19 +70,14 @@ const NotificationBell: React.FC = () => {
     
     switch (notification.type) {
       case 'appointment':
-        if (notifData?.appointment_id) {
-          return `/${rolePrefix}/appointments`;
-        }
         return `/${rolePrefix}/appointments`;
       
       case 'prescription':
-        if (notifData?.prescription_id) {
-          return `/${rolePrefix}/prescriptions`;
-        }
         return `/${rolePrefix}/prescriptions`;
       
       case 'inventory_update':
       case 'inventory':
+      case 'low_stock_alert':
         return `/${rolePrefix}/inventory`;
       
       case 'user_signup':
@@ -71,6 +89,9 @@ const NotificationBell: React.FC = () => {
       
       case 'reminder':
         return `/${rolePrefix}/appointments`;
+      
+      case 'eyewear_condition':
+        return `/${rolePrefix}/history`;
       
       default:
         return null;
@@ -111,6 +132,7 @@ const NotificationBell: React.FC = () => {
         return '💊';
       case 'inventory_update':
       case 'inventory':
+      case 'low_stock_alert':
         return '📦';
       case 'user_signup':
         return '👤';
@@ -118,6 +140,8 @@ const NotificationBell: React.FC = () => {
         return '⚙️';
       case 'reminder':
         return '⏰';
+      case 'eyewear_condition':
+        return '👓';
       default:
         return '🔔';
     }
@@ -131,6 +155,7 @@ const NotificationBell: React.FC = () => {
         return 'text-green-600';
       case 'inventory_update':
       case 'inventory':
+      case 'low_stock_alert':
         return 'text-orange-600';
       case 'user_signup':
         return 'text-purple-600';
@@ -138,6 +163,8 @@ const NotificationBell: React.FC = () => {
         return 'text-gray-600';
       case 'reminder':
         return 'text-yellow-600';
+      case 'eyewear_condition':
+        return 'text-indigo-600';
       default:
         return 'text-gray-600';
     }
@@ -190,14 +217,14 @@ const NotificationBell: React.FC = () => {
                 <div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
                 <p className="mt-2 text-sm text-gray-600">Loading notifications...</p>
               </div>
-            ) : notifications.length === 0 ? (
+            ) : filteredNotifications.length === 0 ? (
               <div className="px-4 py-8 text-center">
                 <Bell className="h-12 w-12 text-gray-300 mx-auto mb-2" />
                 <p className="text-gray-500">No notifications yet</p>
               </div>
             ) : (
               <div className="divide-y divide-gray-100">
-                {notifications.map((notification) => (
+                {filteredNotifications.map((notification) => (
                   <div
                     key={notification.id}
                     onClick={() => handleNotificationClick(notification)}
@@ -235,10 +262,10 @@ const NotificationBell: React.FC = () => {
           </div>
 
           {/* Footer */}
-          {notifications.length > 0 && (
+          {filteredNotifications.length > 0 && (
             <div className="px-4 py-2 border-t border-gray-200 bg-gray-50">
               <p className="text-xs text-gray-500 text-center">
-                Showing {notifications.length} notifications
+                Showing {filteredNotifications.length} notifications
               </p>
             </div>
           )}

@@ -1,3 +1,89 @@
+# EverBright Optical Clinic - Backend API
+
+## Quick Start
+
+### Prerequisites
+- PHP 8.1+
+- Composer
+- Node.js 16+
+- MySQL/MariaDB
+
+### Installation
+
+1. Install PHP dependencies:
+```bash
+composer install
+```
+
+2. Copy environment file:
+```bash
+cp .env.example .env
+```
+
+3. Generate application key:
+```bash
+php artisan key:generate
+```
+
+4. Run migrations:
+```bash
+php artisan migrate
+```
+
+5. Start the Laravel development server:
+```bash
+php artisan serve
+```
+
+### WebSocket Server
+
+The application uses a WebSocket server for real-time notifications. **You must start the WebSocket server separately** for real-time features to work.
+
+#### Starting the WebSocket Server
+
+1. Navigate to the websocket directory:
+```bash
+cd websocket
+```
+
+2. Install dependencies (if not already installed):
+```bash
+npm install
+```
+
+3. Start the WebSocket server:
+```bash
+npm start
+```
+
+Or for development with auto-reload:
+```bash
+npm run dev
+```
+
+The WebSocket server will run on port 6001 by default (configurable via `WEBSOCKET_PORT` environment variable).
+
+#### WebSocket Configuration
+
+- Default port: `6001`
+- Default host: `0.0.0.0` (listens on all interfaces)
+- Health check: `http://localhost:6001/health`
+- Connections info: `http://localhost:6001/connections`
+
+#### Environment Variables
+
+Add these to your `.env` file:
+```env
+WEBSOCKET_PORT=6001
+WEBSOCKET_HOST=0.0.0.0
+JWT_SECRET=your-jwt-secret-key
+SKIP_WS_AUTH=false  # Set to 'true' for development to bypass authentication
+```
+
+**Note:** If the WebSocket server is not running, the frontend will show connection errors in the console, but the application will continue to function (real-time notifications will be disabled).
+
+---
+
 <p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
 
 <p align="center">

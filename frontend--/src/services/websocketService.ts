@@ -136,6 +136,8 @@ class WebSocketService {
         }
         this.hasLoggedError = true;
       }
+      // Disable connection attempts completely after max attempts
+      this.connectionDisabled = true;
       return;
     }
 
@@ -160,55 +162,63 @@ class WebSocketService {
       // Always suppress WebSocket errors, but allow one log in dev mode on first attempt
       const originalError = console.error;
       const originalWarn = console.warn;
+      const originalLog = console.log;
       const isFirstAttempt = this.reconnectAttempts === 0 && import.meta.env.DEV;
       
-      // Always set up error suppression to catch socket.io errors
-      console.error = (...args: any[]) => {
-        // Only suppress WebSocket-related errors
-        const message = args[0]?.toString() || '';
-        const fullMessage = JSON.stringify(args);
-        const allArgs = args.map(a => String(a)).join(' ');
-        
-        // Check if this is a WebSocket-related error
-        const isWebSocketError = 
-          message.includes('WebSocket') || 
-          message.includes('socket.io') || 
-          message.includes('ERR_CONNECTION_REFUSED') ||
-          message.includes('net::ERR_CONNECTION_REFUSED') ||
-          fullMessage.includes('ws://127.0.0.1:6001') ||
-          fullMessage.includes('ws://localhost:6001') ||
-          fullMessage.includes('socket.io/?EIO=') ||
-          allArgs.includes('WebSocket') ||
-          allArgs.includes('socket.io') ||
-          allArgs.includes('ERR_CONNECTION_REFUSED');
-        
-        if (!isWebSocketError) {
-          originalError.apply(console, args);
-        } else if (isFirstAttempt && !this.hasLoggedError) {
-          // Allow one log in dev mode on first attempt
-          originalError.apply(console, args);
-          this.hasLoggedError = true;
-        }
-        // Otherwise suppress WebSocket errors silently
+      // Create a comprehensive error suppression function
+      const createErrorSuppressor = (originalFn: typeof console.error) => {
+        return (...args: any[]) => {
+          // Check all arguments for WebSocket-related content
+          const allArgs = args.map(a => String(a)).join(' ');
+          const firstArg = args[0]?.toString() || '';
+          const fullMessage = JSON.stringify(args);
+          
+          // Check if this is a WebSocket-related error
+          const isWebSocketError = 
+            firstArg.includes('WebSocket') || 
+            firstArg.includes('socket.io') || 
+            firstArg.includes('ERR_CONNECTION_REFUSED') ||
+            firstArg.includes('net::ERR_CONNECTION_REFUSED') ||
+            firstArg.includes('ws://127.0.0.1:6001') ||
+            firstArg.includes('ws://localhost:6001') ||
+            firstArg.includes('socket.io/?EIO=') ||
+            allArgs.includes('WebSocket') ||
+            allArgs.includes('socket.io') ||
+            allArgs.includes('ERR_CONNECTION_REFUSED') ||
+            allArgs.includes('connection establishment') ||
+            fullMessage.includes('ws://127.0.0.1:6001') ||
+            fullMessage.includes('ws://localhost:6001') ||
+            fullMessage.includes('socket.io/?EIO=');
+          
+          if (!isWebSocketError) {
+            originalFn.apply(console, args);
+          } else if (isFirstAttempt && !this.hasLoggedError) {
+            // Allow one log in dev mode on first attempt only
+            originalFn.apply(console, args);
+            this.hasLoggedError = true;
+          }
+          // Otherwise suppress WebSocket errors silently
+        };
       };
       
-      console.warn = (...args: any[]) => {
-        const message = args[0]?.toString() || '';
-        const fullMessage = JSON.stringify(args);
+      // Always set up error suppression to catch socket.io errors
+      console.error = createErrorSuppressor(originalError);
+      
+      console.warn = createErrorSuppressor(originalWarn);
+      
+      // Also suppress console.log for socket.io debug messages
+      console.log = (...args: any[]) => {
         const allArgs = args.map(a => String(a)).join(' ');
-        
-        const isWebSocketWarning = 
-          message.includes('WebSocket') || 
-          message.includes('socket.io') ||
-          fullMessage.includes('ws://127.0.0.1:6001') ||
-          fullMessage.includes('ws://localhost:6001') ||
+        const isWebSocketLog = 
           allArgs.includes('WebSocket') ||
-          allArgs.includes('socket.io');
+          allArgs.includes('socket.io') ||
+          allArgs.includes('ws://127.0.0.1:6001') ||
+          allArgs.includes('ws://localhost:6001');
         
-        if (!isWebSocketWarning) {
-          originalWarn.apply(console, args);
+        if (!isWebSocketLog) {
+          originalLog.apply(console, args);
         }
-        // Suppress WebSocket warnings silently
+        // Suppress WebSocket logs silently
       };
 
       try {
@@ -216,9 +226,12 @@ class WebSocketService {
         const originalWindowError = window.onerror;
         const originalWindowUnhandledRejection = window.onunhandledrejection;
         
-        window.onerror = (message, source, lineno, colno, error) => {
+        // Create a persistent error handler that stays active
+        const websocketErrorHandler = (message: any, source?: string, lineno?: number, colno?: number, error?: Error) => {
           const msg = String(message || '');
-          if (msg.includes('WebSocket') || msg.includes('socket.io') || msg.includes('ERR_CONNECTION_REFUSED')) {
+          const sourceStr = String(source || '');
+          if (msg.includes('WebSocket') || msg.includes('socket.io') || msg.includes('ERR_CONNECTION_REFUSED') ||
+              sourceStr.includes('websocket') || sourceStr.includes('socket.io')) {
             // Suppress WebSocket errors at window level
             return true;
           }
@@ -228,7 +241,7 @@ class WebSocketService {
           return false;
         };
         
-        window.onunhandledrejection = (event) => {
+        const websocketRejectionHandler = (event: PromiseRejectionEvent) => {
           const reason = String(event.reason || '');
           if (reason.includes('WebSocket') || reason.includes('socket.io') || reason.includes('ERR_CONNECTION_REFUSED')) {
             event.preventDefault();
@@ -240,6 +253,10 @@ class WebSocketService {
           return false;
         };
         
+        window.onerror = websocketErrorHandler;
+        window.onunhandledrejection = websocketRejectionHandler;
+        
+        // Create socket with error suppression
         this.socket = io(websocketUrl, {
           auth: {
             token: token
@@ -252,28 +269,56 @@ class WebSocketService {
         });
 
         // Suppress socket.io internal error logging
-        this.socket.io.on('error', () => {
+        this.socket.io.on('error', (error: any) => {
           // Silently handle connection errors - they're expected when server is down
+          // Prevent error from propagating
+          if (error && typeof error.preventDefault === 'function') {
+            error.preventDefault();
+          }
         });
         
         // Suppress connection error events
-        this.socket.on('connect_error', () => {
+        this.socket.on('connect_error', (error: any) => {
           // Silently handled - expected when server is down
+          // Prevent error from propagating
+          if (error && typeof error.preventDefault === 'function') {
+            error.preventDefault();
+          }
         });
         
-        // Restore window error handlers after a short delay
+        // Suppress all error events from socket.io
+        this.socket.on('error', (error: any) => {
+          // Silently handle all socket errors
+          if (error && typeof error.preventDefault === 'function') {
+            error.preventDefault();
+          }
+        });
+        
+        // Keep error suppression active for longer to catch async errors
+        // Restore window error handlers after socket connection attempt completes
         setTimeout(() => {
           if (originalWindowError) window.onerror = originalWindowError;
           if (originalWindowUnhandledRejection) window.onunhandledrejection = originalWindowUnhandledRejection;
-        }, 100);
+        }, 10000); // Keep suppression active for 10 seconds to catch async errors
       } catch (error) {
         // Silent catch - connection errors are expected
       } finally {
-        // Always restore console methods after a short delay to catch any late errors
-        setTimeout(() => {
-          console.error = originalError;
-          console.warn = originalWarn;
-        }, 200);
+        // Keep console error suppression active longer to catch async socket.io errors
+        // But only if we haven't disabled connections (to avoid suppressing legitimate errors)
+        if (!this.connectionDisabled) {
+          setTimeout(() => {
+            console.error = originalError;
+            console.warn = originalWarn;
+            console.log = originalLog;
+          }, 10000); // Keep suppression active for 10 seconds
+        } else {
+          // If connection is disabled, restore immediately but keep suppression for a bit longer
+          setTimeout(() => {
+            console.error = originalError;
+            console.warn = originalWarn;
+            console.log = originalLog;
+          }, 2000); // Shorter delay if connection is disabled
+        }
       }
 
       this.setupEventListeners();
