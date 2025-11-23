@@ -128,14 +128,33 @@ const AdminConsolidatedInventory: React.FC = () => {
     });
   }, [products, searchTerm]);
 
-  const getStockStatus = (availableStock: number) => {
-    if (availableStock <= 0) {
+  const getStockStatus = (product: ConsolidatedProduct) => {
+    // If no available stock anywhere, out of stock
+    if (product.available_stock <= 0) {
       return { label: 'Out of Stock', color: 'bg-red-500' };
-    } else if (availableStock <= 10) {
+    }
+
+    // Check if any branch has low stock status
+    const hasLowStockBranches = product.branch_availability.some(branch =>
+      branch.status.toLowerCase().includes('low')
+    );
+
+    // If any branch has low stock, the consolidated view should show low stock
+    if (hasLowStockBranches) {
       return { label: 'Low Stock', color: 'bg-yellow-500' };
-    } else {
+    }
+
+    // Check if all branches with stock are properly stocked
+    const hasInStockBranches = product.branch_availability.some(branch =>
+      branch.status.toLowerCase().includes('in') && !branch.status.toLowerCase().includes('low')
+    );
+
+    if (hasInStockBranches) {
       return { label: 'In Stock', color: 'bg-green-500' };
     }
+
+    // Default to in stock if we have stock but unclear status
+    return { label: 'In Stock', color: 'bg-green-500' };
   };
 
   if (loading) {
@@ -261,7 +280,7 @@ const AdminConsolidatedInventory: React.FC = () => {
               </div>
             ) : (
               filteredProducts.map((product) => {
-                const status = getStockStatus(product.available_stock);
+                const status = getStockStatus(product);
                 const isExpanded = expandedProducts.has(product.id);
 
                 return (
@@ -387,4 +406,3 @@ const AdminConsolidatedInventory: React.FC = () => {
 };
 
 export default AdminConsolidatedInventory;
-
