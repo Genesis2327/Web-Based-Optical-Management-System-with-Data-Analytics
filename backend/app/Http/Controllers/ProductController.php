@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Product;
+use App\Models\ProductBackup;
 use App\Models\BranchStock;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
@@ -1230,6 +1231,7 @@ class ProductController extends Controller
         // Handle is_active - normalize it
         if (isset($requestData['is_active'])) {
             $isActive = $requestData['is_active'];
+            $oldIsActive = $product->is_active; // Store old status before normalization
             if (is_string($isActive)) {
                 $data['is_active'] = in_array(strtolower($isActive), ['1', 'true', 'yes', 'on']);
             } elseif ($isActive === null) {
@@ -1237,11 +1239,31 @@ class ProductController extends Controller
             } else {
                 $data['is_active'] = (bool)$isActive;
             }
+            
+            // Create backup if deactivating (changing from active to inactive)
+            if (isset($data['is_active']) && $oldIsActive === true && $data['is_active'] === false) {
+                try {
+                    $product->createBackup($user->id ?? null, 'deactivation');
+                    \Log::info('Product backup created before deactivation (via update)', [
+                        'product_id' => $product->id,
+                        'product_name' => $product->name
+                    ]);
+                } catch (\Exception $e) {
+                    \Log::error('Failed to create product backup (via update)', [
+                        'product_id' => $product->id,
+                        'error' => $e->getMessage()
+                    ]);
+                    // Continue with deactivation even if backup fails
+                }
+            }
+            
             \Log::info('is_active being set', [
                 'product_id' => $product->id,
                 'raw_value' => $isActive,
                 'processed_value' => $data['is_active'] ?? 'NOT SET',
-                'type' => gettype($isActive)
+                'type' => gettype($isActive),
+                'old_status' => $oldIsActive,
+                'new_status' => $data['is_active'] ?? 'NOT SET'
             ]);
         }
 
@@ -1324,13 +1346,55 @@ class ProductController extends Controller
             // Log before update
             $oldPrice = $product->price;
             $oldName = $product->name;
+            $oldIsActive = $product->is_active;
+            $productExistsBefore = $product->exists;
+            $deletedAtBefore = $product->deleted_at;
+            
+            // CRITICAL: Ensure we never delete the product during update
+            // Remove any delete-related fields from data if accidentally included
+            unset($data['deleted_at']);
+            unset($data['delete']);
+            unset($data['force_delete']);
             
             // Use fill() and save() instead of update() to ensure all changes are applied
             $product->fill($data);
+            
+            // CRITICAL: Ensure deleted_at is not set (prevent soft delete)
+            if ($product->deleted_at !== null) {
+                $product->deleted_at = null;
+                \Log::warning('Prevented soft delete during product update', [
+                    'product_id' => $product->id,
+                    'deleted_at_was' => $deletedAtBefore
+                ]);
+            }
+            
             $saved = $product->save();
             
-            // Refresh the model to get updated values from database
+            // Verify product still exists after save
             $product->refresh();
+            $productExistsAfter = $product->exists;
+            $deletedAtAfter = $product->deleted_at;
+            
+            // Log critical information about the update
+            \Log::info('Product update verification', [
+                'product_id' => $product->id,
+                'exists_before' => $productExistsBefore,
+                'exists_after' => $productExistsAfter,
+                'deleted_at_before' => $deletedAtBefore,
+                'deleted_at_after' => $deletedAtAfter,
+                'is_active_before' => $oldIsActive,
+                'is_active_after' => $product->is_active,
+                'was_deleted' => $deletedAtAfter !== null
+            ]);
+            
+            // If product was accidentally soft-deleted, restore it
+            if ($deletedAtAfter !== null) {
+                \Log::error('Product was soft-deleted during update! Restoring...', [
+                    'product_id' => $product->id
+                ]);
+                $product->restore();
+                $product->refresh();
+            }
             
             \Log::info('Product update attempt', [
                 'product_id' => $product->id,
@@ -1341,17 +1405,35 @@ class ProductController extends Controller
                 'data_price' => $data['price'] ?? 'NOT IN DATA',
                 'price_changed' => abs($oldPrice - $product->price) > 0.01,
                 'old_name' => $oldName,
-                'new_name' => $product->name
+                'new_name' => $product->name,
+                'old_is_active' => $oldIsActive,
+                'new_is_active' => $product->is_active,
+                'is_active_changed' => $oldIsActive !== $product->is_active
             ]);
             
-            // Double-check database directly
+            // Double-check database directly (including soft-deleted records)
             $dbCheck = \DB::table('products')->where('id', $product->id)->first();
             \Log::info('Database verification', [
                 'product_id' => $product->id,
                 'model_price' => $product->price,
                 'db_price' => $dbCheck->price ?? 'NOT FOUND',
-                'match' => abs(($product->price ?? 0) - ($dbCheck->price ?? 0)) < 0.01
+                'db_is_active' => $dbCheck->is_active ?? 'NOT FOUND',
+                'db_deleted_at' => $dbCheck->deleted_at ?? null,
+                'model_deleted_at' => $product->deleted_at ?? null,
+                'match' => abs(($product->price ?? 0) - ($dbCheck->price ?? 0)) < 0.01,
+                'product_exists_in_db' => $dbCheck !== null,
+                'product_is_soft_deleted' => $dbCheck && $dbCheck->deleted_at !== null
             ]);
+            
+            // If product is soft-deleted in database but shouldn't be, restore it
+            if ($dbCheck && $dbCheck->deleted_at !== null) {
+                \Log::error('Product found soft-deleted in database after update! Restoring...', [
+                    'product_id' => $product->id,
+                    'deleted_at' => $dbCheck->deleted_at
+                ]);
+                \DB::table('products')->where('id', $product->id)->update(['deleted_at' => null]);
+                $product->refresh();
+            }
         } else {
             \Log::warning('No data to update for product', [
                 'product_id' => $product->id,
@@ -1734,6 +1816,95 @@ class ProductController extends Controller
                 'rejected_count' => 0
             ], 500);
         }
+    }
+
+    /**
+     * Activate or deactivate a product (safe method that only updates is_active)
+     */
+    public function toggleActiveStatus(Request $request, $id): JsonResponse
+    {
+        try {
+            $product = Product::findOrFail($id);
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return response()->json([
+                'message' => 'Product not found',
+                'product_id' => $id
+            ], 404);
+        }
+        
+        $user = Auth::user();
+        
+        // Staff and Admin can toggle product status
+        if (!$user || !in_array($user->role->value ?? $user->role ?? '', ['admin', 'staff'])) {
+            return response()->json([
+                'message' => 'Unauthorized to toggle product status. Only Staff and Admin can perform this action.'
+            ], 403);
+        }
+        
+        // Get the desired status from request, or toggle current status
+        $newStatus = $request->has('is_active') 
+            ? $request->boolean('is_active')
+            : !$product->is_active;
+        
+        // CRITICAL: Only update is_active, never delete
+        $oldStatus = $product->is_active;
+        $oldDeletedAt = $product->deleted_at;
+        
+        // Ensure product is not soft-deleted before update
+        if ($product->deleted_at !== null) {
+            $product->restore();
+            \Log::warning('Restored soft-deleted product before status toggle', [
+                'product_id' => $product->id
+            ]);
+        }
+        
+        // Create backup if deactivating (changing from active to inactive)
+        if ($oldStatus === true && $newStatus === false) {
+            try {
+                $product->createBackup($user->id ?? null, 'deactivation');
+                \Log::info('Product backup created before deactivation', [
+                    'product_id' => $product->id,
+                    'product_name' => $product->name
+                ]);
+            } catch (\Exception $e) {
+                \Log::error('Failed to create product backup', [
+                    'product_id' => $product->id,
+                    'error' => $e->getMessage()
+                ]);
+                // Continue with deactivation even if backup fails
+            }
+        }
+        
+        // Update only is_active field
+        $product->is_active = $newStatus;
+        $product->save();
+        
+        // Verify product was not deleted
+        $product->refresh();
+        if ($product->deleted_at !== null) {
+            \Log::error('Product was soft-deleted during status toggle! Restoring...', [
+                'product_id' => $product->id
+            ]);
+            $product->restore();
+            $product->refresh();
+        }
+        
+        \Log::info('Product status toggled', [
+            'product_id' => $product->id,
+            'old_status' => $oldStatus,
+            'new_status' => $newStatus,
+            'deleted_at_before' => $oldDeletedAt,
+            'deleted_at_after' => $product->deleted_at
+        ]);
+        
+        $productData = $product->load('creator')->toArray();
+        $productData['formatted_price'] = $product->formatted_price;
+        $productData['is_active'] = (bool)$product->is_active;
+        
+        return response()->json([
+            'message' => "Product {$product->name} " . ($newStatus ? 'activated' : 'deactivated') . " successfully",
+            'product' => $productData
+        ]);
     }
 
     /**

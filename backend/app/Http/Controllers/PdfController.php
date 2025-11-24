@@ -21,7 +21,17 @@ class PdfController extends Controller
     {
         try {
             $user = Auth::user();
-            $appointment = Appointment::with(['patient', 'optometrist', 'branch'])->findOrFail($appointmentId);
+            
+            if (!$user) {
+                return response()->json(['message' => 'Unauthenticated'], 401);
+            }
+            
+            $appointment = Appointment::with(['patient', 'optometrist', 'branch'])->find($appointmentId);
+            
+            if (!$appointment) {
+                \Log::error('Appointment not found for receipt download', ['appointment_id' => $appointmentId]);
+                return response()->json(['message' => 'Appointment not found'], 404);
+            }
             
             // Handle role format
             $userRole = null;
@@ -44,33 +54,37 @@ class PdfController extends Controller
             $receipt = \App\Models\Receipt::with('items')->where('appointment_id', $appointment->id)->first();
 
             // Use receipt number from receipt if available, otherwise generate appointment-based
-            $invoiceNumber = $receipt ? $receipt->receipt_number : str_pad($appointment->id, 4, '0', STR_PAD_LEFT);
+            $invoiceNumber = $receipt ? ($receipt->receipt_number ?? $receipt->invoice_number ?? str_pad($receipt->id, 4, '0', STR_PAD_LEFT)) : str_pad($appointment->id, 4, '0', STR_PAD_LEFT);
 
             if ($receipt) {
+                // Calculate VAT amount if not directly available
+                $vatAmount = $receipt->vat_amount ?? ($receipt->add_vat ?? ($receipt->less_vat ?? 0));
+                
                 $data = [
                     'invoice_no' => $invoiceNumber,
-                    'date' => $receipt->date->format('Y-m-d'),
-                    'sales_type' => $receipt->sales_type,
-                    'customer_name' => $receipt->customer_name,
+                    'date' => $receipt->date ? $receipt->date->format('Y-m-d') : now()->format('Y-m-d'),
+                    'sales_type' => $receipt->sales_type ?? 'cash',
+                    'customer_name' => $receipt->customer_name ?? ($appointment->patient->name ?? 'N/A'),
                     'tin' => $receipt->tin ?? 'N/A',
                     'address' => $receipt->address ?? ($appointment->patient->address ?? 'N/A'),
                     'items' => $receipt->items->map(function ($item) {
                         return [
-                            'description' => $item->description,
-                            'qty' => $item->qty,
-                            'unit_price' => (float) $item->unit_price,
-                            'amount' => (float) $item->amount,
+                            'description' => $item->description ?? 'Item',
+                            'qty' => (float) ($item->qty ?? 1),
+                            'unit_price' => (float) ($item->unit_price ?? 0),
+                            'amount' => (float) ($item->amount ?? 0),
                         ];
                     })->toArray(),
-                    'vatable_sales' => (float) $receipt->vatable_sales,
-                    'less_vat' => (float) $receipt->less_vat,
-                    'add_vat' => (float) $receipt->add_vat,
-                    'zero_rated_sales' => (float) $receipt->zero_rated_sales,
-                    'net_of_vat' => (float) $receipt->net_of_vat,
-                    'vat_exempt_sales' => (float) $receipt->vat_exempt_sales,
-                    'discount' => (float) $receipt->discount,
-                    'withholding_tax' => (float) $receipt->withholding_tax,
-                    'total_due' => (float) $receipt->total_due,
+                    'vatable_sales' => (float) ($receipt->vatable_sales ?? 0),
+                    'vat_amount' => (float) $vatAmount,
+                    'less_vat' => (float) ($receipt->less_vat ?? $vatAmount),
+                    'add_vat' => (float) ($receipt->add_vat ?? $vatAmount),
+                    'zero_rated_sales' => (float) ($receipt->zero_rated_sales ?? 0),
+                    'net_of_vat' => (float) ($receipt->net_of_vat ?? ($receipt->vatable_sales ?? 0)),
+                    'vat_exempt_sales' => (float) ($receipt->vat_exempt_sales ?? 0),
+                    'discount' => (float) ($receipt->discount ?? 0),
+                    'withholding_tax' => (float) ($receipt->withholding_tax ?? 0),
+                    'total_due' => (float) ($receipt->total_due ?? 0),
                 ];
             } else {
                 // Fallback minimal document
@@ -103,11 +117,14 @@ class PdfController extends Controller
                 ];
             }
 
-            // Generate PDF with proper configuration
+            // Generate PDF with proper configuration for UTF-8 encoding (to display ₱ symbol correctly)
             $pdf = Pdf::loadView('pdf.receipt', $data)
                 ->setPaper('a4', 'portrait')
                 ->setOption('isHtml5ParserEnabled', true)
-                ->setOption('isRemoteEnabled', true);
+                ->setOption('isRemoteEnabled', true)
+                ->setOption('defaultFont', 'DejaVu Sans')
+                ->setOption('enable-font-subsetting', true)
+                ->setOption('isPhpEnabled', true);
             
             // Generate filename
             $filename = 'receipt_' . $invoiceNumber . '_' . time() . '.pdf';
@@ -125,9 +142,19 @@ class PdfController extends Controller
                 'Pragma' => 'public',
             ]);
             
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            \Log::error('Model not found in PDF generation', ['appointment_id' => $appointmentId, 'error' => $e->getMessage()]);
+            return response()->json(['message' => 'Appointment or receipt not found'], 404);
         } catch (\Exception $e) {
-            \Log::error('PDF generation error: ' . $e->getMessage());
-            return response()->json(['error' => 'Failed to generate PDF: ' . $e->getMessage()], 500);
+            \Log::error('PDF generation error', [
+                'appointment_id' => $appointmentId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            return response()->json([
+                'message' => 'Failed to generate PDF',
+                'error' => config('app.debug') ? $e->getMessage() : 'An error occurred while generating the receipt PDF'
+            ], 500);
         }
     }
 

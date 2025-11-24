@@ -31,7 +31,17 @@ class EnhancedInventoryController extends Controller
             }
 
             // Handle role format (enum or string)
-            $userRole = $user->role->value ?? (string)$user->role;
+            $userRole = null;
+            if (is_object($user->role) && isset($user->role->value)) {
+                $userRole = $user->role->value;
+            } elseif (is_string($user->role)) {
+                $userRole = $user->role;
+            } else {
+                $userRole = (string)$user->role;
+            }
+            
+            // Normalize role to lowercase for comparison
+            $userRole = strtolower($userRole ?? '');
 
             // Admin can view all branches, staff can only view their own branch
             if ($userRole === 'staff' && !$request->has('branch_id')) {
@@ -40,10 +50,34 @@ class EnhancedInventoryController extends Controller
                 ], 400);
             }
 
-            if ($userRole === 'staff' && (int)$request->get('branch_id') !== (int)$user->branch_id) {
+            // Get user branch_id safely - check if it's loaded via relationship or direct property
+            $userBranchId = null;
+            if (isset($user->branch_id)) {
+                $userBranchId = (int)$user->branch_id;
+            } elseif (isset($user->branch) && is_object($user->branch) && isset($user->branch->id)) {
+                $userBranchId = (int)$user->branch->id;
+            }
+
+            if ($userRole === 'staff' && $userBranchId && (int)$request->get('branch_id') !== $userBranchId) {
                 return response()->json([
                     'message' => 'Staff can only view their own branch inventory.'
                 ], 403);
+            }
+            
+            // If staff has no branch_id, return error
+            if ($userRole === 'staff' && !$userBranchId) {
+                return response()->json([
+                    'message' => 'Staff member is not assigned to any branch. Please contact an administrator.',
+                    'inventories' => [],
+                    'summary' => [
+                        'total_items' => 0,
+                        'in_stock' => 0,
+                        'low_stock' => 0,
+                        'out_of_stock' => 0,
+                        'total_value' => 0,
+                        'branches_count' => 0,
+                    ]
+                ], 200);
             }
 
             // If branch_id is specified, show products assigned to that branch (matching product management logic)
@@ -53,11 +87,10 @@ class EnhancedInventoryController extends Controller
             if ($branchId) {
                 // PRIORITY 1: Get ALL branch_stock entries for this branch (these are the actual stock entries)
                 // This shows all stocks regardless of product branch_id assignment
+                // NOTE: For staff/admin inventory management, we show ALL products (including inactive) so they can manage them
                 $existingBranchStocks = BranchStock::where('branch_id', $branchId)
                     ->with(['product', 'branch:id,name,code'])
-                    ->whereHas('product', function($q) {
-                        $q->where('is_active', true);
-                    })
+                    // Removed is_active filter - staff/admin need to see inactive products to manage them
                     ->get();
                 
                 \Log::info('EnhancedInventory: Branch stock entries found', [
@@ -106,10 +139,9 @@ class EnhancedInventoryController extends Controller
                 // This is the central inventory view - show all actual stock entries from all branches
                 
                 // Get all branch_stock entries with products and branches
-                $branchStocksQuery = BranchStock::with(['product', 'branch:id,name,code'])
-                    ->whereHas('product', function($q) {
-                        $q->where('is_active', true);
-                    });
+                // NOTE: For admin inventory management, we show ALL products (including inactive) so they can manage them
+                $branchStocksQuery = BranchStock::with(['product', 'branch:id,name,code']);
+                    // Removed is_active filter - admin needs to see inactive products to manage them
                 
                 // Optional branch filter for admin
                 if ($request->has('branch_id')) {
@@ -200,6 +232,9 @@ class EnhancedInventoryController extends Controller
                     'branch_id' => $item->branch_id ?? null,
                     'product_id' => $productData['id'],
                     'product_name' => $productData['name'],
+                    'sku' => $productData['sku'],
+                    'brand' => $productData['brand'],
+                    'model' => $productData['model'],
                     'description' => $productData['description'],
                     'stock_quantity' => $item->stock_quantity ?? 0,
                     'reserved_quantity' => $reservedQty,
@@ -224,6 +259,9 @@ class EnhancedInventoryController extends Controller
                         'id' => $productData['id'],
                         'name' => $productData['name'],
                         'description' => $productData['description'],
+                        'sku' => $productData['sku'],
+                        'brand' => $productData['brand'],
+                        'model' => $productData['model'],
                         'image_path' => $productData['primary_image'],
                         'price' => $productData['price'],
                         'is_active' => $productData['is_active'],
@@ -285,8 +323,9 @@ class EnhancedInventoryController extends Controller
             }
 
             // Get products assigned to this branch (matching product management logic)
-            $products = \App\Models\Product::where('is_active', true)
-                ->where('branch_id', $branch->id)
+            // NOTE: For staff/admin inventory management, we show ALL products (including inactive) so they can manage them
+            $products = \App\Models\Product::where('branch_id', $branch->id)
+                // Removed is_active filter - staff/admin need to see inactive products to manage them
                 ->get();
             
             // Get existing branch_stock entries for this branch, indexed by product_id
@@ -340,6 +379,9 @@ class EnhancedInventoryController extends Controller
                     'name' => $product->name ?? 'Unknown Product',
                     'description' => $product->description ?? '',
                     'price' => $product->price ?? 0,
+                    'sku' => $product->sku ?? '',
+                    'brand' => $product->brand ?? null,
+                    'model' => $product->model ?? null,
                     'primary_image' => $product->primary_image ?? null,
                     'secondary_image' => $product->secondary_image ?? null,
                     'image_paths' => $product->image_paths ?? [],
@@ -366,6 +408,9 @@ class EnhancedInventoryController extends Controller
                     'branch_id' => $item->branch_id ?? null,
                     'product_id' => $productData['id'],
                     'product_name' => $productData['name'],
+                    'sku' => $productData['sku'],
+                    'brand' => $productData['brand'],
+                    'model' => $productData['model'],
                     'description' => $productData['description'],
                     'stock_quantity' => $item->stock_quantity ?? 0,
                     'reserved_quantity' => $reservedQty,
@@ -390,6 +435,9 @@ class EnhancedInventoryController extends Controller
                         'id' => $productData['id'],
                         'name' => $productData['name'],
                         'description' => $productData['description'],
+                        'sku' => $productData['sku'],
+                        'brand' => $productData['brand'],
+                        'model' => $productData['model'],
                         'image_path' => $productData['primary_image'],
                         'price' => $productData['price'],
                         'is_active' => $productData['is_active'],
@@ -1124,10 +1172,9 @@ class EnhancedInventoryController extends Controller
             }
 
             // Get all branch stocks with products and branches
-            $branchStocksQuery = BranchStock::with(['product', 'branch:id,name,code'])
-                ->whereHas('product', function($q) {
-                    $q->where('is_active', true);
-                });
+            // NOTE: For admin central inventory, we show ALL products (including inactive) so they can manage them
+            $branchStocksQuery = BranchStock::with(['product', 'branch:id,name,code']);
+                // Removed is_active filter - admin needs to see inactive products to manage them
 
             // Search filter
             if ($request->has('search')) {

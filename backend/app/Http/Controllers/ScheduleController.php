@@ -22,8 +22,12 @@ class ScheduleController extends Controller
     {
         try {
             // Find the doctor
+            // Handle both enum and string role formats
             $doctor = User::where('id', $doctorId)
-                ->where('role', UserRole::Optometrist)
+                ->where(function ($query) {
+                    $query->where('role', UserRole::OPTOMETRIST->value)
+                          ->orWhere('role', 'optometrist');
+                })
                 ->first();
 
             if (!$doctor) {
@@ -56,7 +60,26 @@ class ScheduleController extends Controller
                 \Log::warning('Failed to fetch optometrist rotation: ' . $e->getMessage());
             }
 
-            if ($rotation && !empty($rotation->rotation_schedule) && is_array($rotation->rotation_schedule)) {
+            // Handle rotation_schedule - might be JSON string or array
+            $rotationSchedule = null;
+            if ($rotation && !empty($rotation->rotation_schedule)) {
+                if (is_string($rotation->rotation_schedule)) {
+                    try {
+                        $rotationSchedule = json_decode($rotation->rotation_schedule, true);
+                        if (json_last_error() !== JSON_ERROR_NONE) {
+                            \Log::warning('Failed to decode rotation_schedule JSON: ' . json_last_error_msg());
+                            $rotationSchedule = null;
+                        }
+                    } catch (\Exception $e) {
+                        \Log::warning('Error parsing rotation_schedule JSON: ' . $e->getMessage());
+                        $rotationSchedule = null;
+                    }
+                } elseif (is_array($rotation->rotation_schedule)) {
+                    $rotationSchedule = $rotation->rotation_schedule;
+                }
+            }
+
+            if ($rotationSchedule && is_array($rotationSchedule) && !empty($rotationSchedule)) {
                 // Use rotation schedule
                 $daysOfWeek = [
                     1 => 'Monday',
@@ -67,7 +90,7 @@ class ScheduleController extends Controller
                     6 => 'Saturday',
                 ];
 
-                foreach ($rotation->rotation_schedule as $scheduleItem) {
+                foreach ($rotationSchedule as $scheduleItem) {
                     // Validate schedule item structure
                     if (!is_array($scheduleItem)) {
                         continue;
@@ -209,7 +232,11 @@ class ScheduleController extends Controller
     {
         try {
             // Get all optometrists with their schedules
-            $optometrists = User::where('role', UserRole::Optometrist)
+            // Handle both enum and string role formats
+            $optometrists = User::where(function ($query) {
+                    $query->where('role', UserRole::OPTOMETRIST->value)
+                          ->orWhere('role', 'optometrist');
+                })
                 ->where('is_approved', true)
                 ->get();
 

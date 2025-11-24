@@ -420,7 +420,15 @@ class TransactionController extends Controller
             'optometrist' => $receipt->appointment->optometrist,
         ];
 
-        $pdf = Pdf::loadView('pdf.receipt', $receiptData);
+        // Generate PDF with proper UTF-8 encoding for peso symbol (₱)
+        $pdf = Pdf::loadView('pdf.receipt', $receiptData)
+            ->setPaper('a4', 'portrait')
+            ->setOption('isHtml5ParserEnabled', true)
+            ->setOption('isRemoteEnabled', true)
+            ->setOption('defaultFont', 'DejaVu Sans')
+            ->setOption('enable-font-subsetting', true)
+            ->setOption('isPhpEnabled', true);
+        
         return $pdf->download('receipt_' . str_pad($receipt->id, 4, '0', STR_PAD_LEFT) . '.pdf');
     }
 

@@ -9,14 +9,17 @@
             box-sizing: border-box;
         }
 
+        @charset "UTF-8";
+        
         body {
-            font-family: 'Arial', sans-serif;
+            font-family: 'DejaVu Sans', 'Arial', sans-serif;
             font-size: 11px;
             line-height: 1.3;
             color: #333;
             margin: 0;
             padding: 15px;
             background: #fff;
+            -webkit-font-smoothing: antialiased;
         }
 
         .header {

@@ -419,7 +419,21 @@ class BranchInventoryController extends Controller
             // If product doesn't exist in any branch, mark it as inactive
             if ($remainingStock === 0) {
                 $product = Product::find($productId);
-                if ($product) {
+                if ($product && $product->is_active === true) {
+                    // Create backup before deactivating
+                    try {
+                        $product->createBackup($user->id ?? null, 'no_branches');
+                        \Log::info('Product backup created before deactivation (no branches)', [
+                            'product_id' => $product->id,
+                            'product_name' => $product->name
+                        ]);
+                    } catch (\Exception $e) {
+                        \Log::error('Failed to create product backup (no branches)', [
+                            'product_id' => $product->id,
+                            'error' => $e->getMessage()
+                        ]);
+                        // Continue with deactivation even if backup fails
+                    }
                     $product->update(['is_active' => false]);
                 }
             } else {

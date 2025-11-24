@@ -34,6 +34,19 @@ class HandleCors
         $response->headers->set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
         $response->headers->set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, X-CSRF-TOKEN');
         $response->headers->set('Access-Control-Allow-Credentials', 'true');
+        $response->headers->set('Access-Control-Expose-Headers', 'Content-Length, Content-Type, Authorization');
+
+        // Log response for debugging
+        if (config('app.debug')) {
+            \Log::info('CORS Response', [
+                'origin' => $origin,
+                'status' => $response->getStatusCode(),
+                'headers_set' => [
+                    'Access-Control-Allow-Origin' => $origin,
+                    'Access-Control-Allow-Methods' => 'GET, POST, PUT, DELETE, OPTIONS, PATCH',
+                ]
+            ]);
+        }
 
         return $response;
     }
@@ -85,6 +98,16 @@ class HandleCors
         ];
 
         $origin = $request->headers->get('Origin');
+        
+        // Log the request for debugging
+        if (config('app.debug')) {
+            \Log::info('CORS Request', [
+                'origin' => $origin,
+                'method' => $request->method(),
+                'path' => $request->path(),
+                'url' => $request->fullUrl(),
+            ]);
+        }
         
         // If no origin header, allow localhost as default
         if (!$origin) {

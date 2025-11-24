@@ -206,6 +206,7 @@ Route::post('/forgot-password/reset', [ForgotPasswordController::class, 'resetPa
 Route::post('/products', [ProductController::class, 'store']); // Temporarily public for testing
 Route::get('/products', [ProductController::class, 'index']); // Temporarily public for testing
 Route::put('/products/{id}', [ProductController::class, 'update']); // Temporarily public for testing - using {id} instead of {product} for better compatibility
+Route::patch('/products/{id}/toggle-status', [ProductController::class, 'toggleActiveStatus']); // Safe method to activate/deactivate products
 Route::delete('/products/{product}', [ProductController::class, 'destroy']); // Temporarily public for testing
 Route::get('/branches/active', [BranchController::class, 'getActiveBranches']); // Public - for customers
 Route::get('/branches/{branch}', [BranchController::class, 'show']); // Public - for customers (returns basic info without auth)
@@ -415,6 +416,22 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/admin/manufacturers/{manufacturer}', [App\Http\Controllers\ManufacturerController::class, 'update']);
         Route::delete('/admin/manufacturers/{manufacturer}', [App\Http\Controllers\ManufacturerController::class, 'destroy']);
         Route::get('/admin/manufacturers/{manufacturer}', [App\Http\Controllers\ManufacturerController::class, 'show']);
+    });
+    
+    // Lens Types Management - Admin only
+    Route::middleware('admin')->group(function () {
+        Route::get('/lens-types', [App\Http\Controllers\LensTypeController::class, 'index']);
+        Route::post('/lens-types', [App\Http\Controllers\LensTypeController::class, 'store']);
+        Route::get('/lens-types/{lensType}', [App\Http\Controllers\LensTypeController::class, 'show']);
+        Route::put('/lens-types/{lensType}', [App\Http\Controllers\LensTypeController::class, 'update']);
+        Route::delete('/lens-types/{lensType}', [App\Http\Controllers\LensTypeController::class, 'destroy']);
+    });
+    
+    // Public lens types endpoint (for staff/optometrist to view active lens types)
+    Route::get('/lens-types/active', function (Request $request) {
+        $controller = new App\Http\Controllers\LensTypeController();
+        $request->merge(['active_only' => true]);
+        return $controller->index($request);
     });
     
     // Test routes
@@ -633,20 +650,17 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/transactions', [TransactionController::class, 'store']);
     Route::get('/transactions/patients', [TransactionController::class, 'getPatientTransactions']);
 
-    Route::get('/receipts', [ReceiptController::class, 'index']);
-    Route::post('/receipts', [ReceiptController::class, 'store']);
-    Route::get('/receipts/{receipt}', [ReceiptController::class, 'show']);
-    Route::get('/receipts/{receipt}/download', [ReceiptController::class, 'downloadReceipt']);
-    Route::get('/customers/{customerId}/receipts', [ReceiptController::class, 'getByCustomer']);
-
-    // Receipt/Invoice routes
+    // Receipt routes - order matters: specific routes before parameterized routes
     Route::get('/receipts/validate', [ReceiptController::class, 'validateReceipt']);
     Route::post('/receipts/standardized', [ReceiptController::class, 'createStandardReceipt']);
     Route::get('/receipts/customer/{customerId}', [ReceiptController::class, 'getByCustomer']);
-    Route::get('/receipts/{receiptId}', [ReceiptController::class, 'getReceipt']);
-    Route::get('/receipts/{receiptId}/download', [ReceiptController::class, 'downloadReceipt']);
-    Route::post('/receipts', [ReceiptController::class, 'store']);
+    Route::get('/customers/{customerId}/receipts', [ReceiptController::class, 'getByCustomer']);
+    
+    // Receipt CRUD routes
     Route::get('/receipts', [ReceiptController::class, 'index']); // List all receipts for admin/staff
+    Route::post('/receipts', [ReceiptController::class, 'store']);
+    Route::get('/receipts/{receiptId}', [ReceiptController::class, 'getReceipt']);
+    Route::get('/receipts/{receiptId}/download', [ReceiptController::class, 'downloadReceipt']); // Download receipt PDF
 
     // Feedback routes
     Route::get('/feedback', [FeedbackController::class, 'index']);

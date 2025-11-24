@@ -707,6 +707,26 @@ class AuthController extends Controller
     {
         $user = $request->user();
         
+        // Load branch relationship safely (avoid soft delete scope issues)
+        $branchData = null;
+        if ($user->branch_id) {
+            try {
+                $branch = \App\Models\Branch::withoutGlobalScopes()
+                    ->select('id', 'name', 'address')
+                    ->find($user->branch_id);
+                if ($branch) {
+                    $branchData = [
+                        'id' => $branch->id,
+                        'name' => $branch->name,
+                        'address' => $branch->address
+                    ];
+                }
+            } catch (\Exception $e) {
+                \Log::warning('Failed to load branch for user profile: ' . $e->getMessage());
+                // Continue without branch data
+            }
+        }
+        
         return response()->json([
             'name' => $user->name,
             'email' => $user->email,
@@ -717,11 +737,7 @@ class AuthController extends Controller
             'date_of_birth' => $user->date_of_birth ? $user->date_of_birth->format('Y-m-d') : null,
             'sex' => $user->sex,
             'must_change_password' => $user->must_change_password ?? false,
-            'branch' => $user->branch ? [
-                'id' => $user->branch->id,
-                'name' => $user->branch->name,
-                'address' => $user->branch->address
-            ] : null
+            'branch' => $branchData
         ], 200);
     }
 

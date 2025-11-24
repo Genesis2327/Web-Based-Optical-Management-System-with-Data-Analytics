@@ -332,4 +332,39 @@ class Product extends Model
         }
     }
 
+    /**
+     * Create a backup of this product before deactivation
+     */
+    public function createBackup(?int $userId = null, string $reason = 'deactivation'): ProductBackup
+    {
+        $backupData = $this->toArray();
+        
+        // Remove fields that shouldn't be in backup
+        unset($backupData['id']);
+        unset($backupData['created_at']);
+        unset($backupData['updated_at']);
+        unset($backupData['deleted_at']);
+        unset($backupData['formatted_price']); // Computed attribute
+        
+        // Add backup-specific fields
+        $backupData['original_product_id'] = $this->id;
+        $backupData['backed_up_by'] = $userId ?? (\Illuminate\Support\Facades\Auth::id());
+        $backupData['backup_reason'] = $reason;
+        $backupData['backed_up_at'] = now();
+        $backupData['is_restored'] = false;
+        
+        // Create the backup
+        $backup = \App\Models\ProductBackup::create($backupData);
+        
+        \Log::info('Product backup created', [
+            'original_product_id' => $this->id,
+            'product_name' => $this->name,
+            'backup_id' => $backup->id,
+            'backed_up_by' => $backupData['backed_up_by'],
+            'reason' => $reason
+        ]);
+        
+        return $backup;
+    }
+
 }

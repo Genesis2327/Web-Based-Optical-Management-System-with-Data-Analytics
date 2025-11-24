@@ -349,29 +349,60 @@ class ReceiptController extends Controller
      */
     public function downloadReceipt($receiptId)
     {
-        $user = Auth::user();
-        $receipt = Receipt::with(['appointment.patient', 'appointment.optometrist', 'items'])->findOrFail($receiptId);
-        
-        // Handle role format
-        $userRole = null;
-        if (is_object($user->role)) {
-            $userRole = $user->role->value ?? (string)$user->role;
-        } else {
-            $userRole = (string)$user->role;
-        }
+        try {
+            $user = Auth::user();
+            
+            if (!$user) {
+                return response()->json(['message' => 'Unauthenticated'], 401);
+            }
+            
+            $receipt = Receipt::with(['appointment.patient', 'appointment.optometrist', 'appointment.branch', 'items'])->find($receiptId);
+            
+            if (!$receipt) {
+                return response()->json(['message' => 'Receipt not found'], 404);
+            }
+            
+            // Check if receipt has appointment
+            if (!$receipt->appointment) {
+                \Log::error('Receipt missing appointment', ['receipt_id' => $receiptId]);
+                return response()->json(['message' => 'Receipt is missing appointment information'], 500);
+            }
+            
+            // Handle role format
+            $userRole = null;
+            if (is_object($user->role)) {
+                $userRole = $user->role->value ?? (string)$user->role;
+            } else {
+                $userRole = (string)$user->role;
+            }
 
-        // Check if user can access this receipt
-        if ($userRole === 'customer' && $receipt->appointment->patient_id !== $user->id) {
-            return response()->json(['message' => 'Unauthorized'], 403);
-        }
+            // Check if user can access this receipt
+            if ($userRole === 'customer' && $receipt->appointment->patient_id !== $user->id) {
+                return response()->json(['message' => 'Unauthorized - You can only download your own receipts'], 403);
+            }
 
-        if (in_array($userRole, ['staff', 'optometrist']) && $receipt->appointment->branch_id !== $user->branch_id) {
-            return response()->json(['message' => 'Unauthorized'], 403);
-        }
+            if (in_array($userRole, ['staff', 'optometrist']) && $receipt->appointment->branch_id !== $user->branch_id) {
+                return response()->json(['message' => 'Unauthorized - You can only download receipts from your branch'], 403);
+            }
 
-        // Generate PDF using the existing PdfController
-        $pdfController = new \App\Http\Controllers\PdfController();
-        return $pdfController->downloadReceipt($receipt->appointment_id);
+            // Generate PDF using the existing PdfController
+            $pdfController = new \App\Http\Controllers\PdfController();
+            return $pdfController->downloadReceipt($receipt->appointment_id);
+            
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            \Log::error('Receipt not found for download', ['receipt_id' => $receiptId, 'error' => $e->getMessage()]);
+            return response()->json(['message' => 'Receipt not found'], 404);
+        } catch (\Exception $e) {
+            \Log::error('Error downloading receipt', [
+                'receipt_id' => $receiptId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            return response()->json([
+                'message' => 'Failed to download receipt',
+                'error' => config('app.debug') ? $e->getMessage() : 'An error occurred while generating the PDF'
+            ], 500);
+        }
     }
 
     /**
