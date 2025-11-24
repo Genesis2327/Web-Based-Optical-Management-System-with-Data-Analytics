@@ -9,6 +9,7 @@ interface AuthContextType {
   login: (email: string, password: string, role: UserRole) => Promise<User>;
   logout: () => void;
   register: (name: string, email: string, password: string, confirmPassword: string, role: UserRole, phone?: string, branchId?: string, privacyPolicyVersion?: string, termsVersion?: string) => Promise<void>;
+  refreshUser: () => Promise<void>;
   isLoading: boolean;
 }
 
@@ -202,6 +203,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const refreshUser = async () => {
+    try {
+      const token = sessionStorage.getItem(TOKEN_KEY);
+      if (!token) {
+        console.log('AuthContext: No token found, cannot refresh user');
+        return;
+      }
+
+      console.log('AuthContext: Refreshing user profile...');
+      const profileData = await getProfile();
+      
+      // Normalize role to a lowercase string
+      const roleRaw: any = profileData?.role;
+      const normalizedRole = (typeof roleRaw === 'string' ? roleRaw : (roleRaw?.value ?? String(roleRaw || 'customer'))).toLowerCase();
+      const normalizedUser: User = { ...profileData, role: normalizedRole } as User;
+
+      // Update stored user data
+      sessionStorage.setItem(CURRENT_USER_KEY, JSON.stringify(normalizedUser));
+      console.log('AuthContext: User profile refreshed:', normalizedUser);
+      
+      setUser(normalizedUser);
+    } catch (error: any) {
+      console.error('AuthContext: Error refreshing user profile:', error);
+      // Don't clear user on refresh error - keep existing user data
+    }
+  };
+
   const logout = async () => {
     try {
       await apiLogout();
@@ -215,7 +243,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, register, isLoading }}>
+    <AuthContext.Provider value={{ user, login, logout, register, refreshUser, isLoading }}>
       {children}
     </AuthContext.Provider>
   );

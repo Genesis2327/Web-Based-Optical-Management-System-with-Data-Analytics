@@ -72,7 +72,7 @@ interface InventorySummary {
 }
 
 const UnifiedStaffInventory: React.FC = () => {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [selectedBranchId, setSelectedBranchId] = useState<string>('');
   const [summary, setSummary] = useState<InventorySummary | null>(null);
@@ -96,17 +96,36 @@ const UnifiedStaffInventory: React.FC = () => {
     expiry_date: '',
   });
 
-  // Set branch ID from user on mount
+  // Set branch ID from user on mount and refresh user profile if needed
   useEffect(() => {
-    // For staff users, use their assigned branch
-    if (user?.branch?.id) {
-      setSelectedBranchId(user.branch.id.toString());
-      setLoading(false);
-    } else {
-      setError('No branch assigned to your account');
-      setLoading(false);
-    }
-  }, [user?.branch?.id]);
+    const initializeBranch = async () => {
+      // For staff users, use their assigned branch
+      if (user?.branch?.id) {
+        setSelectedBranchId(user.branch.id.toString());
+        setLoading(false);
+      } else {
+        // If user has no branch but exists, try refreshing profile to get updated branch info
+        if (user?.id && refreshUser) {
+          console.log('User has no branch object, attempting to refresh profile...');
+          try {
+            await refreshUser();
+            // After refresh, user state will update and this effect will run again
+            // The updated user object from refreshUser will trigger a re-render
+            return;
+          } catch (error) {
+            console.error('Error refreshing user profile:', error);
+            setError('No branch assigned to your account. Please log out and log back in, or contact an administrator.');
+            setLoading(false);
+          }
+        } else {
+          setError('No branch assigned to your account');
+          setLoading(false);
+        }
+      }
+    };
+
+    initializeBranch();
+  }, [user?.branch?.id, user?.id, refreshUser]);
 
   const loadInventory = useCallback(async () => {
     if (!selectedBranchId) {
@@ -119,17 +138,79 @@ const UnifiedStaffInventory: React.FC = () => {
       setError(null);
 
       const token = sessionStorage.getItem('auth_token');
+      if (!token) {
+        setError('You must be logged in to view inventory');
+        setLoading(false);
+        return;
+      }
+
       const response = await axios.get(`${getAPIUrl()}/inventory/enhanced?branch_id=${selectedBranchId}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json',
         },
       });
 
-      setInventory(response.data.inventories || []);
-      setSummary(response.data.summary || null);
+      // Handle response data
+      if (response.data) {
+        setInventory(Array.isArray(response.data.inventories) ? response.data.inventories : []);
+        setSummary(response.data.summary || {
+          total_items: 0,
+          in_stock: 0,
+          low_stock: 0,
+          out_of_stock: 0,
+          total_value: 0,
+          branches_count: 0,
+        });
+      } else {
+        setInventory([]);
+        setSummary({
+          total_items: 0,
+          in_stock: 0,
+          low_stock: 0,
+          out_of_stock: 0,
+          total_value: 0,
+          branches_count: 0,
+        });
+      }
     } catch (err: any) {
-      console.error('Error loading inventory:', err);
-      setError(err.response?.data?.message || 'Failed to load inventory');
+      // Enhanced error logging
+      console.error('Error loading inventory:', {
+        error: err,
+        message: err?.message,
+        response: err?.response?.data,
+        status: err?.response?.status,
+        branchId: selectedBranchId,
+      });
+      
+      // Extract error message safely
+      let errorMessage = 'Failed to load inventory';
+      if (err?.response?.data) {
+        if (typeof err.response.data === 'string') {
+          errorMessage = err.response.data;
+        } else if (err.response.data.message) {
+          errorMessage = err.response.data.message;
+        } else if (err.response.data.error) {
+          errorMessage = err.response.data.error;
+        } else if (Array.isArray(err.response.data.errors)) {
+          errorMessage = err.response.data.errors.join(', ');
+        }
+      } else if (err?.message) {
+        errorMessage = err.message;
+      }
+      
+      setError(errorMessage);
+      
+      // Set empty data on error
+      setInventory([]);
+      setSummary({
+        total_items: 0,
+        in_stock: 0,
+        low_stock: 0,
+        out_of_stock: 0,
+        total_value: 0,
+        branches_count: 0,
+      });
     } finally {
       setLoading(false);
     }
@@ -526,8 +607,18 @@ const UnifiedStaffInventory: React.FC = () => {
                   </tr>
                 ) : (
                   filteredInventory.map((item) => (
-                    <tr key={item.id} className="border-b hover:bg-muted/50">
-                      <td className="p-2 font-medium">{item.product_name}</td>
+                    <tr 
+                      key={item.id} 
+                      className={`border-b hover:bg-muted/50 ${!item.is_active ? 'opacity-60 bg-gray-50' : ''}`}
+                    >
+                      <td className="p-2 font-medium">
+                        <div className="flex items-center gap-2">
+                          {item.product_name}
+                          {!item.is_active && (
+                            <Badge variant="secondary" className="text-xs">Inactive</Badge>
+                          )}
+                        </div>
+                      </td>
                       <td className="p-2 text-sm text-muted-foreground">{item.sku}</td>
                       <td className="p-2 text-sm">
                         {item.brand && item.model ? `${item.brand} - ${item.model}` : item.brand || item.model || '-'}
@@ -536,7 +627,14 @@ const UnifiedStaffInventory: React.FC = () => {
                       <td className="p-2 text-right font-medium">{item.available_quantity}</td>
                       <td className="p-2 text-right text-muted-foreground">{item.min_threshold}</td>
                       <td className="p-2 text-right">₱{Number(item.effective_price || 0).toFixed(2)}</td>
-                      <td className="p-2 text-center">{getStatusBadge(item.status)}</td>
+                      <td className="p-2 text-center">
+                        <div className="flex flex-col items-center gap-1">
+                          {getStatusBadge(item.status)}
+                          {!item.is_active && (
+                            <Badge variant="outline" className="text-xs text-gray-500">Inactive</Badge>
+                          )}
+                        </div>
+                      </td>
                       <td className="p-2">
                         <div className="flex justify-center gap-2">
                           <Button

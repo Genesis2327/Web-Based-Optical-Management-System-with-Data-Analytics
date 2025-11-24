@@ -196,7 +196,7 @@ const ProductDetails: React.FC = () => {
       }
 
       console.log('Reservation created successfully:', responseData);
-      toast.success('Reservation created successfully! You will be notified when it\'s ready for pickup.');
+      toast.success('Product reserved successfully! You will be notified when it\'s ready for pickup.');
       
       // Reset form
       setQuantity(1);

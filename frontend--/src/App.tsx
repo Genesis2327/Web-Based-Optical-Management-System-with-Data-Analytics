@@ -80,6 +80,7 @@ import UserProfile from "@/components/user/UserProfile";
 import AdminUserManagement from "@/components/admin/AdminUserManagement";
 import BranchManagement from "@/components/admin/BranchManagement";
 import EmployeeScheduleManagement from "@/components/admin/EmployeeScheduleManagement";
+import LensTypeManagement from "@/components/admin/LensTypeManagement";
 import { BranchProvider } from "@/contexts/BranchContext";
 import { useParams } from "react-router-dom";
 import React from "react";
@@ -180,6 +181,7 @@ const App = () => (
               <Route path="analytics" element={<AnalyticsDashboard />} />
               <Route path="users" element={<AdminUserManagement />} />
               <Route path="branches" element={<BranchManagement />} />
+              <Route path="lens-types" element={<LensTypeManagement />} />
               <Route path="inventory" element={<AdminCentralInventory />} />
               <Route path="inventory/consolidated" element={<AdminConsolidatedInventory />} />
               <Route path="stock-management" element={<AdminStockManagement />} />

@@ -86,15 +86,58 @@ const CustomerReceipts: React.FC = () => {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
+          'Accept': 'application/pdf, application/json',
         },
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        // Try to get error message from response
+        let errorMessage = `HTTP error! status: ${response.status}`;
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.message || errorData.error || errorMessage;
+        } catch (e) {
+          // If response is not JSON, use status text
+          errorMessage = response.statusText || errorMessage;
+        }
+        
+        // Provide user-friendly error messages
+        if (response.status === 401) {
+          errorMessage = "Authentication required. Please log in again.";
+        } else if (response.status === 403) {
+          errorMessage = "You don't have permission to download this receipt.";
+        } else if (response.status === 404) {
+          errorMessage = "Receipt not found.";
+        } else if (response.status === 500) {
+          errorMessage = "Server error. Please try again later or contact support.";
+        }
+        
+        throw new Error(errorMessage);
+      }
+
+      // Check if response is actually a PDF
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        // If it's JSON, it's an error response
+        const errorData = await response.json();
+        throw new Error(errorData.message || errorData.error || 'Failed to download receipt');
       }
 
       // Get the PDF blob
       const blob = await response.blob();
+      
+      // Verify it's a PDF
+      if (blob.type && !blob.type.includes('pdf') && blob.size > 0) {
+        // Try to read as text to see if it's an error message
+        const text = await blob.text();
+        try {
+          const errorData = JSON.parse(text);
+          throw new Error(errorData.message || errorData.error || 'Failed to download receipt');
+        } catch (e) {
+          // Not JSON, might be HTML error page
+          throw new Error('Received invalid file format. Please try again.');
+        }
+      }
       
       // Create download link
       const url = window.URL.createObjectURL(blob);
@@ -114,7 +157,7 @@ const CustomerReceipts: React.FC = () => {
       console.error('Download error:', error);
       toast({
         title: "Download Failed",
-        description: error.message || "Failed to download receipt",
+        description: error.message || "Failed to download receipt. Please try again.",
         variant: "destructive",
       });
     }

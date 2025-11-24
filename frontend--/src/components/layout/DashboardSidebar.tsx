@@ -221,6 +221,12 @@ const getNavItems = (role: UserRole): NavItem[] => {
         description: 'Manage branch locations'
       },
       {
+        title: 'Lens Type Management',
+        href: '/admin/lens-types',
+        icon: Eye,
+        description: 'Manage lens types and specifications'
+      },
+      {
         title: 'Inventory',
         href: '/admin/inventory',
         icon: Package,

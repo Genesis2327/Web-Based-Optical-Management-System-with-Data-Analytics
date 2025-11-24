@@ -92,7 +92,7 @@ const ReservationModal: React.FC<ReservationModalProps> = ({
       onClose();
       
       // Show success message
-      alert('Reservation created successfully! You will be notified when it\'s ready for pickup.');
+      alert('Product reserved successfully! You will be notified when it\'s ready for pickup.');
     } catch (error) {
       console.error('Reservation error:', error);
       setError(error instanceof Error ? error.message : 'Failed to create reservation');
