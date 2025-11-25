@@ -363,8 +363,8 @@
             <tr>
                 <td class="description">{{ $item['description'] }}</td>
                 <td>{{ number_format($item['qty']) }}</td>
-                <td class="amount">₱{{ number_format($item['unit_price'], 2) }}</td>
-                <td class="amount">₱{{ number_format($item['amount'], 2) }}</td>
+                <td class="amount">P {{ number_format($item['unit_price'], 2) }}</td>
+                <td class="amount">P {{ number_format($item['amount'], 2) }}</td>
             </tr>
             @endforeach
         </tbody>
@@ -376,23 +376,23 @@
             <table class="summary-table">
                 <tr>
                     <td class="label" style="width: 50%;"><strong>Vatable Sales</strong></td>
-                    <td class="value" style="width: 50%;">₱{{ number_format($vatable_sales, 2) }}</td>
+                    <td class="value" style="width: 50%;">P {{ number_format($vatable_sales, 2) }}</td>
                 </tr>
                 <tr>
                     <td class="label"><strong>VAT Amount</strong></td>
-                    <td class="value">₱{{ number_format($vat_amount, 2) }}</td>
+                    <td class="value">P {{ number_format($vat_amount, 2) }}</td>
                 </tr>
                 <tr>
                     <td class="label"><strong>Zero Rated Sales</strong></td>
-                    <td class="value">₱{{ number_format($zero_rated_sales, 2) }}</td>
+                    <td class="value">P {{ number_format($zero_rated_sales, 2) }}</td>
                 </tr>
                 <tr>
                     <td class="label"><strong>VAT-Exempt Sales</strong></td>
-                    <td class="value">₱{{ number_format($vat_exempt_sales, 2) }}</td>
+                    <td class="value">P {{ number_format($vat_exempt_sales, 2) }}</td>
                 </tr>
                 <tr>
                     <td class="label"><strong>Discount</strong></td>
-                    <td class="value">₱{{ number_format($discount, 2) }}</td>
+                    <td class="value">P {{ number_format($discount, 2) }}</td>
                 </tr>
             </table>
         </div>
@@ -401,27 +401,27 @@
             <table class="summary-table">
                 <tr>
                     <td class="label"><strong>Total Sales (VAT Inclusive)</strong></td>
-                    <td class="value">₱{{ number_format($vatable_sales + $add_vat, 2) }}</td>
+                    <td class="value">P {{ number_format($vatable_sales + $add_vat, 2) }}</td>
                 </tr>
                 <tr>
                     <td class="label"><strong>Less: VAT</strong></td>
-                    <td class="value">₱{{ number_format($less_vat, 2) }}</td>
+                    <td class="value">P {{ number_format($less_vat, 2) }}</td>
                 </tr>
                 <tr>
                     <td class="label"><strong>Amount Net of VAT</strong></td>
-                    <td class="value">₱{{ number_format($net_of_vat, 2) }}</td>
+                    <td class="value">P {{ number_format($net_of_vat, 2) }}</td>
                 </tr>
                 <tr>
                     <td class="label"><strong>Add: VAT</strong></td>
-                    <td class="value">₱{{ number_format($add_vat, 2) }}</td>
+                    <td class="value">P {{ number_format($add_vat, 2) }}</td>
                 </tr>
                 <tr>
                     <td class="label"><strong>Less: Withholding Tax</strong></td>
-                    <td class="value">₱{{ number_format($withholding_tax, 2) }}</td>
+                    <td class="value">P {{ number_format($withholding_tax, 2) }}</td>
                 </tr>
                 <tr class="total-row">
                     <td class="label"><strong>TOTAL AMOUNT DUE</strong></td>
-                    <td class="value"><strong>₱{{ number_format($total_due, 2) }}</strong></td>
+                    <td class="value"><strong>P {{ number_format($total_due, 2) }}</strong></td>
                 </tr>
             </table>
         </div>

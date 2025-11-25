@@ -496,6 +496,24 @@ const AppointmentBooking: React.FC<AppointmentBookingProps> = ({ onSuccess }) =>
             </div>
             </div>
 
+            {/* Appointment Booking Fee Notice */}
+            <div className="p-4 bg-blue-50 border-2 border-blue-200 rounded-lg">
+              <h4 className="font-semibold text-blue-800 mb-2 flex items-center gap-2">
+                <span>📋</span>
+                <span>Appointment Booking Information</span>
+              </h4>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-700">Appointment Booking Fee:</span>
+                  <span className="font-bold text-blue-700 text-base">P 150.00</span>
+                </div>
+                <p className="text-xs text-gray-600 mt-2 pt-2 border-t border-blue-200">
+                  <strong>Note:</strong> A reservation fee of P 150.00 is required when booking an appointment. 
+                  This fee will be applied when you complete your visit at the clinic.
+                </p>
+              </div>
+            </div>
+
             {/* Submit Button */}
             <div className="pt-4">
               <Button type="submit" className="w-full h-12 text-lg font-semibold" variant="customer" disabled={creating || isSubmitting}>

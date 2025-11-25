@@ -25,9 +25,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import axios from 'axios';
 
-import { getApiBaseUrlDynamic } from '@/config/api';
-// Use dynamic API URL - recalculates based on current hostname
-const getAPIUrl = () => getApiBaseUrlDynamic();
+import { getApiUrl, getAuthHeaders } from '@/config/api';
 
 interface InventoryItem {
   id: number;
@@ -144,11 +142,8 @@ const UnifiedStaffInventory: React.FC = () => {
         return;
       }
 
-      const response = await axios.get(`${getAPIUrl()}/inventory/enhanced?branch_id=${selectedBranchId}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Accept': 'application/json',
-        },
+      const response = await axios.get(getApiUrl(`/inventory/enhanced?branch_id=${selectedBranchId}`), {
+        headers: getAuthHeaders(),
       });
 
       // Handle response data
@@ -235,7 +230,7 @@ const UnifiedStaffInventory: React.FC = () => {
       setError(null);
       
       const token = sessionStorage.getItem('auth_token');
-      await axios.post(`${getAPIUrl()}/enhanced-inventory`, {
+      await axios.post(getApiUrl('/enhanced-inventory'), {
         branch_id: selectedBranchId,
         product_name: formData.name,
         sku: formData.sku,
@@ -247,9 +242,7 @@ const UnifiedStaffInventory: React.FC = () => {
         min_threshold: parseInt(formData.min_stock_threshold),
         expiry_date: formData.expiry_date || null,
       }, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
+        headers: getAuthHeaders(),
       });
 
       setSuccess('Product added successfully!');
@@ -289,10 +282,8 @@ const UnifiedStaffInventory: React.FC = () => {
       console.log('Updating inventory with payload:', payload);
       
       const token = sessionStorage.getItem('auth_token');
-      await axios.put(`${getAPIUrl()}/enhanced-inventory/${selectedItem.id}`, payload, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
+      await axios.put(getApiUrl(`/enhanced-inventory/${selectedItem.id}`), payload, {
+        headers: getAuthHeaders(),
       });
 
       setSuccess('Inventory updated successfully!');
@@ -324,12 +315,11 @@ const UnifiedStaffInventory: React.FC = () => {
       );
 
       const token = sessionStorage.getItem('auth_token');
-      const response = await fetch(`${getAPIUrl()}/products/${item.product_id}`, {
+      const response = await fetch(getApiUrl(`/products/${item.product_id}`), {
         method: 'PUT',
         headers: {
-          'Content-Type': 'application/json',
+          ...getAuthHeaders(),
           'Accept': 'application/json',
-          'Authorization': token ? `Bearer ${token}` : '',
         },
         body: JSON.stringify({
           is_active: newStatus

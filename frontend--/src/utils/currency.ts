@@ -40,3 +40,19 @@ export function formatPesoWithDecimals(amount: number | string): string {
   })}`;
 }
 
+/**
+ * Format a number as Philippine Peso currency with "P" prefix and 2 decimal places
+ * Format: P 200.00
+ * @param amount - The amount to format
+ * @returns Formatted string with "P" prefix and 2 decimals
+ */
+export function formatMoney(amount: number | string): string {
+  const numAmount = typeof amount === 'string' ? parseFloat(amount) : amount;
+  
+  if (isNaN(numAmount)) {
+    return 'P 0.00';
+  }
+  
+  return `P ${numAmount.toFixed(2)}`;
+}
+

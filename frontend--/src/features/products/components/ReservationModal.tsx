@@ -22,7 +22,9 @@ const ReservationModal: React.FC<ReservationModalProps> = ({
   const { user } = useAuth();
   const [selectedBranch, setSelectedBranch] = useState<number | null>(null);
   const [quantity, setQuantity] = useState<number>(1);
+  const [reservationFee, setReservationFee] = useState<number>(150);
   const [notes, setNotes] = useState<string>('');
+  const [prescriptionFile, setPrescriptionFile] = useState<File | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -31,7 +33,9 @@ const ReservationModal: React.FC<ReservationModalProps> = ({
     if (isOpen) {
       setSelectedBranch(null);
       setQuantity(1);
+      setReservationFee(150); // Default reservation fee is 150 PHP
       setNotes('');
+      setPrescriptionFile(null);
       setError(null);
     }
   }, [isOpen]);
@@ -61,18 +65,24 @@ const ReservationModal: React.FC<ReservationModalProps> = ({
 
     try {
       const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api';
+      
+      // Create FormData for file upload
+      const formData = new FormData();
+      formData.append('product_id', product.id.toString());
+      formData.append('branch_id', selectedBranch.toString());
+      formData.append('quantity', quantity.toString());
+      formData.append('reservation_fee', reservationFee.toString());
+      if (notes) formData.append('notes', notes);
+      if (prescriptionFile) {
+        formData.append('prescription_file', prescriptionFile);
+      }
+      
       const res = await fetch(`${API_BASE_URL}/reservations`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
           'Authorization': sessionStorage.getItem('auth_token') ? `Bearer ${sessionStorage.getItem('auth_token')}` : ''
         },
-        body: JSON.stringify({
-          product_id: product.id,
-          branch_id: selectedBranch,
-          quantity: quantity,
-          notes: notes || null,
-        })
+        body: formData
       });
 
       if (!res.ok) {
@@ -148,7 +158,7 @@ const ReservationModal: React.FC<ReservationModalProps> = ({
   }
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4">
       <div className="bg-white rounded-lg max-w-md w-full max-h-[90vh] overflow-y-auto">
         <div className="p-6">
           <div className="flex justify-between items-center mb-4">
@@ -164,8 +174,35 @@ const ReservationModal: React.FC<ReservationModalProps> = ({
           {/* Product Info */}
           <div className="mb-6 p-4 bg-gray-50 rounded-lg">
             <h3 className="font-semibold text-lg">{product.name}</h3>
+            {product.brand && (
+              <p className="text-sm text-gray-600">Brand: <span className="font-medium">{product.brand}</span></p>
+            )}
+            {product.lens_type && (
+              <p className="text-sm text-gray-600">Lens Type: <span className="font-medium">{product.lens_type}</span></p>
+            )}
             <p className="text-gray-600 text-sm mb-2">{product.description}</p>
-            <p className="font-bold text-blue-600">₱{Number(product.price || 0).toFixed(2)}</p>
+            <p className="font-bold text-blue-600">P {Number(product.price || 0).toFixed(2)}</p>
+            
+            {/* Product Specifications */}
+            {(product.frame_material || product.lens_material || product.color || product.shape) && (
+              <div className="mt-3 pt-3 border-t border-gray-300">
+                <p className="text-xs font-semibold text-gray-700 mb-2">Specifications:</p>
+                <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
+                  {product.frame_material && (
+                    <div>Frame: <span className="font-medium">{product.frame_material}</span></div>
+                  )}
+                  {product.lens_material && (
+                    <div>Lens: <span className="font-medium">{product.lens_material}</span></div>
+                  )}
+                  {product.color && (
+                    <div>Color: <span className="font-medium">{product.color}</span></div>
+                  )}
+                  {product.shape && (
+                    <div>Shape: <span className="font-medium">{product.shape}</span></div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           {error && (
@@ -216,6 +253,56 @@ const ReservationModal: React.FC<ReservationModalProps> = ({
               </p>
             </div>
 
+            {/* Reservation Fee */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Reservation Fee *
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={reservationFee}
+                onChange={(e) => setReservationFee(Number(e.target.value))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="150.00"
+                required
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Standard reservation fee: P 150.00 (required)
+              </p>
+            </div>
+
+            {/* Prescription Upload */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Prescription File (Optional)
+              </label>
+              <input
+                type="file"
+                accept=".pdf,.jpg,.jpeg,.png"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    if (file.size > 10 * 1024 * 1024) {
+                      setError('File size must be less than 10MB');
+                      return;
+                    }
+                    setPrescriptionFile(file);
+                  }
+                }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+              />
+              {prescriptionFile && (
+                <p className="text-xs text-green-600 mt-1">
+                  Selected: {prescriptionFile.name}
+                </p>
+              )}
+              <p className="text-xs text-gray-500 mt-1">
+                Upload prescription document (PDF, JPG, PNG - Max 10MB)
+              </p>
+            </div>
+
             {/* Notes */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -228,6 +315,29 @@ const ReservationModal: React.FC<ReservationModalProps> = ({
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="Any special requests or notes..."
               />
+            </div>
+
+            {/* Price Summary - Always Visible */}
+            <div className="p-4 bg-green-50 border-2 border-green-200 rounded-lg">
+              <h4 className="font-semibold text-green-800 mb-3">Price Summary</h4>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-700">Product Price:</span>
+                  <span className="font-medium">P {(product.price * quantity).toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-700">Quantity:</span>
+                  <span className="font-medium">{quantity} x P {product.price.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between border-t border-green-300 pt-2">
+                  <span className="text-gray-700 font-semibold">Reservation Fee:</span>
+                  <span className="font-bold text-green-700">P {reservationFee.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between border-t-2 border-green-400 pt-2 mt-2">
+                  <span className="text-gray-900 font-bold text-base">Total Amount:</span>
+                  <span className="font-bold text-green-700 text-lg">P {((product.price * quantity) + reservationFee).toFixed(2)}</span>
+                </div>
+              </div>
             </div>
 
             {/* Branch Details */}
@@ -274,7 +384,19 @@ const ReservationModal: React.FC<ReservationModalProps> = ({
           {/* Important Notice */}
           <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
             <p className="text-sm text-yellow-800">
-              <strong>Important:</strong> This is a reservation only. You must visit the branch to complete your purchase and pay physically. No online payment is available.
+              <strong>NOTICE:</strong> Your reservation has been submitted. Please visit the selected branch to complete your purchase and pay physically. 
+              {reservationFee > 0 && (
+                <span className="block mt-1">
+                  Total Amount: <strong>P {((product.price * quantity) + reservationFee).toFixed(2)}</strong> 
+                  (Product: P {(product.price * quantity).toFixed(2)} + Reservation Fee: P {reservationFee.toFixed(2)})
+                </span>
+              )}
+              {!reservationFee && (
+                <span className="block mt-1">
+                  Total Amount: <strong>P {(product.price * quantity).toFixed(2)}</strong>
+                </span>
+              )}
+              You will be notified once your reservation is approved.
             </p>
           </div>
         </div>

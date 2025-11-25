@@ -21,8 +21,11 @@ class Reservation extends Model
         'product_id',
         'branch_id',
         'quantity',
+        'reservation_fee',
+        'total_amount',
         'status',
         'notes',
+        'prescription_file_path',
         'reserved_at',
         'approved_at',
         'rejected_at',
@@ -37,6 +40,8 @@ class Reservation extends Model
      */
     protected $casts = [
         'quantity' => 'integer',
+        'reservation_fee' => 'decimal:2',
+        'total_amount' => 'decimal:2',
         'reserved_at' => 'datetime',
         'approved_at' => 'datetime',
         'rejected_at' => 'datetime',
@@ -72,7 +77,8 @@ class Reservation extends Model
      */
     public function getTotalPriceAttribute(): float
     {
-        return $this->quantity * $this->product->price;
+        $productTotal = $this->quantity * $this->product->price;
+        return $productTotal + ($this->reservation_fee ?? 0);
     }
 
     /**

@@ -30,6 +30,8 @@ interface Reservation {
   product_id: number;
   branch_id: number;
   quantity: number;
+  reservation_fee?: number;
+  total_amount?: number;
   status: 'pending' | 'approved' | 'rejected' | 'completed';
   notes?: string;
   reserved_at: string;
@@ -187,7 +189,7 @@ const StaffReservationDashboard: React.FC = () => {
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold">Branch Reservations</h2>
         <div className="text-sm text-gray-600">
-          {user?.branch_name || 'Your Branch'}
+          {user?.branch?.name || 'Your Branch'}
         </div>
       </div>
 
@@ -258,10 +260,16 @@ const StaffReservationDashboard: React.FC = () => {
                           <span className="font-medium">Quantity:</span> {reservation.quantity}
                         </div>
                         <div>
-                          <span className="font-medium">Price:</span> ₱{Number(reservation.product.price).toFixed(2)}
+                          <span className="font-medium">Unit Price:</span> P {Number(reservation.product.price).toFixed(2)}
                         </div>
                         <div>
-                          <span className="font-medium">Total:</span> ₱{(reservation.quantity * Number(reservation.product.price)).toFixed(2)}
+                          <span className="font-medium">Product Total:</span> P {(reservation.quantity * Number(reservation.product.price)).toFixed(2)}
+                        </div>
+                        <div>
+                          <span className="font-medium">Reservation Fee:</span> P {(reservation.reservation_fee ?? 150).toFixed(2)}
+                        </div>
+                        <div>
+                          <span className="font-medium">Total Amount:</span> <span className="font-bold text-green-600">P {(reservation.total_amount ?? (reservation.quantity * Number(reservation.product.price) + (reservation.reservation_fee ?? 150))).toFixed(2)}</span>
                         </div>
                         <div>
                           <span className="font-medium">Reserved:</span> {formatDate(reservation.reserved_at)}

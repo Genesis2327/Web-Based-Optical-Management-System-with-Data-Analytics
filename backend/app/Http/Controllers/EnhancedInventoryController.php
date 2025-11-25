@@ -171,27 +171,6 @@ class EnhancedInventoryController extends Controller
                 $inventories = $inventories->sortBy('branch_id')->sortBy('product_id')->values();
             }
 
-            // Calculate summary statistics
-            $summary = [
-                'total_items' => $inventories->count(),
-                'in_stock' => $inventories->filter(function($item) {
-                    return strtolower(str_replace(' ', '_', $item->status ?? '')) === 'in_stock';
-                })->count(),
-                'low_stock' => $inventories->filter(function($item) {
-                    return strtolower(str_replace(' ', '_', $item->status ?? '')) === 'low_stock';
-                })->count(),
-                'out_of_stock' => $inventories->filter(function($item) {
-                    return strtolower(str_replace(' ', '_', $item->status ?? '')) === 'out_of_stock';
-                })->count(),
-                'total_value' => $inventories->sum(function ($item) {
-                    $effectivePrice = $item->price_override !== null 
-                        ? (float) $item->price_override 
-                        : (float) ($item->product->price ?? 0);
-                    return ($item->stock_quantity ?? 0) * $effectivePrice;
-                }),
-                'branches_count' => $inventories->pluck('branch_id')->unique()->count(),
-            ];
-
             // Transform the data to match frontend expectations
             $transformedInventories = $inventories->map(function ($item) {
                 // Handle both BranchStock models and virtual stock objects
@@ -206,6 +185,9 @@ class EnhancedInventoryController extends Controller
                     'name' => $product->name ?? 'Unknown Product',
                     'description' => $product->description ?? '',
                     'price' => $product->price ?? 0,
+                    'sku' => $product->sku ?? '',
+                    'brand' => $product->brand ?? '',
+                    'model' => $product->model ?? '',
                     'primary_image' => $product->primary_image ?? null,
                     'secondary_image' => $product->secondary_image ?? null,
                     'image_paths' => $product->image_paths ?? [],
@@ -214,7 +196,13 @@ class EnhancedInventoryController extends Controller
                 
                 $effectivePrice = ($item->price_override ?? null) ?? ($productData['price'] ?? 0);
                 $reservedQty = $item->reserved_quantity ?? 0;
-                $availableQty = ($item->stock_quantity ?? 0) - $reservedQty;
+                $stockQty = max(0, $item->stock_quantity ?? 0); // Ensure stock is never negative
+                $availableQty = max(0, $stockQty - $reservedQty); // Ensure available is never negative
+                $minThreshold = $item->min_stock_threshold ?? 5;
+                
+                // Calculate status dynamically based on available quantity
+                $calculatedStatus = $this->calculateStatus($availableQty, $minThreshold);
+                $status = strtolower(str_replace(' ', '_', $calculatedStatus));
                 
                 // Get branch data
                 $branchData = null;
@@ -236,11 +224,11 @@ class EnhancedInventoryController extends Controller
                     'brand' => $productData['brand'],
                     'model' => $productData['model'],
                     'description' => $productData['description'],
-                    'stock_quantity' => $item->stock_quantity ?? 0,
+                    'stock_quantity' => $stockQty,
                     'reserved_quantity' => $reservedQty,
                     'available_quantity' => $availableQty,
-                    'min_threshold' => $item->min_stock_threshold ?? 5,
-                    'status' => strtolower(str_replace(' ', '_', $item->status ?? 'out_of_stock')),
+                    'min_threshold' => $minThreshold,
+                    'status' => $status,
                     'price' => $productData['price'],
                     'price_override' => $item->price_override ?? null,
                     'effective_price' => $effectivePrice,
@@ -269,6 +257,24 @@ class EnhancedInventoryController extends Controller
                 ];
             })->filter(); // Remove null items
 
+            // Recalculate summary based on transformed inventories with correct status
+            $summary = [
+                'total_items' => $transformedInventories->count(),
+                'in_stock' => $transformedInventories->filter(function($inv) {
+                    return ($inv['status'] ?? '') === 'in_stock';
+                })->count(),
+                'low_stock' => $transformedInventories->filter(function($inv) {
+                    return ($inv['status'] ?? '') === 'low_stock';
+                })->count(),
+                'out_of_stock' => $transformedInventories->filter(function($inv) {
+                    return ($inv['status'] ?? '') === 'out_of_stock';
+                })->count(),
+                'total_value' => $transformedInventories->sum(function ($inv) {
+                    return ($inv['stock_quantity'] ?? 0) * ($inv['effective_price'] ?? 0);
+                }),
+                'branches_count' => $transformedInventories->pluck('branch_id')->unique()->count(),
+            ];
+
             \Log::info('EnhancedInventory: Returning transformed inventories', [
                 'branch_id' => $branchId,
                 'count' => $transformedInventories->count(),
@@ -278,6 +284,8 @@ class EnhancedInventoryController extends Controller
                         'product_id' => $inv['product_id'],
                         'product_name' => $inv['product_name'],
                         'stock_quantity' => $inv['stock_quantity'],
+                        'available_quantity' => $inv['available_quantity'],
+                        'status' => $inv['status'],
                     ];
                 })->toArray()
             ]);

@@ -82,7 +82,9 @@ class ReservationController extends Controller
                 'product_id' => 'required|exists:products,id',
                 'branch_id' => 'required|exists:branches,id',
                 'quantity' => 'required|integer|min:1',
+                'reservation_fee' => 'nullable|numeric|min:0',
                 'notes' => 'nullable|string|max:500',
+                'prescription_file' => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:10240', // 10MB max
             ]);
 
             if ($validator->fails()) {
@@ -180,12 +182,29 @@ class ReservationController extends Controller
                 $user->update(['branch_id' => $request->branch_id]);
             }
 
+            // Handle prescription file upload
+            $prescriptionFilePath = null;
+            if ($request->hasFile('prescription_file')) {
+                $file = $request->file('prescription_file');
+                $fileName = time() . '_' . $user->id . '_' . $file->getClientOriginalName();
+                $filePath = $file->storeAs('prescriptions', $fileName, 'public');
+                $prescriptionFilePath = $filePath;
+            }
+
+            // Calculate total amount (default reservation fee is 150 PHP)
+            $reservationFee = $request->reservation_fee ?? 150.00;
+            $productTotal = $request->quantity * $product->price;
+            $totalAmount = $productTotal + $reservationFee;
+
             $reservation = Reservation::create([
                 'user_id' => $user->id,
                 'product_id' => $request->product_id,
                 'branch_id' => $request->branch_id,
                 'quantity' => $request->quantity,
+                'reservation_fee' => $reservationFee,
+                'total_amount' => $totalAmount,
                 'notes' => $request->notes,
+                'prescription_file_path' => $prescriptionFilePath,
                 'status' => 'pending',
                 'reserved_at' => now(),
             ]);
@@ -193,18 +212,31 @@ class ReservationController extends Controller
             // Update reserved quantity in branch stock
             $branchStock->increment('reserved_quantity', $request->quantity);
 
-            // Send notification to customer
+            // Get branch info
+            $branch = \App\Models\Branch::find($request->branch_id);
+            
+            // Send notification to customer with notice
+            $noticeMessage = "Your reservation for {$product->name} (Qty: {$request->quantity}) has been submitted.\n\n";
+            $noticeMessage .= "NOTICE: Please visit {$branch->name} to complete your purchase. ";
+            $noticeMessage .= "Total Amount: ₱" . number_format($totalAmount, 2) . " ";
+            if ($reservationFee > 0) {
+                $noticeMessage .= "(Product: ₱" . number_format($productTotal, 2) . " + Reservation Fee: ₱" . number_format($reservationFee, 2) . ")";
+            }
+            $noticeMessage .= "\n\nYou will be notified once your reservation is approved.";
+            
             Notification::create([
                 'user_id' => $user->id,
                 'role' => 'customer',
                 'title' => 'Reservation Submitted',
-                'message' => "Your reservation for {$product->name} has been submitted and is pending approval.",
+                'message' => $noticeMessage,
                 'type' => 'reservation_created',
                 'data' => [
                     'reservation_id' => $reservation->id,
                     'product_name' => $product->name,
                     'quantity' => $request->quantity,
                     'branch_name' => $branch->name,
+                    'total_amount' => $totalAmount,
+                    'reservation_fee' => $reservationFee,
                 ],
                 'status' => 'unread',
             ]);

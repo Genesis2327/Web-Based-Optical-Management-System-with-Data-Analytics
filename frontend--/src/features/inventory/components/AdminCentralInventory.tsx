@@ -35,10 +35,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import axios from 'axios';
 
-import { getApiBaseUrlDynamic } from '@/config/api';
-// Use dynamic API URL to support network access
-const getAPI_BASE_URL = () => getApiBaseUrlDynamic();
-const API_BASE_URL = getApiBaseUrlDynamic(); // Initialize at module load, but will be recalculated on each request
+import { getApiUrl, getAuthHeaders } from '@/config/api';
 
 interface InventoryItem {
   id: string;
@@ -155,10 +152,8 @@ const AdminCentralInventory: React.FC = () => {
       }
       if (branchFilter !== 'all') params.append('branch_id', branchFilter);
 
-      const response = await axios.get(`${API_BASE_URL}/admin/central-inventory?${params}`, {
-        headers: {
-          'Authorization': `Bearer ${sessionStorage.getItem('auth_token')}`,
-        },
+      const response = await axios.get(getApiUrl(`/admin/central-inventory?${params}`), {
+        headers: getAuthHeaders(),
       });
 
       setBranchGroups(response.data.branches || []);
@@ -178,10 +173,8 @@ const AdminCentralInventory: React.FC = () => {
 
   const loadManufacturers = async () => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/admin/manufacturers`, {
-        headers: {
-          'Authorization': `Bearer ${sessionStorage.getItem('auth_token')}`,
-        },
+      const response = await axios.get(getApiUrl('/admin/manufacturers'), {
+        headers: getAuthHeaders(),
       });
       setManufacturers(response.data.manufacturers || []);
     } catch (err: any) {
@@ -196,10 +189,8 @@ const AdminCentralInventory: React.FC = () => {
 
   const loadAnalytics = async () => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/admin/central-inventory/analytics`, {
-        headers: {
-          'Authorization': `Bearer ${sessionStorage.getItem('auth_token')}`,
-        },
+      const response = await axios.get(getApiUrl('/admin/central-inventory/analytics'), {
+        headers: getAuthHeaders(),
       });
       setAnalytics(response.data);
     } catch (err: any) {
@@ -256,20 +247,16 @@ const AdminCentralInventory: React.FC = () => {
       }
 
       if (editingManufacturer) {
-        await axios.put(`${API_BASE_URL}/admin/manufacturers/${editingManufacturer.id}`, manufacturerForm, {
-          headers: {
-            'Authorization': `Bearer ${sessionStorage.getItem('auth_token')}`,
-          },
+        await axios.put(getApiUrl(`/admin/manufacturers/${editingManufacturer.id}`), manufacturerForm, {
+          headers: getAuthHeaders(),
         });
         toast({
           title: "Success",
           description: "Manufacturer updated successfully",
         });
       } else {
-        await axios.post(`${API_BASE_URL}/admin/manufacturers`, manufacturerForm, {
-          headers: {
-            'Authorization': `Bearer ${sessionStorage.getItem('auth_token')}`,
-          },
+        await axios.post(getApiUrl('/admin/manufacturers'), manufacturerForm, {
+          headers: getAuthHeaders(),
         });
         toast({
           title: "Success",
@@ -295,10 +282,8 @@ const AdminCentralInventory: React.FC = () => {
     }
 
     try {
-      await axios.delete(`${API_BASE_URL}/admin/manufacturers/${id}`, {
-        headers: {
-          'Authorization': `Bearer ${sessionStorage.getItem('auth_token')}`,
-        },
+      await axios.delete(getApiUrl(`/admin/manufacturers/${id}`), {
+        headers: getAuthHeaders(),
       });
       toast({
         title: "Success",

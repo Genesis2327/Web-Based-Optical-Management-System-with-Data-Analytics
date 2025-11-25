@@ -151,3 +151,4 @@ tail -f backend/storage/logs/laravel.log
    ```
    Then update frontend config to use port 8001
 
+

@@ -374,9 +374,9 @@ const StaffDashboard = () => {
               variant="outline" 
               size="sm" 
               className="w-full mt-4"
-              onClick={() => navigate('/staff/appointments')}
+              onClick={() => navigate('/staff/reservations')}
             >
-              View All Appointments
+              View All Receipts
             </Button>
           </CardContent>
         </Card>

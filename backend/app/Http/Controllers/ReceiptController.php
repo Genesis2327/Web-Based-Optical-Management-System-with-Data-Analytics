@@ -45,16 +45,17 @@ class ReceiptController extends Controller
             'items.*.qty' => 'required|integer|min:1',
             'items.*.unit_price' => 'required|numeric|min:0',
             'items.*.amount' => 'required|numeric|min:0',
-            'totals.vatable_sales' => 'required|numeric|min:0',
-            'totals.vat_amount' => 'required|numeric|min:0',
-            'totals.zero_rated_sales' => 'required|numeric|min:0',
-            'totals.vat_exempt_sales' => 'required|numeric|min:0',
-            'totals.net_of_vat' => 'required|numeric|min:0',
-            'totals.less_vat' => 'required|numeric|min:0',
-            'totals.add_vat' => 'required|numeric|min:0',
-            'totals.discount' => 'required|numeric|min:0',
-            'totals.withholding_tax' => 'required|numeric|min:0',
-            'totals.total_due' => 'required|numeric|min:0',
+            'discount_rate' => 'nullable|numeric|min:0|max:1',
+            'totals.vatable_sales' => 'nullable|numeric|min:0',
+            'totals.vat_amount' => 'nullable|numeric|min:0',
+            'totals.zero_rated_sales' => 'nullable|numeric|min:0',
+            'totals.vat_exempt_sales' => 'nullable|numeric|min:0',
+            'totals.net_of_vat' => 'nullable|numeric|min:0',
+            'totals.less_vat' => 'nullable|numeric|min:0',
+            'totals.add_vat' => 'nullable|numeric|min:0',
+            'totals.discount' => 'nullable|numeric|min:0',
+            'totals.withholding_tax' => 'nullable|numeric|min:0',
+            'totals.total_due' => 'nullable|numeric|min:0',
         ]);
 
         $appointment = Appointment::findOrFail($validated['appointment_id']);
@@ -62,7 +63,29 @@ class ReceiptController extends Controller
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
-        return DB::transaction(function () use ($validated, $appointment) {
+        return DB::transaction(function () use ($validated, $appointment, $request) {
+            // Recalculate to ensure discount is properly applied
+            $subtotal = 0;
+            foreach ($validated['items'] as $item) {
+                $subtotal += $item['qty'] * $item['unit_price'];
+            }
+            
+            // Get discount amount from request or calculate from rate
+            $discountAmount = $validated['totals']['discount'] ?? 0;
+            $discountRate = $request->discount_rate ?? 0;
+            
+            // If discount rate is provided, calculate discount amount
+            if ($discountRate > 0 && $discountAmount == 0) {
+                $discountAmount = $subtotal * $discountRate;
+            }
+            
+            // Recalculate VAT with discount
+            $taxRate = 0.12;
+            $vatableSales = ($subtotal - $discountAmount) / (1 + $taxRate);
+            $vatAmount = $vatableSales * $taxRate;
+            $withholdingTax = $validated['totals']['withholding_tax'] ?? 0;
+            $totalDue = ($vatableSales + $vatAmount) - $withholdingTax;
+            
             $receipt = Receipt::updateOrCreate(
                 ['appointment_id' => $validated['appointment_id']],
                 [
@@ -73,16 +96,16 @@ class ReceiptController extends Controller
                     'customer_name' => $validated['customer_name'],
                     'tin' => $validated['tin'] ?? null,
                     'address' => $validated['address'] ?? null,
-                    'vatable_sales' => $validated['totals']['vatable_sales'],
-                    'vat_amount' => $validated['totals']['vat_amount'],
-                    'zero_rated_sales' => $validated['totals']['zero_rated_sales'],
-                    'vat_exempt_sales' => $validated['totals']['vat_exempt_sales'],
-                    'net_of_vat' => $validated['totals']['net_of_vat'],
-                    'less_vat' => $validated['totals']['less_vat'],
-                    'add_vat' => $validated['totals']['add_vat'],
-                    'discount' => $validated['totals']['discount'],
-                    'withholding_tax' => $validated['totals']['withholding_tax'],
-                    'total_due' => $validated['totals']['total_due'],
+                    'vatable_sales' => $vatableSales,
+                    'vat_amount' => $vatAmount,
+                    'zero_rated_sales' => $validated['totals']['zero_rated_sales'] ?? 0,
+                    'vat_exempt_sales' => $validated['totals']['vat_exempt_sales'] ?? 0,
+                    'net_of_vat' => $vatableSales,
+                    'less_vat' => $vatAmount,
+                    'add_vat' => $vatAmount,
+                    'discount' => $discountAmount,
+                    'withholding_tax' => $withholdingTax,
+                    'total_due' => $totalDue,
                 ]
             );
 

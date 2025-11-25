@@ -14,6 +14,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { Eye, User, Calendar, FileText, Package, Phone, Mail, MapPin, ShoppingCart, Loader2 } from 'lucide-react';
 import { getApiUrl, getAuthHeaders } from '@/config/api';
+import { formatMoney } from '@/utils/currency';
 
 interface Props {
   appointmentId: number;
@@ -857,7 +858,7 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <Label>Sales Type</Label>
               <Select value={salesType} onValueChange={(v: any) => setSalesType(v)}>
@@ -874,45 +875,45 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
             </div>
           </div>
 
-          <div>
-            <div className="grid grid-cols-12 gap-2 font-medium">
-              <div className="col-span-6">Item Description / Nature of Service</div>
+          <div className="overflow-x-auto">
+            <div className="grid grid-cols-12 gap-2 font-medium min-w-[600px]">
+              <div className="col-span-5 sm:col-span-6">Item Description / Nature of Service</div>
               <div className="col-span-2">QTY</div>
               <div className="col-span-2">Unit Price</div>
-              <div className="col-span-2">Amount</div>
+              <div className="col-span-3 sm:col-span-2">Amount</div>
             </div>
             {items.map((it, idx) => (
-              <div key={idx} className="grid grid-cols-12 gap-2 items-center mt-2">
-                <div className="col-span-6"><Input value={it.description} onChange={e => setItem(idx, { description: e.target.value })} /></div>
+              <div key={idx} className="grid grid-cols-12 gap-2 items-center mt-2 min-w-[600px]">
+                <div className="col-span-5 sm:col-span-6"><Input value={it.description} onChange={e => setItem(idx, { description: e.target.value })} /></div>
                 <div className="col-span-2"><Input type="number" value={it.qty} onChange={e => setItem(idx, { qty: Number(e.target.value) })} /></div>
                 <div className="col-span-2"><Input type="number" value={it.unit_price} onChange={e => setItem(idx, { unit_price: Number(e.target.value) })} /></div>
-                <div className="col-span-2 flex gap-2">
-                  <Input type="number" value={it.amount} onChange={e => setItem(idx, { amount: Number(e.target.value) })} />
-                  <Button variant="ghost" onClick={() => removeRow(idx)}>Remove</Button>
+                <div className="col-span-3 sm:col-span-2 flex gap-2">
+                  <Input type="number" value={it.amount} onChange={e => setItem(idx, { amount: Number(e.target.value) })} className="flex-1" />
+                  <Button variant="ghost" size="sm" onClick={() => removeRow(idx)} className="hidden sm:inline-flex">Remove</Button>
                 </div>
               </div>
             ))}
             <div className="mt-2"><Button variant="secondary" onClick={addRow}>Add Item</Button></div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <div className="flex justify-between"><span>Vatable Sales</span><span>₱{computed.vatableSales.toFixed(2)}</span></div>
-              <div className="flex justify-between"><span>VAT</span><span>₱{computed.vatAmount.toFixed(2)}</span></div>
-              <div className="flex justify-between"><span>Zero Rated Sales</span><span>₱0.00</span></div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <div className="flex justify-between"><span>Vatable Sales</span><span>{formatMoney(computed.vatableSales)}</span></div>
+              <div className="flex justify-between"><span>VAT</span><span>{formatMoney(computed.vatAmount)}</span></div>
+              <div className="flex justify-between"><span>Zero Rated Sales</span><span>P 0.00</span></div>
               <div className="flex justify-between">
                 <span>VAT-Exempt Sales</span>
                 <span className={discountType ? 'font-semibold text-green-600' : ''}>
-                  ₱{(computed.vatExemptSales || 0).toFixed(2)}
+                  {formatMoney(computed.vatExemptSales || 0)}
                 </span>
               </div>
             </div>
-            <div>
+            <div className="space-y-2">
               <div className="flex justify-between items-center gap-2">
                 <span>Less: Discount</span>
                 <div className="flex items-center gap-2">
                   <Input 
-                    className="w-28" 
+                    className="w-24 sm:w-28" 
                     type="number" 
                     value={discount} 
                     onChange={e => {
@@ -932,9 +933,9 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
                   )}
                 </div>
               </div>
-              <div className="flex justify-between items-center gap-2 mb-2">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-2">
                 <span className="text-sm text-muted-foreground">Quick Apply:</span>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button
                     type="button"
                     variant={discountType === 'pwd' ? 'default' : 'outline'}
@@ -966,9 +967,12 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
                   )}
                 </div>
               </div>
-              <div className="flex justify-between"><span>Add: VAT</span><span>₱{computed.vatAmount.toFixed(2)}</span></div>
-              <div className="flex justify-between"><span>Less: Withholding Tax</span><Input className="w-28" type="number" value={withholdingTax} onChange={e => setWithholdingTax(Number(e.target.value))} /></div>
-              <div className="flex justify-between font-semibold text-lg"><span>Total Amount Due</span><span>₱{computed.totalDue.toFixed(2)}</span></div>
+              <div className="flex justify-between"><span>Add: VAT</span><span>{formatMoney(computed.vatAmount)}</span></div>
+              <div className="flex justify-between items-center gap-2">
+                <span>Less: Withholding Tax</span>
+                <Input className="w-24 sm:w-28" type="number" value={withholdingTax} onChange={e => setWithholdingTax(Number(e.target.value))} />
+              </div>
+              <div className="flex justify-between font-semibold text-lg pt-2 border-t"><span>Total Amount Due</span><span>{formatMoney(computed.totalDue)}</span></div>
             </div>
           </div>
 
