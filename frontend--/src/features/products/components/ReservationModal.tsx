@@ -98,11 +98,32 @@ const ReservationModal: React.FC<ReservationModalProps> = ({
         throw new Error(errorMessage);
       }
 
+      // Store product in sessionStorage for automatic receipt inclusion
+      if (user?.id) {
+        const selectedProductsKey = `selected_products_${user.id}`;
+        const existingProducts = sessionStorage.getItem(selectedProductsKey);
+        const products = existingProducts ? JSON.parse(existingProducts) : [];
+        
+        // Add this product to the list
+        products.push({
+          id: product.id,
+          name: product.name,
+          brand: product.brand,
+          model: product.model,
+          description: product.description,
+          price: product.price,
+          quantity: quantity
+        });
+        
+        sessionStorage.setItem(selectedProductsKey, JSON.stringify(products));
+        console.log(`Product ${product.name} stored for receipt (customer ID: ${user.id})`);
+      }
+      
       onReservationSuccess();
       onClose();
       
       // Show success message
-      alert('Product reserved successfully! You will be notified when it\'s ready for pickup.');
+      alert('Product reserved successfully! Product will be automatically added to receipt when creating receipt.');
     } catch (error) {
       console.error('Reservation error:', error);
       setError(error instanceof Error ? error.message : 'Failed to create reservation');

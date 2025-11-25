@@ -46,11 +46,11 @@ export const StaffCreateReceipt: React.FC<Props> = ({ appointmentId, defaultCust
   const [withholdingTax, setWithholdingTax] = useState<number>(0);
   const [loadingReservations, setLoadingReservations] = useState(false);
 
-  // Fetch and populate reserved products when component loads
+  // Fetch and populate reserved products, selected products from gallery, and today's services
   useEffect(() => {
-    const loadReservedProducts = async () => {
+    const loadAllReceiptData = async () => {
       if (!customerId) {
-        console.warn('No customer ID provided, skipping reservation load');
+        console.warn('No customer ID provided, skipping data load');
         return;
       }
       
@@ -58,11 +58,38 @@ export const StaffCreateReceipt: React.FC<Props> = ({ appointmentId, defaultCust
         setLoadingReservations(true);
         const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
         const token = sessionStorage.getItem('auth_token');
+        const receiptItems: ReceiptItemInput[] = [];
 
-        console.log(`Loading reservations for customer ID: ${customerId}, Appointment ID: ${appointmentId}`);
+        // 1. Load selected products from gallery (stored in sessionStorage)
+        const selectedProductsKey = `selected_products_${customerId}`;
+        const selectedProductsData = sessionStorage.getItem(selectedProductsKey);
+        if (selectedProductsData) {
+          try {
+            const selectedProducts = JSON.parse(selectedProductsData);
+            console.log(`Found ${selectedProducts.length} selected product(s) from gallery for customer ${customerId}`);
+            
+            selectedProducts.forEach((product: any) => {
+              let description = product.name || 'Selected Product';
+              if (product.brand) description += ` - ${product.brand}`;
+              if (product.model) description += ` (${product.model})`;
+              if (product.description) description += ` - ${product.description}`;
+              
+              receiptItems.push({
+                description,
+                qty: product.quantity || 1,
+                unit_price: Number(product.price || 0),
+                amount: Number(product.price || 0) * (product.quantity || 1)
+              });
+            });
+            
+            // Clear selected products after loading
+            sessionStorage.removeItem(selectedProductsKey);
+          } catch (error) {
+            console.error('Error parsing selected products:', error);
+          }
+        }
 
-        // Fetch all reservations for this branch (staff only see their branch)
-        // Include both approved and completed reservations
+        // 2. Load reservations (approved/completed)
         const response = await fetch(`${apiBaseUrl}/reservations`, {
           headers: {
             'Authorization': token ? `Bearer ${token}` : '',
@@ -70,63 +97,117 @@ export const StaffCreateReceipt: React.FC<Props> = ({ appointmentId, defaultCust
           },
         });
 
-        if (!response.ok) {
-          throw new Error('Failed to fetch reservations');
-        }
+        if (response.ok) {
+          const allReservations: Reservation[] = await response.json();
+          const customerReservations = allReservations.filter(reservation => {
+            const reservationUserId = reservation.user?.id || reservation.user_id;
+            const isCorrectCustomer = reservationUserId === customerId;
+            const isApprovedOrCompleted = reservation.status === 'approved' || reservation.status === 'completed';
+            return isCorrectCustomer && isApprovedOrCompleted;
+          });
 
-        const allReservations: Reservation[] = await response.json();
-        
-        // Filter to only get reservations for THIS specific customer
-        // Include both approved and completed reservations (completed means ready for receipt)
-        const customerReservations = allReservations.filter(reservation => {
-          // Ensure the reservation belongs to this specific customer
-          const reservationUserId = reservation.user?.id || reservation.user_id;
-          const isCorrectCustomer = reservationUserId === customerId;
-          const isApprovedOrCompleted = reservation.status === 'approved' || reservation.status === 'completed';
-          return isCorrectCustomer && isApprovedOrCompleted;
-        });
+          console.log(`Found ${customerReservations.length} approved/completed reservation(s) for customer ${customerId}`);
 
-        console.log(`Found ${customerReservations.length} approved/completed reservation(s) for customer ${defaultCustomerName} (ID: ${customerId})`);
-
-        // Convert reservations to receipt items
-        if (customerReservations && customerReservations.length > 0) {
-          const reservedItems: ReceiptItemInput[] = customerReservations.map(reservation => {
+          customerReservations.forEach(reservation => {
             const product = reservation.product;
             let description = product.name || 'Reserved Product';
-            
-            // Add additional details to description
             if (product.brand) description += ` - ${product.brand}`;
             if (product.model) description += ` (${product.model})`;
             if (product.description) description += ` - ${product.description}`;
             
-            console.log(`Adding reserved product: ${description} (Qty: ${reservation.quantity}, Price: ${product.price})`);
-            
-            return {
+            receiptItems.push({
               description,
               qty: reservation.quantity,
               unit_price: Number(product.price),
               amount: Number(product.price) * reservation.quantity
-            };
+            });
           });
+        }
 
-          // Add eye examination as default first item
-          const eyeExamItem: ReceiptItemInput = {
-            description: 'Eye Examination',
-            qty: 1,
-            unit_price: 500,
-            amount: 500
-          };
+        // 3. Load today's appointments/services for this customer
+        const today = new Date().toISOString().split('T')[0];
+        const appointmentsResponse = await fetch(`${apiBaseUrl}/appointments?patient_id=${customerId}&date=${today}`, {
+          headers: {
+            'Authorization': token ? `Bearer ${token}` : '',
+            'Content-Type': 'application/json',
+          },
+        });
 
-          // Set items: eye exam + reserved products
-          setItems([eyeExamItem, ...reservedItems]);
+        if (appointmentsResponse.ok) {
+          const appointments = await appointmentsResponse.json();
+          const todayAppointments = Array.isArray(appointments) 
+            ? appointments.filter((apt: any) => apt.appointment_date === today || apt.appointment_date?.startsWith(today))
+            : (appointments.data || []).filter((apt: any) => apt.appointment_date === today || apt.appointment_date?.startsWith(today));
 
+          console.log(`Found ${todayAppointments.length} appointment(s) today for customer ${customerId}`);
+
+          // Add services based on appointment type
+          todayAppointments.forEach((appointment: any) => {
+            if (appointment.status === 'completed' || appointment.status === 'confirmed') {
+              let serviceDescription = '';
+              let servicePrice = 500; // Default eye exam price
+
+              switch (appointment.type) {
+                case 'eye_exam':
+                  serviceDescription = 'Eye Examination';
+                  servicePrice = 500;
+                  break;
+                case 'contact_fitting':
+                  serviceDescription = 'Contact Lens Fitting';
+                  servicePrice = 800;
+                  break;
+                case 'follow_up':
+                  serviceDescription = 'Follow-up Consultation';
+                  servicePrice = 300;
+                  break;
+                case 'consultation':
+                  serviceDescription = 'Consultation';
+                  servicePrice = 400;
+                  break;
+                case 'emergency':
+                  serviceDescription = 'Emergency Consultation';
+                  servicePrice = 1000;
+                  break;
+                default:
+                  serviceDescription = 'Eye Examination';
+                  servicePrice = 500;
+              }
+
+              // Check if this service is already in the items (avoid duplicates)
+              const serviceExists = receiptItems.some(item => 
+                item.description.toLowerCase().includes(serviceDescription.toLowerCase())
+              );
+
+              if (!serviceExists) {
+                receiptItems.push({
+                  description: serviceDescription,
+                  qty: 1,
+                  unit_price: servicePrice,
+                  amount: servicePrice
+                });
+              }
+            }
+          });
+        }
+
+        // Set all items (services first, then products)
+        if (receiptItems.length > 0) {
+          // Sort: services first, then products
+          const services = receiptItems.filter(item => 
+            item.description.includes('Examination') || 
+            item.description.includes('Consultation') || 
+            item.description.includes('Fitting')
+          );
+          const products = receiptItems.filter(item => !services.includes(item));
+          
+          setItems([...services, ...products]);
+          
           toast({
-            title: 'Reserved Products Loaded',
-            description: `${reservedItems.length} reserved product(s) for ${defaultCustomerName} added to receipt`,
+            title: 'Receipt Data Loaded',
+            description: `Loaded ${services.length} service(s) and ${products.length} product(s) for ${defaultCustomerName}`,
           });
         } else {
-          console.log(`No approved reservations found for customer ${defaultCustomerName} (ID: ${customerId})`);
-          // No reservations, just add eye exam
+          // Default: just add eye examination if nothing found
           setItems([{
             description: 'Eye Examination',
             qty: 1,
@@ -135,19 +216,19 @@ export const StaffCreateReceipt: React.FC<Props> = ({ appointmentId, defaultCust
           }]);
           
           toast({
-            title: 'No Reserved Products',
-            description: `${defaultCustomerName} has no approved product reservations.`,
+            title: 'No Data Found',
+            description: `No products or services found for ${defaultCustomerName} today.`,
             variant: 'default',
           });
         }
       } catch (error) {
-        console.error('Error loading reserved products:', error);
+        console.error('Error loading receipt data:', error);
         toast({
           title: 'Note',
-          description: 'Could not load reserved products. You can add them manually.',
+          description: 'Could not load all data. You can add items manually.',
           variant: 'default',
         });
-        // Still add eye exam on error
+        // Default: just add eye examination on error
         setItems([{
           description: 'Eye Examination',
           qty: 1,
@@ -159,7 +240,7 @@ export const StaffCreateReceipt: React.FC<Props> = ({ appointmentId, defaultCust
       }
     };
 
-    loadReservedProducts();
+    loadAllReceiptData();
   }, [customerId, appointmentId, defaultCustomerName, toast]);
 
   const computed = useMemo(() => {

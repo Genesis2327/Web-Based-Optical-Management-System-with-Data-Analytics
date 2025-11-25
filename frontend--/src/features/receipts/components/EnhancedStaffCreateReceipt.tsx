@@ -75,9 +75,19 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
   const isStaff = user?.role === 'staff';
   const [salesType, setSalesType] = useState<'cash' | 'charge'>('cash');
   const [date, setDate] = useState<string>(new Date().toISOString().slice(0,10));
-  const [customerName, setCustomerName] = useState<string>(defaultCustomerName);
+  const [customerName, setCustomerName] = useState<string>(defaultCustomerName || '');
   const [tin, setTin] = useState<string>('');
   const [address, setAddress] = useState<string>(defaultAddress || '');
+  
+  // Ensure default values are set on mount
+  useEffect(() => {
+    if (defaultCustomerName && !customerName) {
+      setCustomerName(defaultCustomerName);
+    }
+    if (defaultAddress && !address) {
+      setAddress(defaultAddress);
+    }
+  }, [defaultCustomerName, defaultAddress]);
   const [items, setItems] = useState<ReceiptItemInput[]>([{ description: '', qty: 1, unit_price: 0, amount: 0 }]);
   const [discount, setDiscount] = useState<number>(0);
   const [withholdingTax, setWithholdingTax] = useState<number>(0);
@@ -143,19 +153,88 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
         // Use dynamic API URL detection that supports network access
         const apiBaseUrl = getApiUrl('').replace(/\/$/, ''); // Remove trailing slash if present
 
-        // Fetch patient details
-        const patientResponse = await fetch(`${apiBaseUrl}/patients/${customerId}`, {
-          headers: {
-            ...getAuthHeaders(),
-            'Content-Type': 'application/json',
-          },
-        });
+        // Try users endpoint first (more accessible, less restrictive)
+        let patientData = null;
+        let userData = null;
+        
+        try {
+          const userResponse = await fetch(`${apiBaseUrl}/users/${customerId}`, {
+            headers: {
+              ...getAuthHeaders(),
+              'Content-Type': 'application/json',
+            },
+          });
+          
+          if (userResponse.ok) {
+            userData = await userResponse.json();
+            const user = userData?.user || userData?.data || userData;
+            if (user) {
+              setPatientDetails({
+                id: user.id,
+                name: user.name,
+                email: user.email,
+                phone: user.phone,
+                address: user.address,
+              });
+              if (user.name) {
+                setCustomerName(user.name);
+              }
+              if (user.address) {
+                setAddress(user.address);
+              }
+              console.log('[Receipt] Loaded patient data from /users endpoint');
+            }
+          }
+        } catch (userError) {
+          console.log('[Receipt] /users endpoint failed, trying /patients endpoint:', userError);
+        }
 
-        if (patientResponse.ok) {
-          const patientData = await patientResponse.json();
-          // Handle different response formats - PatientController returns { patient: {...} }
-          const patient = patientData?.patient || patientData;
-          setPatientDetails(patient);
+        // If users endpoint didn't work or didn't have all data, try patients endpoint
+        if (!userData || !userData.name) {
+          try {
+            const patientResponse = await fetch(`${apiBaseUrl}/patients/${customerId}`, {
+              headers: {
+                ...getAuthHeaders(),
+                'Content-Type': 'application/json',
+              },
+            });
+
+            if (patientResponse.ok) {
+              patientData = await patientResponse.json();
+              // Handle different response formats - PatientController returns { patient: {...} }
+              const patient = patientData?.patient || patientData;
+              if (patient) {
+                setPatientDetails(patient);
+                
+                // Update customer name and address if not already set
+                if (patient.name && !customerName) {
+                  setCustomerName(patient.name);
+                }
+                if (patient.address && !address) {
+                  setAddress(patient.address);
+                }
+                console.log('[Receipt] Loaded patient data from /patients endpoint');
+              }
+            } else if (patientResponse.status === 403) {
+              console.warn('[Receipt] Access denied to /patients endpoint (403). Using default values.');
+              // Use default values if access is denied
+              if (defaultCustomerName && !customerName) {
+                setCustomerName(defaultCustomerName);
+              }
+              if (defaultAddress && !address) {
+                setAddress(defaultAddress);
+              }
+            }
+          } catch (patientError) {
+            console.warn('[Receipt] /patients endpoint failed:', patientError);
+            // Use default values on error
+            if (defaultCustomerName && !customerName) {
+              setCustomerName(defaultCustomerName);
+            }
+            if (defaultAddress && !address) {
+              setAddress(defaultAddress);
+            }
+          }
         }
 
         // Fetch latest prescription for this patient
@@ -191,24 +270,57 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
     loadPatientData();
   }, [customerId]);
 
-  // Fetch and populate reserved products when component loads
+  // Fetch and populate reserved products, selected products from gallery, and today's services
   useEffect(() => {
-    const loadReservedProducts = async () => {
+    const loadAllReceiptData = async () => {
       if (!customerId) {
-        console.warn('No customer ID provided, skipping reservation load');
+        console.warn('No customer ID provided, skipping data load');
         return;
       }
       
       try {
         setLoadingReservations(true);
-        // Use dynamic API URL detection that supports network access
-        const apiBaseUrl = getApiUrl('').replace(/\/$/, ''); // Remove trailing slash if present
-        const token = sessionStorage.getItem('auth_token');
+        const apiBaseUrl = getApiUrl('').replace(/\/$/, '');
+        const receiptItems: ReceiptItemInput[] = [];
 
-        console.log(`Loading reservations for customer ID: ${customerId}, Appointment ID: ${appointmentId}`);
+        // 1. Load selected products from gallery (stored in sessionStorage)
+        const selectedProductsKey = `selected_products_${customerId}`;
+        const selectedProductsData = sessionStorage.getItem(selectedProductsKey);
+        console.log(`[Receipt] Checking for selected products with key: ${selectedProductsKey}`);
+        console.log(`[Receipt] Selected products data:`, selectedProductsData);
+        
+        if (selectedProductsData) {
+          try {
+            const selectedProducts = JSON.parse(selectedProductsData);
+            console.log(`[Receipt] Found ${selectedProducts.length} selected product(s) from gallery for customer ${customerId}`);
+            
+            selectedProducts.forEach((product: any) => {
+              let description = product.name || 'Selected Product';
+              if (product.brand) description += ` - ${product.brand}`;
+              if (product.model) description += ` (${product.model})`;
+              if (product.description) description += ` - ${product.description}`;
+              
+              receiptItems.push({
+                description,
+                qty: product.quantity || 1,
+                unit_price: Number(product.price || 0),
+                amount: Number(product.price || 0) * (product.quantity || 1)
+              });
+              
+              console.log(`[Receipt] Added product to receipt: ${description}`);
+            });
+            
+            // Clear selected products after loading
+            sessionStorage.removeItem(selectedProductsKey);
+            console.log(`[Receipt] Cleared selected products from sessionStorage`);
+          } catch (error) {
+            console.error('[Receipt] Error parsing selected products:', error);
+          }
+        } else {
+          console.log(`[Receipt] No selected products found in sessionStorage for customer ${customerId}`);
+        }
 
-        // Fetch all reservations for this branch (staff only see their branch)
-        // Include both approved and completed reservations
+        // 2. Load reservations (approved/completed)
         const response = await fetch(`${apiBaseUrl}/reservations`, {
           headers: {
             ...getAuthHeaders(),
@@ -216,62 +328,198 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
           },
         });
 
-        if (!response.ok) {
-          throw new Error('Failed to fetch reservations');
-        }
+        if (response.ok) {
+          const allReservations: Reservation[] = await response.json();
+          const customerReservations = allReservations.filter(reservation => {
+            const reservationUserId = reservation.user?.id || reservation.user_id;
+            const isCorrectCustomer = reservationUserId === customerId;
+            const isApprovedOrCompleted = reservation.status === 'approved' || reservation.status === 'completed';
+            return isCorrectCustomer && isApprovedOrCompleted;
+          });
 
-        const allReservations: Reservation[] = await response.json();
-        
-        // Filter to only get reservations for THIS specific customer
-        // Include both approved and completed reservations (completed means ready for receipt)
-        const customerReservations = allReservations.filter(reservation => {
-          const reservationUserId = reservation.user?.id || reservation.user_id;
-          const isCorrectCustomer = reservationUserId === customerId;
-          const isApprovedOrCompleted = reservation.status === 'approved' || reservation.status === 'completed';
-          return isCorrectCustomer && isApprovedOrCompleted;
-        });
+          console.log(`Found ${customerReservations.length} approved/completed reservation(s) for customer ${customerId}`);
 
-        console.log(`Found ${customerReservations.length} approved/completed reservation(s) for customer ${defaultCustomerName} (ID: ${customerId})`);
-
-        // Convert reservations to receipt items
-        if (customerReservations && customerReservations.length > 0) {
-          const reservedItems: ReceiptItemInput[] = customerReservations.map(reservation => {
+          customerReservations.forEach(reservation => {
             const product = reservation.product;
             let description = product.name || 'Reserved Product';
-            
-            // Add additional details to description
             if (product.brand) description += ` - ${product.brand}`;
             if (product.model) description += ` (${product.model})`;
             if (product.description) description += ` - ${product.description}`;
             
-            console.log(`Adding reserved product: ${description} (Qty: ${reservation.quantity}, Price: ${product.price})`);
-            
-            return {
+            receiptItems.push({
               description,
               qty: reservation.quantity,
               unit_price: Number(product.price),
               amount: Number(product.price) * reservation.quantity
-            };
+            });
+          });
+        }
+
+        // 3. Load today's appointments/services for this customer
+        const today = new Date().toISOString().split('T')[0];
+        // Try multiple appointment endpoints
+        let appointmentsResponse = null;
+        let appointments = [];
+        
+        // Try endpoint with query parameters
+        try {
+          appointmentsResponse = await fetch(`${apiBaseUrl}/appointments?patient_id=${customerId}`, {
+            headers: {
+              ...getAuthHeaders(),
+              'Content-Type': 'application/json',
+            },
+          });
+          
+          if (appointmentsResponse.ok) {
+            const appointmentsData = await appointmentsResponse.json();
+            appointments = Array.isArray(appointmentsData) ? appointmentsData : (appointmentsData.data || []);
+          }
+        } catch (error) {
+          console.log('Error fetching appointments with query params, trying alternative:', error);
+        }
+        
+        // If no appointments found, try fetching all appointments and filtering
+        if (!appointments || appointments.length === 0) {
+          try {
+            appointmentsResponse = await fetch(`${apiBaseUrl}/appointments`, {
+              headers: {
+                ...getAuthHeaders(),
+                'Content-Type': 'application/json',
+              },
+            });
+            
+            if (appointmentsResponse.ok) {
+              const appointmentsData = await appointmentsResponse.json();
+              const allAppointments = Array.isArray(appointmentsData) ? appointmentsData : (appointmentsData.data || []);
+              // Filter by patient_id and today's date
+              appointments = allAppointments.filter((apt: any) => {
+                const aptPatientId = apt.patient_id || apt.patient?.id;
+                const aptDate = apt.appointment_date || apt.date;
+                return aptPatientId === customerId && (
+                  aptDate === today || 
+                  aptDate?.startsWith(today) ||
+                  (aptDate && new Date(aptDate).toISOString().split('T')[0] === today)
+                );
+              });
+            }
+          } catch (error) {
+            console.log('Error fetching all appointments:', error);
+          }
+        }
+
+        if (appointments && appointments.length > 0) {
+          // Filter to today's appointments
+          const todayAppointments = appointments.filter((apt: any) => {
+            const aptDate = apt.appointment_date || apt.date || apt.appointment_date;
+            if (!aptDate) return false;
+            const dateStr = typeof aptDate === 'string' ? aptDate.split('T')[0] : new Date(aptDate).toISOString().split('T')[0];
+            return dateStr === today;
           });
 
-          // Add eye refraction as default first item
-          const eyeExamItem: ReceiptItemInput = {
-            description: 'Eye Refraction',
-            qty: 1,
-            unit_price: 500,
-            amount: 500
-          };
+          console.log(`Found ${todayAppointments.length} appointment(s) today for customer ${customerId}`);
 
-          // Set items: eye exam + reserved products
-          setItems([eyeExamItem, ...reservedItems]);
+          // Add services based on appointment type
+          todayAppointments.forEach((appointment: any) => {
+            if (appointment.status === 'completed' || appointment.status === 'confirmed') {
+              let serviceDescription = '';
+              let servicePrice = 500; // Default eye exam price
 
-          toast({
-            title: 'Reserved Products Loaded',
-            description: `${reservedItems.length} reserved product(s) for ${defaultCustomerName} added to receipt`,
+              switch (appointment.type) {
+                case 'eye_exam':
+                  serviceDescription = 'Eye Examination';
+                  servicePrice = 500;
+                  break;
+                case 'contact_fitting':
+                  serviceDescription = 'Contact Lens Fitting';
+                  servicePrice = 800;
+                  break;
+                case 'follow_up':
+                  serviceDescription = 'Follow-up Consultation';
+                  servicePrice = 300;
+                  break;
+                case 'consultation':
+                  serviceDescription = 'Consultation';
+                  servicePrice = 400;
+                  break;
+                case 'emergency':
+                  serviceDescription = 'Emergency Consultation';
+                  servicePrice = 1000;
+                  break;
+                default:
+                  serviceDescription = 'Eye Refraction';
+                  servicePrice = 500;
+              }
+
+              // Check if this service is already in the items (avoid duplicates)
+              const serviceExists = receiptItems.some(item => 
+                item.description.toLowerCase().includes(serviceDescription.toLowerCase())
+              );
+
+              if (!serviceExists) {
+                receiptItems.push({
+                  description: serviceDescription,
+                  qty: 1,
+                  unit_price: servicePrice,
+                  amount: servicePrice
+                });
+              }
+            }
           });
         } else {
-          console.log(`No approved reservations found for customer ${defaultCustomerName} (ID: ${customerId})`);
-          // No reservations, just add eye refraction
+          console.log(`No appointments found for customer ${customerId} today`);
+        }
+
+        // 4. Auto-populate customer information if available
+        // Always update with patient details if available (even if defaultCustomerName is set)
+        console.log(`[Receipt] Patient details:`, patientDetails);
+        console.log(`[Receipt] Current customerName:`, customerName);
+        console.log(`[Receipt] Current address:`, address);
+        
+        if (patientDetails) {
+          if (patientDetails.name) {
+            console.log(`[Receipt] Setting customer name to: ${patientDetails.name}`);
+            setCustomerName(patientDetails.name);
+          }
+          if (patientDetails.address) {
+            console.log(`[Receipt] Setting address to: ${patientDetails.address}`);
+            setAddress(patientDetails.address);
+          }
+          if (patientDetails.phone) {
+            // Store phone if needed for future use
+            console.log('[Receipt] Patient phone:', patientDetails.phone);
+          }
+        } else if (defaultCustomerName && !customerName) {
+          // Fallback to defaultCustomerName if patientDetails not loaded yet
+          console.log(`[Receipt] Using defaultCustomerName: ${defaultCustomerName}`);
+          setCustomerName(defaultCustomerName);
+        }
+        if (defaultAddress && !address) {
+          console.log(`[Receipt] Using defaultAddress: ${defaultAddress}`);
+          setAddress(defaultAddress);
+        }
+        
+        console.log(`[Receipt] Final customerName:`, customerName);
+        console.log(`[Receipt] Final address:`, address);
+
+        // Set all items (services first, then products)
+        if (receiptItems.length > 0) {
+          // Sort: services first, then products
+          const services = receiptItems.filter(item => 
+            item.description.includes('Examination') || 
+            item.description.includes('Consultation') || 
+            item.description.includes('Fitting') ||
+            item.description.includes('Refraction')
+          );
+          const products = receiptItems.filter(item => !services.includes(item));
+          
+          setItems([...services, ...products]);
+          
+          toast({
+            title: 'Receipt Data Loaded',
+            description: `Loaded ${services.length} service(s) and ${products.length} product(s) for ${defaultCustomerName}`,
+          });
+        } else {
+          // Default: just add eye refraction if nothing found
           setItems([{
             description: 'Eye Refraction',
             qty: 1,
@@ -280,19 +528,19 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
           }]);
           
           toast({
-            title: 'No Reserved Products',
-            description: `${defaultCustomerName} has no approved or completed product reservations.`,
+            title: 'No Data Found',
+            description: `No products or services found for ${defaultCustomerName} today.`,
             variant: 'default',
           });
         }
       } catch (error) {
-        console.error('Error loading reserved products:', error);
+        console.error('Error loading receipt data:', error);
         toast({
           title: 'Note',
-          description: 'Could not load reserved products. You can add them manually.',
+          description: 'Could not load all data. You can add items manually.',
           variant: 'default',
         });
-        // Still add eye refraction on error
+        // Default: just add eye refraction on error
         setItems([{
           description: 'Eye Refraction',
           qty: 1,
@@ -304,8 +552,8 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
       }
     };
 
-    loadReservedProducts();
-  }, [customerId, appointmentId, defaultCustomerName, toast]);
+    loadAllReceiptData();
+  }, [customerId, appointmentId, defaultCustomerName, patientDetails, customerName, address, toast]);
 
   const computed = useMemo(() => {
     const subtotal = items.reduce((sum, it) => sum + (Number(it.amount) || 0), 0);

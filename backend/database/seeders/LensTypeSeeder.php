@@ -9,86 +9,67 @@ class LensTypeSeeder extends Seeder
 {
     public function run(): void
     {
-        $lensTypes = [
+        // Default 3 lens types
+        $defaultLensTypes = [
             [
-                'name' => 'Single Vision',
-                'slug' => 'single-vision',
-                'category' => 'single_vision',
-                'description' => 'Standard single vision lenses for distance or reading',
+                'name' => 'Ordinary Lens',
+                'slug' => 'ordinary',
+                'category' => 'specialty',
+                'description' => 'Standard ordinary lenses for everyday use',
                 'base_price' => 1500.00,
                 'specifications' => [
                     'index' => '1.5',
-                    'coating_options' => ['anti-reflective', 'blue-light', 'scratch-resistant']
+                    'type' => 'standard'
                 ],
+                'is_active' => true,
                 'sort_order' => 1,
             ],
             [
-                'name' => 'Bifocal',
-                'slug' => 'bifocal',
-                'category' => 'multifocal',
-                'description' => 'Lenses with two distinct optical powers',
+                'name' => 'Anti-Radiation Lens',
+                'slug' => 'anti_radiation',
+                'category' => 'specialty',
+                'description' => 'Lenses with anti-radiation coating to protect eyes from harmful radiation and blue light',
                 'base_price' => 2500.00,
                 'specifications' => [
                     'index' => '1.5',
-                    'segment_height' => 'variable'
+                    'anti_radiation' => true,
+                    'blue_light_filter' => true
                 ],
+                'is_active' => true,
                 'sort_order' => 2,
             ],
             [
-                'name' => 'Progressive',
-                'slug' => 'progressive',
-                'category' => 'multifocal',
-                'description' => 'Multifocal lenses with gradual power transition',
-                'base_price' => 3500.00,
-                'specifications' => [
-                    'index' => '1.6',
-                    'design' => 'freeform'
-                ],
-                'sort_order' => 3,
-            ],
-            [
-                'name' => 'Photochromic',
+                'name' => 'Photochromic Lens',
                 'slug' => 'photochromic',
                 'category' => 'specialty',
-                'description' => 'Lenses that darken in sunlight',
+                'description' => 'Lenses that automatically darken in sunlight and lighten indoors',
                 'base_price' => 3000.00,
                 'specifications' => [
                     'index' => '1.5',
-                    'tint_type' => 'transition'
+                    'tint_type' => 'transition',
+                    'photochromic' => true
                 ],
-                'sort_order' => 4,
-            ],
-            [
-                'name' => 'Polarized',
-                'slug' => 'polarized',
-                'category' => 'specialty',
-                'description' => 'Lenses that reduce glare from reflective surfaces',
-                'base_price' => 2800.00,
-                'specifications' => [
-                    'index' => '1.5',
-                    'polarization' => true
-                ],
-                'sort_order' => 5,
-            ],
-            [
-                'name' => 'Blue Light Filter',
-                'slug' => 'blue-light-filter',
-                'category' => 'specialty',
-                'description' => 'Lenses that filter harmful blue light',
-                'base_price' => 2200.00,
-                'specifications' => [
-                    'index' => '1.5',
-                    'blue_light_filter' => true
-                ],
-                'sort_order' => 6,
+                'is_active' => true,
+                'sort_order' => 3,
             ],
         ];
 
-        foreach ($lensTypes as $lensType) {
-            LensType::firstOrCreate(
-                ['slug' => $lensType['slug']],
-                $lensType
-            );
+        // Create or update the 3 default lens types
+        foreach ($defaultLensTypes as $lensType) {
+            // Check if lens type exists (including soft-deleted)
+            $existing = LensType::withTrashed()->where('slug', $lensType['slug'])->first();
+            
+            if ($existing) {
+                // If soft-deleted, restore it
+                if ($existing->trashed()) {
+                    $existing->restore();
+                }
+                // Update the existing record
+                $existing->update($lensType);
+            } else {
+                // Create new record
+                LensType::create($lensType);
+            }
         }
     }
 }

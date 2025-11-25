@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
+import { getLensTypes, LensType } from '@/services/lensTypeApi';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Eye, Save, X } from 'lucide-react';
+import { Eye, Save, X, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -58,6 +59,8 @@ const PrescriptionForm: React.FC<PrescriptionFormProps> = ({ appointment, onSucc
     follow_up_date: '',
     follow_up_notes: ''
   });
+  const [lensTypes, setLensTypes] = useState<LensType[]>([]);
+  const [loadingLensTypes, setLoadingLensTypes] = useState(false);
 
   // Condition tracking state
   const [condition, setCondition] = useState('');
@@ -79,6 +82,35 @@ const PrescriptionForm: React.FC<PrescriptionFormProps> = ({ appointment, onSucc
     const match = va.match(/20\/(\d+)/);
     return match ? parseInt(match[1]) : 20;
   };
+
+  // Fetch lens types on component mount and refresh periodically
+  useEffect(() => {
+    const fetchLensTypes = async () => {
+      try {
+        setLoadingLensTypes(true);
+        const types = await getLensTypes(true); // Get only active lens types
+        console.log('Fetched lens types:', types); // Debug log
+        setLensTypes(types);
+      } catch (error) {
+        console.error('Failed to fetch lens types:', error);
+        // Fallback to default lens types if API fails
+        setLensTypes([
+          { id: 1, name: 'Ordinary Lens', slug: 'ordinary', base_price: 0, is_active: true } as LensType,
+          { id: 2, name: 'Anti-Radiation Lens', slug: 'anti_radiation', base_price: 0, is_active: true } as LensType,
+          { id: 3, name: 'Photochromic Lens', slug: 'photochromic', base_price: 0, is_active: true } as LensType,
+        ]);
+      } finally {
+        setLoadingLensTypes(false);
+      }
+    };
+    
+    fetchLensTypes();
+    
+    // Refresh lens types every 30 seconds to pick up new additions
+    const interval = setInterval(fetchLensTypes, 30000);
+    
+    return () => clearInterval(interval);
+  }, []);
 
   // Auto-detection logic based on prescription inputs
   useEffect(() => {
@@ -550,15 +582,52 @@ const PrescriptionForm: React.FC<PrescriptionFormProps> = ({ appointment, onSucc
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="lens_type">Lens Type</Label>
+                  <div className="flex items-center justify-between mb-2">
+                    <Label htmlFor="lens_type">Lens Type</Label>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={async () => {
+                        try {
+                          setLoadingLensTypes(true);
+                          const types = await getLensTypes(true);
+                          console.log('Refreshed lens types:', types);
+                          setLensTypes(types);
+                          toast.success(`Loaded ${types.length} lens type(s)`);
+                        } catch (error) {
+                          console.error('Failed to refresh lens types:', error);
+                          toast.error('Failed to refresh lens types');
+                        } finally {
+                          setLoadingLensTypes(false);
+                        }
+                      }}
+                      className="h-6 px-2 text-xs"
+                    >
+                      <RefreshCw className="w-3 h-3 mr-1" />
+                      Refresh
+                    </Button>
+                  </div>
                   <Select value={formData.lens_type} onValueChange={(value) => setFormData(prev => ({ ...prev, lens_type: value }))}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select lens type" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="ordinary">Ordinary Lens</SelectItem>
-                      <SelectItem value="anti_radiation">Anti-Radiation Lens</SelectItem>
-                      <SelectItem value="photochromic_lens">Photochromic Lens</SelectItem>
+                      {loadingLensTypes ? (
+                        <SelectItem value="__loading__" disabled>Loading lens types...</SelectItem>
+                      ) : lensTypes.length > 0 ? (
+                        lensTypes.map((lensType) => (
+                          <SelectItem key={lensType.id} value={lensType.slug}>
+                            {lensType.name}
+                          </SelectItem>
+                        ))
+                      ) : (
+                        <>
+                          <SelectItem value="ordinary">Ordinary Lens</SelectItem>
+                          <SelectItem value="anti_radiation">Anti-Radiation Lens</SelectItem>
+                          <SelectItem value="photochromic">Photochromic Lens</SelectItem>
+                        </>
+                      )}
                     </SelectContent>
                   </Select>
                 </div>

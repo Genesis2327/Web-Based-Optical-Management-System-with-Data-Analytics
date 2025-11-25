@@ -9,11 +9,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
 import BranchFilter from '@/components/common/BranchFilter';
 import { getStorageUrl } from '@/utils/imageUtils';
 import { ImageReorderer } from '@/features/products/components/ImageReorderer';
 import { StockManagementModal } from '@/features/products/components/StockManagementModal';
 import { API_BASE_URL } from '@/config/api';
+import { getLensTypes, LensType } from '@/services/lensTypeApi';
 
 interface Product {
   id: number;
@@ -64,13 +66,19 @@ const AdminProductManagement: React.FC = () => {
   const [deletedProductIds, setDeletedProductIds] = useState<Set<number>>(new Set());
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [genderFilter, setGenderFilter] = useState<string>('all');
-  const [lensTypeFilter, setLensTypeFilter] = useState<string>('all');
+  const [colorFilter, setColorFilter] = useState<string>('all');
+  const [brandFilter, setBrandFilter] = useState<string>('all');
+  const [shapeFilter, setShapeFilter] = useState<string>('all');
+  const [sizeFilter, setSizeFilter] = useState<string>('all');
+  const [frameMaterialFilter, setFrameMaterialFilter] = useState<string>('all');
   const [categories, setCategories] = useState<Array<{ id: number; name: string }>>([]);
   const [availableBranches, setAvailableBranches] = useState<Array<{ id: number; name: string; code: string }>>([]);
   const [showStockModal, setShowStockModal] = useState<boolean>(false);
   const [selectedProductForStock, setSelectedProductForStock] = useState<Product | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const preventAutoRefresh = useRef(false); // Flag to prevent auto-refresh after manual update
+  const [lensTypes, setLensTypes] = useState<LensType[]>([]);
+  const [loadingLensTypes, setLoadingLensTypes] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -107,7 +115,7 @@ const AdminProductManagement: React.FC = () => {
         }
       } catch {}
     })();
-  }, [categoryFilter, genderFilter, lensTypeFilter, searchTerm]); // Refresh when filters or search change
+  }, [categoryFilter, genderFilter, searchTerm]); // Refresh when filters or search change
 
   // Also refresh when search term changes (with debounce)
   useEffect(() => {
@@ -165,8 +173,7 @@ const AdminProductManagement: React.FC = () => {
       console.log('=== FETCHING PRODUCTS LIST ===', { force, timestamp: new Date().toISOString() });
       const categoryId = categoryFilter !== 'all' ? parseInt(categoryFilter) : undefined;
       const gender = genderFilter !== 'all' ? genderFilter : undefined;
-      const lensType = lensTypeFilter !== 'all' ? lensTypeFilter : undefined;
-      const result = await getProducts(searchTerm, categoryId, undefined, undefined, gender, lensType);
+      const result = await getProducts(searchTerm, categoryId, undefined, undefined, gender);
       console.log('Products fetched result:', result);
       console.log('Result type:', typeof result);
       console.log('Is array:', Array.isArray(result));
@@ -834,6 +841,145 @@ const AdminProductManagement: React.FC = () => {
     }
   };
 
+  // Comprehensive list of popular optical brands
+  const allBrands = React.useMemo(() => [
+    // Eyeglass Frames Brands
+    'Ray-Ban', 'Oakley', 'Warby Parker', 'Persol', 'Tom Ford', 'Gucci', 'Prada', 'Versace', 'Dior', 'Chanel',
+    'Burberry', 'Armani', 'Dolce & Gabbana', 'Fendi', 'Bottega Veneta', 'Maui Jim', 'Costa Del Mar', 'Serengeti',
+    'Randolph Engineering', 'Oliver Peoples', 'Cutler and Gross', 'Lindberg', 'Silhouette', 'Mykita', 'ic! berlin',
+    'Matsuda', 'Dita', 'Barton Perreira', 'Jacques Marie Mage', 'Lunor', 'Salt Optics', 'Moscot', 'Shuron',
+    'American Optical', 'Retrosuperfuture', 'Garrett Leight', 'Theo', 'Face a Face', 'Alain Mikli', 'Lafont',
+    'Prodesign Denmark', 'Etnia Barcelona', 'Police', 'Carrera', 'Vogue', 'Hugo Boss', 'Calvin Klein', 'Ralph Lauren',
+    'Tommy Hilfiger', 'Michael Kors', 'Kate Spade', 'Coach', 'Tory Burch', 'Marc Jacobs', 'Diesel', 'Emporio Armani',
+    'Guess', 'Fossil', 'Ray-Ban Junior', 'Oakley Youth',
+    // Contact Lens Brands
+    'Acuvue', 'Air Optix', 'Biofinity', 'Dailies', 'Proclear', 'Biotrue', 'SofLens', 'FreshLook', 'Focus', 'PureVision',
+    'Oasys', 'Clariti', 'MyDay', 'Avaira', 'Ultra', '1-Day Acuvue', 'Acuvue Oasys', 'Acuvue Vita', 'Air Optix Aqua',
+    'Biofinity Energys', 'Dailies AquaComfort Plus', 'Proclear Multifocal', 'Biotrue ONEday', 'SofLens Daily Disposable',
+    'FreshLook ColorBlends', 'Focus Dailies', 'PureVision 2 HD', 'Oasys for Astigmatism', 'Clariti 1 Day',
+    'MyDay Daily Disposable', 'Avaira Vitality', 'Ultra for Presbyopia',
+    // Sunglasses Brands
+    'Bolle', 'Smith', 'Julbo', 'Spy Optic', 'Electric', 'Von Zipper', 'Dragon', 'Native', 'Revo', 'Kaenon',
+    'Vuarnet', 'Polaroid', 'Quay Australia', 'Le Specs', 'Privé Revaux', 'Blenders', 'Shady Rays', 'Sunski', 'Goodr', 'Knockaround',
+    // Eye Care Products Brands
+    'Bausch + Lomb', 'Alcon', 'Allergan', 'Systane', 'Refresh', 'TheraTears', 'Blink', 'Optive', 'Genteal', 'Tears Naturale',
+    'Celluvisc', 'Lacri-Lube', 'Refresh Optive', 'Systane Ultra', 'TheraTears Dry Eye Therapy', 'Blink Contacts',
+    'Optive Advanced', 'Genteal Tears', 'Tears Naturale Forte', 'Celluvisc Lubricant', 'Lacri-Lube S.O.P.', 'Rohto',
+    'Visine', 'Clear Eyes', 'Murine', 'Zaditor', 'Alaway', 'Pataday', 'Lastacaft', 'Bepreve', 'Patanol', 'Optivar',
+    'Livostin', 'Azelastine', 'Ketotifen', 'Olopatadine', 'Emedastine', 'Epinastine',
+  ], []);
+
+  const allColors = React.useMemo(() => [
+    'Black', 'White', 'Red', 'Blue', 'Green', 'Yellow', 'Purple', 'Pink',
+    'Orange', 'Brown', 'Gray', 'Grey', 'Silver', 'Gold', 'Navy', 'Beige',
+    'Tan', 'Clear', 'Rose Gold', 'Multicolor', 'Transparent',
+  ], []);
+
+  const allShapes = React.useMemo(() => [
+    'Rectangle', 'Square', 'Round', 'Cat Eye', 'Aviator', 'Geometric',
+    'Oval', 'Browline', 'Wayfarer', 'Clubmaster', 'Butterfly', 'Oversized'
+  ], []);
+
+  const allFrameMaterials = React.useMemo(() => [
+    'Plastic', 'Acetate', 'Metal', 'Titanium', 'Stainless Steel',
+    'Aluminum', 'TR-90', 'Carbon Fiber', 'Wood', 'Horn', 'Mixed Materials'
+  ], []);
+
+  // Memoized filter options
+  const availableBrands = React.useMemo(() => {
+    const productBrands = new Set<string>();
+    products.forEach(product => {
+      if (product.brand && product.brand.trim() !== '') {
+        productBrands.add(product.brand.trim());
+      }
+    });
+    
+    const allAvailableBrands = new Set<string>([
+      ...allBrands.map(b => b.toLowerCase()),
+      ...Array.from(productBrands).map(b => b.toLowerCase())
+    ]);
+    
+    const sortedBrands = Array.from(allAvailableBrands).sort();
+    
+    return sortedBrands.map(brand => {
+      const productBrand = Array.from(productBrands).find(pb => pb.trim().toLowerCase() === brand);
+      return productBrand ? productBrand.trim() : brand.split(' ').map(word => {
+        if (word.includes('-') || word.includes('+')) {
+          return word.split(/([-+])/).map(part => {
+            if (part === '-' || part === '+') return part;
+            return part.charAt(0).toUpperCase() + part.slice(1);
+          }).join('');
+        }
+        return word.charAt(0).toUpperCase() + word.slice(1);
+      }).join(' ');
+    });
+  }, [products, allBrands]);
+
+  const availableColors = React.useMemo(() => {
+    const productColors = new Set<string>();
+    products.forEach(product => {
+      if ((product as any).color && (product as any).color.trim() !== '') {
+        productColors.add((product as any).color.trim());
+      }
+    });
+    const allAvailableColors = new Set<string>([
+      ...allColors.map(c => c.toLowerCase()),
+      ...Array.from(productColors).map(c => c.toLowerCase())
+    ]);
+    const sortedColors = Array.from(allAvailableColors).sort();
+    return sortedColors.map(color => {
+      const productColor = Array.from(productColors).find(pc => pc.trim().toLowerCase() === color);
+      return productColor || (color.charAt(0).toUpperCase() + color.slice(1));
+    });
+  }, [products, allColors]);
+
+  const availableShapes = React.useMemo(() => {
+    const productShapes = new Set<string>();
+    products.forEach(product => {
+      if ((product as any).shape && (product as any).shape.trim() !== '') {
+        productShapes.add((product as any).shape.trim());
+      }
+    });
+    const allAvailableShapes = new Set<string>([
+      ...allShapes.map(s => s.toLowerCase()),
+      ...Array.from(productShapes).map(s => s.toLowerCase())
+    ]);
+    const sortedShapes = Array.from(allAvailableShapes).sort();
+    return sortedShapes.map(shape => {
+      const productShape = Array.from(productShapes).find(ps => ps.trim().toLowerCase() === shape);
+      return productShape || (shape.charAt(0).toUpperCase() + shape.slice(1));
+    });
+  }, [products, allShapes]);
+
+  const availableSizes = React.useMemo(() => {
+    const sizes = new Set<string>();
+    products.forEach(product => {
+      const size = (product as any).size || (product as any).frame_size;
+      if (size && size.toString().trim() !== '') {
+        sizes.add(size.toString().trim());
+      }
+    });
+    return Array.from(sizes).sort();
+  }, [products]);
+
+  const availableFrameMaterials = React.useMemo(() => {
+    const productMaterials = new Set<string>();
+    products.forEach(product => {
+      if ((product as any).frame_material && (product as any).frame_material.trim() !== '') {
+        productMaterials.add((product as any).frame_material.trim());
+      }
+    });
+    const allAvailableMaterials = new Set<string>([
+      ...allFrameMaterials.map(m => m.toLowerCase()),
+      ...Array.from(productMaterials).map(m => m.toLowerCase())
+    ]);
+    const sortedMaterials = Array.from(allAvailableMaterials).sort();
+    return sortedMaterials.map(material => {
+      const productMaterial = Array.from(productMaterials).find(pm => pm.trim().toLowerCase() === material);
+      return productMaterial || (material.charAt(0).toUpperCase() + material.slice(1));
+    });
+  }, [products, allFrameMaterials]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -873,21 +1019,43 @@ const AdminProductManagement: React.FC = () => {
       {/* Filters and Search */}
         <Card>
         <CardContent className="p-6">
-          <div className="flex flex-col sm:flex-row gap-4">
-            <div className="flex-1">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-          <Input
-                  placeholder="Search products..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10"
-          />
-        </div>
-        </div>
-        <div className="flex gap-2">
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col sm:flex-row gap-4">
+              <div className="flex-1">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                  <Input
+                    placeholder="Search products..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+              </div>
+              <div className="flex border rounded-md">
+                <Button
+                  variant={viewMode === 'grid' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => setViewMode('grid')}
+                  className="rounded-r-none"
+                >
+                  <Grid3x3 className="w-4 h-4" />
+                </Button>
+                <Button
+                  variant={viewMode === 'list' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => setViewMode('list')}
+                  className="rounded-l-none"
+                >
+                  <List className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+            
+            {/* Product Filters */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-7 gap-3">
               <Select value={categoryFilter} onValueChange={(value: any) => setCategoryFilter(value)}>
-                <SelectTrigger className="w-40">
+                <SelectTrigger className="w-full">
                   <SelectValue placeholder="All Categories" />
                 </SelectTrigger>
                 <SelectContent>
@@ -899,8 +1067,9 @@ const AdminProductManagement: React.FC = () => {
                   ))}
                 </SelectContent>
               </Select>
+              
               <Select value={genderFilter} onValueChange={(value: any) => setGenderFilter(value)}>
-                <SelectTrigger className="w-40">
+                <SelectTrigger className="w-full">
                   <SelectValue placeholder="All Gender" />
                 </SelectTrigger>
                 <SelectContent>
@@ -911,41 +1080,92 @@ const AdminProductManagement: React.FC = () => {
                   <SelectItem value="unisex">Unisex</SelectItem>
                 </SelectContent>
               </Select>
-              <Select value={lensTypeFilter} onValueChange={(value: any) => setLensTypeFilter(value)}>
-                <SelectTrigger className="w-40">
-                  <SelectValue placeholder="All Lens Types" />
+              
+              <Select value={brandFilter} onValueChange={(value: any) => setBrandFilter(value)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="All Brands" />
                 </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Lens Types</SelectItem>
-                  <SelectItem value="single_vision">Single Vision</SelectItem>
-                  <SelectItem value="bifocal">Bifocal</SelectItem>
-                  <SelectItem value="trifocal">Trifocal</SelectItem>
-                  <SelectItem value="progressive">Progressive</SelectItem>
-                  <SelectItem value="photochromic">Photochromic</SelectItem>
-                  <SelectItem value="polarized">Polarized</SelectItem>
-                  <SelectItem value="reading">Reading</SelectItem>
-                  <SelectItem value="computer">Computer</SelectItem>
+                <SelectContent className="max-h-[300px]">
+                  <SelectItem value="all">All Brands</SelectItem>
+                  {availableBrands.map(brand => (
+                    <SelectItem key={brand} value={brand}>
+                      {brand}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
-              <div className="flex border rounded-md">
-          <Button
-                  variant={viewMode === 'grid' ? 'default' : 'ghost'}
-            size="sm"
-            onClick={() => setViewMode('grid')}
-                  className="rounded-r-none"
-          >
-                  <Grid3x3 className="w-4 h-4" />
-          </Button>
-          <Button
-                  variant={viewMode === 'list' ? 'default' : 'ghost'}
-            size="sm"
-            onClick={() => setViewMode('list')}
-                  className="rounded-l-none"
-          >
-                  <List className="w-4 h-4" />
-          </Button>
-        </div>
-      </div>
+              
+              <Select value={colorFilter} onValueChange={(value: any) => setColorFilter(value)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="All Colors" />
+                </SelectTrigger>
+                <SelectContent className="max-h-[300px]">
+                  <SelectItem value="all">All Colors</SelectItem>
+                  {availableColors.map(color => {
+                    const productCount = products.filter(p => 
+                      (p as any).color && (p as any).color?.toLowerCase() === color.toLowerCase()
+                    ).length;
+                    return (
+                      <SelectItem key={color} value={color}>
+                        {color} {productCount > 0 && `(${productCount})`}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+              
+              <Select value={shapeFilter} onValueChange={(value: any) => setShapeFilter(value)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="All Shapes" />
+                </SelectTrigger>
+                <SelectContent className="max-h-[300px]">
+                  <SelectItem value="all">All Shapes</SelectItem>
+                  {availableShapes.map(shape => {
+                    const productCount = products.filter(p => 
+                      (p as any).shape && (p as any).shape?.toLowerCase() === shape.toLowerCase()
+                    ).length;
+                    return (
+                      <SelectItem key={shape} value={shape}>
+                        {shape} {productCount > 0 && `(${productCount})`}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+              
+              <Select value={sizeFilter} onValueChange={(value: any) => setSizeFilter(value)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="All Sizes" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Sizes</SelectItem>
+                  {availableSizes.map(size => (
+                    <SelectItem key={size} value={size}>
+                      {size}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              
+              <Select value={frameMaterialFilter} onValueChange={(value: any) => setFrameMaterialFilter(value)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="All Materials" />
+                </SelectTrigger>
+                <SelectContent className="max-h-[300px]">
+                  <SelectItem value="all">All Materials</SelectItem>
+                  {availableFrameMaterials.map(material => {
+                    const productCount = products.filter(p => 
+                      (p as any).frame_material && (p as any).frame_material?.toLowerCase() === material.toLowerCase()
+                    ).length;
+                    return (
+                      <SelectItem key={material} value={material}>
+                        {material} {productCount > 0 && `(${productCount})`}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -964,13 +1184,71 @@ const AdminProductManagement: React.FC = () => {
                                    product.description.toLowerCase().includes(searchTerm.toLowerCase());
               const matchesCategory = categoryFilter === 'all' || 
                                     (product as any).category_id?.toString() === categoryFilter;
+              // Helper function to normalize values for comparison
+              const normalize = (value: any): string => {
+                if (value === null || value === undefined) return '';
+                return value.toString().trim().toLowerCase();
+              };
+              
+              // Helper function to check if value matches in field, name, or description
+              const matchesInFieldOrDescription = (fieldValue: any, filterValue: string, productName: string = '', description: string = ''): boolean => {
+                if (filterValue === 'all') return true;
+                const normalizedFilter = normalize(filterValue);
+                const normalizedField = normalize(fieldValue);
+                const normalizedName = normalize(productName);
+                const normalizedDescription = normalize(description);
+                
+                // Check if it matches the field value exactly
+                if (normalizedField && normalizedField === normalizedFilter) return true;
+                
+                // Check if it appears in the product name
+                if (normalizedName && normalizedName.includes(normalizedFilter)) return true;
+                
+                // Check if it appears in the description
+                if (normalizedDescription && normalizedDescription.includes(normalizedFilter)) return true;
+                
+                return false;
+              };
+              
               const matchesGender = genderFilter === 'all' || 
-                                   !(product as any).gender || 
-                                   (product as any).gender === genderFilter;
-              const matchesLensType = lensTypeFilter === 'all' || 
-                                     !(product as any).lens_type || 
-                                     (product as any).lens_type === lensTypeFilter;
-              return matchesSearch && matchesCategory && matchesGender && matchesLensType && !deletedProductIds.has(product.id);
+                                   normalize((product as any).gender) === normalize(genderFilter);
+              
+              const matchesColor = matchesInFieldOrDescription(
+                (product as any).color,
+                colorFilter,
+                product.name || '',
+                product.description || ''
+              );
+              
+              const matchesBrand = matchesInFieldOrDescription(
+                product.brand,
+                brandFilter,
+                product.name || '',
+                product.description || ''
+              );
+              
+              const matchesShape = matchesInFieldOrDescription(
+                (product as any).shape,
+                shapeFilter,
+                product.name || '',
+                product.description || ''
+              );
+              
+              const productSize = (product as any).size || (product as any).frame_size;
+              const matchesSize = matchesInFieldOrDescription(
+                productSize,
+                sizeFilter,
+                product.name || '',
+                product.description || ''
+              );
+              
+              const matchesFrameMaterial = matchesInFieldOrDescription(
+                (product as any).frame_material,
+                frameMaterialFilter,
+                product.name || '',
+                product.description || ''
+              );
+              return matchesSearch && matchesCategory && matchesGender && matchesColor && matchesBrand && matchesShape && matchesSize && matchesFrameMaterial && !deletedProductIds.has(product.id);
             })
             .map(product => (
               viewMode === 'grid' ? (
@@ -1435,14 +1713,21 @@ const AdminProductManagement: React.FC = () => {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="">None</SelectItem>
-                      <SelectItem value="single_vision">Single Vision</SelectItem>
-                      <SelectItem value="bifocal">Bifocal</SelectItem>
-                      <SelectItem value="trifocal">Trifocal</SelectItem>
-                      <SelectItem value="progressive">Progressive</SelectItem>
-                      <SelectItem value="photochromic">Photochromic</SelectItem>
-                      <SelectItem value="polarized">Polarized</SelectItem>
-                      <SelectItem value="reading">Reading</SelectItem>
-                      <SelectItem value="computer">Computer</SelectItem>
+                      {loadingLensTypes ? (
+                        <SelectItem value="__loading__" disabled>Loading lens types...</SelectItem>
+                      ) : lensTypes.length > 0 ? (
+                        lensTypes.map((lensType) => (
+                          <SelectItem key={lensType.id} value={lensType.slug}>
+                            {lensType.name}
+                          </SelectItem>
+                        ))
+                      ) : (
+                        <>
+                          <SelectItem value="ordinary">Ordinary Lens</SelectItem>
+                          <SelectItem value="anti_radiation">Anti-Radiation Lens</SelectItem>
+                          <SelectItem value="photochromic">Photochromic Lens</SelectItem>
+                        </>
+                      )}
                     </SelectContent>
                   </Select>
                 </div>

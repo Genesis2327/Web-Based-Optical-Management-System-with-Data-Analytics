@@ -239,12 +239,6 @@ const getNavItems = (role: UserRole): NavItem[] => {
         description: 'Manage eye care products'
       },
       {
-        title: 'EO Lens Management',
-        href: '/admin/eo-lenses',
-        icon: Eye,
-        description: 'Manage EO lenses and categories'
-      },
-      {
         title: 'Employee Schedule Management',
         href: '/admin/employee-schedules',
         icon: Calendar,

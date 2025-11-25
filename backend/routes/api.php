@@ -419,6 +419,14 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/admin/manufacturers/{manufacturer}', [App\Http\Controllers\ManufacturerController::class, 'show']);
     });
     
+    // Public lens types endpoint (for staff/optometrist to view active lens types)
+    // This must be before the admin middleware group to be accessible
+    Route::get('/lens-types/active', function (Request $request) {
+        $controller = new App\Http\Controllers\LensTypeController();
+        $request->merge(['active_only' => true]);
+        return $controller->index($request);
+    });
+    
     // Lens Types Management - Admin only
     Route::middleware('admin')->group(function () {
         Route::get('/lens-types', [App\Http\Controllers\LensTypeController::class, 'index']);
@@ -426,13 +434,6 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/lens-types/{lensType}', [App\Http\Controllers\LensTypeController::class, 'show']);
         Route::put('/lens-types/{lensType}', [App\Http\Controllers\LensTypeController::class, 'update']);
         Route::delete('/lens-types/{lensType}', [App\Http\Controllers\LensTypeController::class, 'destroy']);
-    });
-    
-    // Public lens types endpoint (for staff/optometrist to view active lens types)
-    Route::get('/lens-types/active', function (Request $request) {
-        $controller = new App\Http\Controllers\LensTypeController();
-        $request->merge(['active_only' => true]);
-        return $controller->index($request);
     });
     
     // Test routes

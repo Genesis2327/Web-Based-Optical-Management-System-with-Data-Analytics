@@ -26,6 +26,7 @@ import { useToast } from '@/hooks/use-toast';
 import PrescriptionForm from '@/components/prescriptions/PrescriptionForm';
 import { useQueryClient } from '@tanstack/react-query';
 import { useWebSocket } from '@/hooks/useWebSocket';
+import { getLensTypes, getLensTypeName, LensType } from '@/services/lensTypeApi';
 
 const OptometristPrescriptionManagement: React.FC = () => {
   const { user } = useAuth();
@@ -50,6 +51,19 @@ const OptometristPrescriptionManagement: React.FC = () => {
       loadData();
     }
   });
+
+  // Load lens types on component mount
+  useEffect(() => {
+    const fetchLensTypes = async () => {
+      try {
+        const types = await getLensTypes(true); // Get only active lens types
+        setLensTypes(types);
+      } catch (error) {
+        console.error('Failed to fetch lens types:', error);
+      }
+    };
+    fetchLensTypes();
+  }, []);
 
   // Load prescriptions and appointments on component mount
   useEffect(() => {

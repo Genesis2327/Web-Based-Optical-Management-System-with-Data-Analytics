@@ -29,6 +29,7 @@ import {
   Loader2
 } from 'lucide-react';
 import { getOptometristPatients, getOptometristPatient, OptometristPatient, OptometristPatientDetails } from '@/services/optometristApi';
+import { getLensTypes, getLensTypeName, LensType } from '@/services/lensTypeApi';
 
 interface Prescription {
   id: number;
@@ -80,6 +81,20 @@ const OptometristPatientRecords: React.FC = () => {
   const [selectedPatient, setSelectedPatient] = useState<OptometristPatient | null>(null);
   const [patientDetails, setPatientDetails] = useState<OptometristPatientDetails | null>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
+  const [lensTypes, setLensTypes] = useState<LensType[]>([]);
+
+  // Fetch lens types on component mount
+  useEffect(() => {
+    const fetchLensTypes = async () => {
+      try {
+        const types = await getLensTypes(true); // Get only active lens types
+        setLensTypes(types);
+      } catch (error) {
+        console.error('Failed to fetch lens types:', error);
+      }
+    };
+    fetchLensTypes();
+  }, []);
 
   // Fetch all data
   useEffect(() => {
@@ -574,7 +589,7 @@ const PatientDetailsView: React.FC<{
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label>Lens Type</Label>
-                    <div className="text-sm">{prescription.lens_type || 'Not specified'}</div>
+                    <div className="text-sm">{prescription.lens_type ? getLensTypeName(prescription.lens_type, lensTypes) : 'Not specified'}</div>
                   </div>
                   <div>
                     <Label>Coating</Label>

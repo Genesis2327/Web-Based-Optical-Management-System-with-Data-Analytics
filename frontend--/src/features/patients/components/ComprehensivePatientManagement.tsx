@@ -14,6 +14,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import CreateGlassOrderFromPrescription from '@/components/glass-orders/CreateGlassOrderFromPrescription';
+import { getLensTypes, getLensTypeName, LensType } from '@/services/lensTypeApi';
 import { 
   User, 
   Eye, 
@@ -117,6 +118,20 @@ export const ComprehensivePatientManagement: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
   const [showGlassOrderDialog, setShowGlassOrderDialog] = useState(false);
+  const [lensTypes, setLensTypes] = useState<LensType[]>([]);
+
+  // Fetch lens types on component mount
+  useEffect(() => {
+    const fetchLensTypes = async () => {
+      try {
+        const types = await getLensTypes(true); // Get only active lens types
+        setLensTypes(types);
+      } catch (error) {
+        console.error('Failed to fetch lens types:', error);
+      }
+    };
+    fetchLensTypes();
+  }, []);
 
   // Fetch all data
   useEffect(() => {
@@ -598,7 +613,7 @@ const PatientDetailsView: React.FC<{
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label>Lens Type</Label>
-                    <div className="text-sm">{prescription.lens_type || 'Not specified'}</div>
+                    <div className="text-sm">{prescription.lens_type ? getLensTypeName(prescription.lens_type, lensTypes) : 'Not specified'}</div>
                   </div>
                   <div>
                     <Label>Coating</Label>
@@ -997,6 +1012,28 @@ const GlassOrderForm: React.FC<{
     priority: 'normal'
   });
 
+  // Fetch lens types on component mount
+  useEffect(() => {
+    const fetchLensTypes = async () => {
+      try {
+        setLoadingLensTypes(true);
+        const types = await getLensTypes(true); // Get only active lens types
+        setLensTypes(types);
+      } catch (error) {
+        console.error('Failed to fetch lens types:', error);
+        // Fallback to default lens types if API fails
+        setLensTypes([
+          { id: 1, name: 'Ordinary Lens', slug: 'ordinary', base_price: 0, is_active: true } as LensType,
+          { id: 2, name: 'Anti-Radiation Lens', slug: 'anti_radiation', base_price: 0, is_active: true } as LensType,
+          { id: 3, name: 'Photochromic Lens', slug: 'photochromic', base_price: 0, is_active: true } as LensType,
+        ]);
+      } finally {
+        setLoadingLensTypes(false);
+      }
+    };
+    fetchLensTypes();
+  }, []);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -1028,10 +1065,21 @@ const GlassOrderForm: React.FC<{
               <SelectValue placeholder="Select lens type" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="single">Single Vision</SelectItem>
-              <SelectItem value="progressive">Progressive</SelectItem>
-              <SelectItem value="bifocal">Bifocal</SelectItem>
-              <SelectItem value="reading">Reading Glasses</SelectItem>
+              {loadingLensTypes ? (
+                <SelectItem value="__loading__" disabled>Loading lens types...</SelectItem>
+              ) : lensTypes.length > 0 ? (
+                lensTypes.map((lensType) => (
+                  <SelectItem key={lensType.id} value={lensType.slug}>
+                    {lensType.name}
+                  </SelectItem>
+                ))
+              ) : (
+                <>
+                  <SelectItem value="ordinary">Ordinary Lens</SelectItem>
+                  <SelectItem value="anti_radiation">Anti-Radiation Lens</SelectItem>
+                  <SelectItem value="photochromic">Photochromic Lens</SelectItem>
+                </>
+              )}
             </SelectContent>
           </Select>
         </div>

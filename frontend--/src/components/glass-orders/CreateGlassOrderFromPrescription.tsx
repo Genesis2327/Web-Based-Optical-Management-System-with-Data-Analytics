@@ -9,6 +9,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Package, Eye, FileText } from 'lucide-react';
 import axios from 'axios';
 import { API_BASE_URL } from '@/config/api';
+import { getLensTypes, LensType } from '@/services/lensTypeApi';
 
 interface Prescription {
   id: number;
@@ -63,6 +64,8 @@ const CreateGlassOrderFromPrescription: React.FC<CreateGlassOrderFromPrescriptio
 }) => {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
+  const [lensTypes, setLensTypes] = useState<LensType[]>([]);
+  const [loadingLensTypes, setLoadingLensTypes] = useState(false);
   const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -86,6 +89,28 @@ const CreateGlassOrderFromPrescription: React.FC<CreateGlassOrderFromPrescriptio
   useEffect(() => {
     fetchData();
   }, [patientId]);
+
+  // Fetch lens types on component mount
+  useEffect(() => {
+    const fetchLensTypes = async () => {
+      try {
+        setLoadingLensTypes(true);
+        const types = await getLensTypes(true); // Get only active lens types
+        setLensTypes(types);
+      } catch (error) {
+        console.error('Failed to fetch lens types:', error);
+        // Fallback to default lens types if API fails
+        setLensTypes([
+          { id: 1, name: 'Ordinary Lens', slug: 'ordinary', base_price: 0, is_active: true } as LensType,
+          { id: 2, name: 'Anti-Radiation Lens', slug: 'anti_radiation', base_price: 0, is_active: true } as LensType,
+          { id: 3, name: 'Photochromic Lens', slug: 'photochromic_lens', base_price: 0, is_active: true } as LensType,
+        ]);
+      } finally {
+        setLoadingLensTypes(false);
+      }
+    };
+    fetchLensTypes();
+  }, []);
 
   const fetchData = async () => {
     try {
@@ -437,9 +462,21 @@ const CreateGlassOrderFromPrescription: React.FC<CreateGlassOrderFromPrescriptio
                     <SelectValue placeholder="Select lens type" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="ordinary">Ordinary Lens</SelectItem>
-                    <SelectItem value="anti_radiation">Anti-Radiation Lens</SelectItem>
-                    <SelectItem value="photochromic_lens">Photochromic Lens</SelectItem>
+                    {loadingLensTypes ? (
+                      <SelectItem value="__loading__" disabled>Loading lens types...</SelectItem>
+                    ) : lensTypes.length > 0 ? (
+                      lensTypes.map((lensType) => (
+                        <SelectItem key={lensType.id} value={lensType.slug}>
+                          {lensType.name}
+                        </SelectItem>
+                      ))
+                    ) : (
+                      <>
+                        <SelectItem value="ordinary">Ordinary Lens</SelectItem>
+                        <SelectItem value="anti_radiation">Anti-Radiation Lens</SelectItem>
+                        <SelectItem value="photochromic_lens">Photochromic Lens</SelectItem>
+                      </>
+                    )}
                   </SelectContent>
                 </Select>
               </div>

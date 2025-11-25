@@ -76,6 +76,7 @@ class DatabaseSeeder extends Seeder
         $this->call([
             BranchSeeder::class,        // Create branches first
             ProductCategorySeeder::class, // Create product categories
+            LensTypeSeeder::class,       // Create default lens types (Ordinary, Anti-Radiation, Photochromic)
             UserSeeder::class,           // Create users (test accounts)
             ProductSeeder::class,        // Create sample products
             StockReturnSeeder::class,    // Create stock returns

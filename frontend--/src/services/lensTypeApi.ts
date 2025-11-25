@@ -15,6 +15,8 @@ export interface LensType {
 }
 
 export const getLensTypes = async (activeOnly: boolean = false): Promise<LensType[]> => {
+  // Use the public /lens-types/active route for active-only requests
+  // This route is accessible to all authenticated users (not just admin)
   const url = activeOnly 
     ? `${API_BASE_URL}/lens-types/active`
     : `${API_BASE_URL}/lens-types`;
@@ -24,6 +26,22 @@ export const getLensTypes = async (activeOnly: boolean = false): Promise<LensTyp
   });
 
   if (!response.ok) {
+    // If the active route doesn't exist, try the regular route with query parameter
+    if (activeOnly && response.status === 404) {
+      try {
+        const fallbackResponse = await fetch(`${API_BASE_URL}/lens-types?active_only=true`, {
+          headers: getAuthHeaders(),
+        });
+        if (fallbackResponse.ok) {
+          const fallbackData = await fallbackResponse.json();
+          const allTypes = fallbackData.data || [];
+          // Filter active types on client side if needed
+          return allTypes.filter((type: LensType) => type.is_active);
+        }
+      } catch (e) {
+        // Ignore fallback error
+      }
+    }
     throw new Error('Failed to fetch lens types');
   }
 
@@ -94,4 +112,38 @@ export const deleteLensType = async (id: number): Promise<void> => {
   }
 };
 
+/**
+ * Get lens type name from slug
+ * This is a helper function to convert slug to display name
+ */
+export const getLensTypeName = (slug: string, lensTypes: LensType[] = []): string => {
+  if (!slug) return 'Not specified';
+  
+  // Try to find in provided lens types
+  const lensType = lensTypes.find(lt => lt.slug === slug);
+  if (lensType) return lensType.name;
+  
+  // Fallback to default mappings
+  const defaultMappings: Record<string, string> = {
+    'ordinary': 'Ordinary Lens',
+    'anti_radiation': 'Anti-Radiation Lens',
+    'photochromic': 'Photochromic Lens',
+    'photochromic_lens': 'Photochromic Lens',
+  };
+  
+  return defaultMappings[slug] || slug.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+};
+
+/**
+ * Get lens type by slug
+ */
+export const getLensTypeBySlug = async (slug: string): Promise<LensType | null> => {
+  try {
+    const types = await getLensTypes();
+    return types.find(lt => lt.slug === slug) || null;
+  } catch (error) {
+    console.error('Failed to fetch lens type by slug:', error);
+    return null;
+  }
+};
 

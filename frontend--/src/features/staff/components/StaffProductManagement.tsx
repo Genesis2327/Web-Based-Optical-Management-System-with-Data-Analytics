@@ -12,6 +12,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { getApiUrl } from '@/config/api';
+import { getLensTypes, LensType } from '@/services/lensTypeApi';
 
 interface Product {
   id: number;
@@ -64,6 +65,8 @@ const StaffProductManagement: React.FC = () => {
     rejected: 0
   });
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [lensTypes, setLensTypes] = useState<LensType[]>([]);
+  const [loadingLensTypes, setLoadingLensTypes] = useState(false);
 
   const getStorageUrl = (path: string) => {
     const apiBaseUrl = getApiUrl('/');
@@ -71,6 +74,28 @@ const StaffProductManagement: React.FC = () => {
     const cleanPath = path.startsWith('/') ? path.substring(1) : path;
     return `${baseUrl}/storage/${cleanPath}`;
   };
+
+  // Fetch lens types on component mount
+  useEffect(() => {
+    const fetchLensTypes = async () => {
+      try {
+        setLoadingLensTypes(true);
+        const types = await getLensTypes(true); // Get only active lens types
+        setLensTypes(types);
+      } catch (error) {
+        console.error('Failed to fetch lens types:', error);
+        // Fallback to default lens types if API fails
+        setLensTypes([
+          { id: 1, name: 'Ordinary Lens', slug: 'ordinary', base_price: 0, is_active: true } as LensType,
+          { id: 2, name: 'Anti-Radiation Lens', slug: 'anti_radiation', base_price: 0, is_active: true } as LensType,
+          { id: 3, name: 'Photochromic Lens', slug: 'photochromic', base_price: 0, is_active: true } as LensType,
+        ]);
+      } finally {
+        setLoadingLensTypes(false);
+      }
+    };
+    fetchLensTypes();
+  }, []);
 
   useEffect(() => {
     fetchProducts();
@@ -551,14 +576,21 @@ const StaffProductManagement: React.FC = () => {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="">None</SelectItem>
-                    <SelectItem value="single_vision">Single Vision</SelectItem>
-                    <SelectItem value="bifocal">Bifocal</SelectItem>
-                    <SelectItem value="trifocal">Trifocal</SelectItem>
-                    <SelectItem value="progressive">Progressive</SelectItem>
-                    <SelectItem value="photochromic">Photochromic</SelectItem>
-                    <SelectItem value="polarized">Polarized</SelectItem>
-                    <SelectItem value="reading">Reading</SelectItem>
-                    <SelectItem value="computer">Computer</SelectItem>
+                    {loadingLensTypes ? (
+                      <SelectItem value="__loading__" disabled>Loading lens types...</SelectItem>
+                    ) : lensTypes.length > 0 ? (
+                      lensTypes.map((lensType) => (
+                        <SelectItem key={lensType.id} value={lensType.slug}>
+                          {lensType.name}
+                        </SelectItem>
+                      ))
+                    ) : (
+                      <>
+                        <SelectItem value="ordinary">Ordinary Lens</SelectItem>
+                        <SelectItem value="anti_radiation">Anti-Radiation Lens</SelectItem>
+                        <SelectItem value="photochromic">Photochromic Lens</SelectItem>
+                      </>
+                    )}
                   </SelectContent>
                 </Select>
               </div>
