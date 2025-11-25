@@ -48,6 +48,9 @@ const StaffProductManagement: React.FC = () => {
     description: '',
     price: '',
     stock_quantity: '',
+    category_id: '',
+    gender: '',
+    lens_type: '',
     is_active: true
   });
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -122,6 +125,15 @@ const StaffProductManagement: React.FC = () => {
       fd.append('price', parseFloat(formData.price).toString());
       fd.append('stock_quantity', parseInt(formData.stock_quantity).toString());
       fd.append('is_active', formData.is_active.toString());
+      if (formData.category_id) {
+        fd.append('category_id', formData.category_id);
+      }
+      if (formData.gender && formData.gender !== '') {
+        fd.append('gender', formData.gender);
+      }
+      if (formData.lens_type && formData.lens_type !== '') {
+        fd.append('lens_type', formData.lens_type);
+      }
       
       // Append images
       selectedFiles.forEach((file, index) => {
@@ -224,6 +236,9 @@ const StaffProductManagement: React.FC = () => {
       description: '',
       price: '',
       stock_quantity: '',
+      category_id: '',
+      gender: '',
+      lens_type: '',
       is_active: true
     });
     setSelectedFiles([]);
@@ -237,6 +252,9 @@ const StaffProductManagement: React.FC = () => {
       description: product.description || '',
       price: product.price.toString(),
       stock_quantity: product.stock_quantity.toString(),
+      category_id: (product as any).category_id?.toString() || '',
+      gender: (product as any).gender || '',
+      lens_type: (product as any).lens_type || '',
       is_active: product.is_active
     });
     setSelectedFiles([]);
@@ -507,6 +525,43 @@ const StaffProductManagement: React.FC = () => {
                 onChange={(e) => setFormData({...formData, description: e.target.value})}
                 rows={3}
               />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="gender">Gender</Label>
+                <Select value={formData.gender || ''} onValueChange={(value) => setFormData({...formData, gender: value})}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select gender" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">None</SelectItem>
+                    <SelectItem value="men">Men&apos;s</SelectItem>
+                    <SelectItem value="women">Women&apos;s</SelectItem>
+                    <SelectItem value="kids">Kids</SelectItem>
+                    <SelectItem value="unisex">Unisex</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="lens_type">Lens/Frame Type</Label>
+                <Select value={formData.lens_type || ''} onValueChange={(value) => setFormData({...formData, lens_type: value})}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select lens/frame type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">None</SelectItem>
+                    <SelectItem value="single_vision">Single Vision</SelectItem>
+                    <SelectItem value="bifocal">Bifocal</SelectItem>
+                    <SelectItem value="trifocal">Trifocal</SelectItem>
+                    <SelectItem value="progressive">Progressive</SelectItem>
+                    <SelectItem value="photochromic">Photochromic</SelectItem>
+                    <SelectItem value="polarized">Polarized</SelectItem>
+                    <SelectItem value="reading">Reading</SelectItem>
+                    <SelectItem value="computer">Computer</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

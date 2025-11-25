@@ -22,6 +22,7 @@ const ProductDetails: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [selectedBranch, setSelectedBranch] = useState<number | null>(null);
   const [quantity, setQuantity] = useState<number>(1);
+  const [reservationFee, setReservationFee] = useState<number>(150);
   const [notes, setNotes] = useState<string>('');
   const [reservationLoading, setReservationLoading] = useState<boolean>(false);
   const [isFavorite, setIsFavorite] = useState<boolean>(false);
@@ -164,6 +165,7 @@ const ProductDetails: React.FC = () => {
         product_id: product.id,
         branch_id: selectedBranch,
         quantity: quantity,
+        reservation_fee: reservationFee,
         notes: notes || null,
       });
       
@@ -178,6 +180,7 @@ const ProductDetails: React.FC = () => {
           product_id: product.id,
           branch_id: selectedBranch,
           quantity: quantity,
+          reservation_fee: reservationFee,
           notes: notes || null,
         })
       });
@@ -200,6 +203,7 @@ const ProductDetails: React.FC = () => {
       
       // Reset form
       setQuantity(1);
+      setReservationFee(150);
       setNotes('');
       setSelectedBranch(null);
       
@@ -578,6 +582,42 @@ const ProductDetails: React.FC = () => {
                   </p>
                 </div>
 
+                {/* Reservation Fee - Fixed */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Reservation Fee
+                  </label>
+                  <div className="w-full px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg">
+                    <span className="text-gray-900 font-medium">P {reservationFee.toFixed(2)}</span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Standard reservation fee (non-refundable)
+                  </p>
+                </div>
+
+                {/* Price Summary - Always Visible */}
+                <div className="p-4 bg-green-50 border-2 border-green-200 rounded-lg">
+                  <h4 className="font-semibold text-green-800 mb-3">Price Summary</h4>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-700">Product Price:</span>
+                      <span className="font-medium">P {(Number(product.price || 0) * quantity).toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-700">Quantity:</span>
+                      <span className="font-medium">{quantity} x P {Number(product.price || 0).toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between border-t border-green-300 pt-2">
+                      <span className="text-gray-700 font-semibold">Reservation Fee:</span>
+                      <span className="font-bold text-green-700">P {reservationFee.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between border-t-2 border-green-400 pt-2 mt-2">
+                      <span className="text-gray-900 font-bold text-base">Total Amount:</span>
+                      <span className="font-bold text-green-700 text-lg">P {((Number(product.price || 0) * quantity) + reservationFee).toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Notes */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -617,6 +657,10 @@ const ProductDetails: React.FC = () => {
                 <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
                   <p className="text-sm text-yellow-800">
                     <strong>Important:</strong> This is a reservation only. You must visit the branch to complete your purchase and pay physically. No online payment is available.
+                  </p>
+                  <p className="text-sm text-yellow-800 mt-2">
+                    <strong>Total Amount to Pay:</strong> P {((Number(product.price || 0) * quantity) + reservationFee).toFixed(2)} 
+                    {' '}(Product: P {(Number(product.price || 0) * quantity).toFixed(2)} + Reservation Fee: P {reservationFee.toFixed(2)})
                   </p>
                 </div>
               </form>

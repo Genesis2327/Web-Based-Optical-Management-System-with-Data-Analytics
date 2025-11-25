@@ -64,6 +64,8 @@ const PublicProductGallery: React.FC = () => {
   const [shouldPoll, setShouldPoll] = useState<boolean>(true);
   const shouldPollRef = useRef<boolean>(true);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [selectedGender, setSelectedGender] = useState<string>('all');
+  const [selectedLensType, setSelectedLensType] = useState<string>('all');
   const [selectedImageIndices, setSelectedImageIndices] = useState<{[productId: number]: number}>({});
   
   // Product detail modal state
@@ -266,11 +268,22 @@ const PublicProductGallery: React.FC = () => {
       }
       
       // Filter by selected category
-      return product.category_id?.toString() === selectedCategory;
+      const matchesCategory = selectedCategory === 'all' || 
+        product.category_id?.toString() === selectedCategory;
+      
+      const matchesGender = selectedGender === 'all' || 
+        !(product as any).gender || 
+        (product as any).gender === selectedGender;
+      
+      const matchesLensType = selectedLensType === 'all' || 
+        !(product as any).lens_type || 
+        (product as any).lens_type === selectedLensType;
+
+      return matchesCategory && matchesGender && matchesLensType;
     });
     
     return filtered;
-  }, [products, selectedCategory, favorites]);
+  }, [products, selectedCategory, selectedGender, selectedLensType, favorites]);
 
   // Responsive products per page based on screen size
   useEffect(() => {
@@ -603,6 +616,167 @@ const PublicProductGallery: React.FC = () => {
             </div>
           </div>
         )}
+
+        {/* Gender and Lens Type Filters */}
+        <div className="max-w-7xl mx-auto mb-4 sm:mb-6 lg:mb-8">
+          <div className="bg-white/70 backdrop-blur-sm rounded-xl sm:rounded-2xl shadow-lg border border-white/20 p-4 sm:p-5 lg:p-6">
+            <div className="flex flex-col sm:flex-row gap-4">
+              {/* Gender Filter */}
+              <div className="flex-1">
+                <h3 className="text-sm sm:text-base font-semibold text-gray-800 mb-2 sm:mb-3">Filter by Gender</h3>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => setSelectedGender('all')}
+                    className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg font-medium text-xs sm:text-sm transition-all ${
+                      selectedGender === 'all'
+                        ? 'bg-blue-600 text-white shadow-md'
+                        : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    All
+                  </button>
+                  <button
+                    onClick={() => setSelectedGender('men')}
+                    className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg font-medium text-xs sm:text-sm transition-all ${
+                      selectedGender === 'men'
+                        ? 'bg-blue-600 text-white shadow-md'
+                        : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    Men&apos;s
+                  </button>
+                  <button
+                    onClick={() => setSelectedGender('women')}
+                    className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg font-medium text-xs sm:text-sm transition-all ${
+                      selectedGender === 'women'
+                        ? 'bg-blue-600 text-white shadow-md'
+                        : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    Women&apos;s
+                  </button>
+                  <button
+                    onClick={() => setSelectedGender('kids')}
+                    className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg font-medium text-xs sm:text-sm transition-all ${
+                      selectedGender === 'kids'
+                        ? 'bg-blue-600 text-white shadow-md'
+                        : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    Kids
+                  </button>
+                  <button
+                    onClick={() => setSelectedGender('unisex')}
+                    className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg font-medium text-xs sm:text-sm transition-all ${
+                      selectedGender === 'unisex'
+                        ? 'bg-blue-600 text-white shadow-md'
+                        : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    Unisex
+                  </button>
+                </div>
+              </div>
+
+              {/* Lens Type Filter */}
+              <div className="flex-1">
+                <h3 className="text-sm sm:text-base font-semibold text-gray-800 mb-2 sm:mb-3">Filter by Lens Type</h3>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => setSelectedLensType('all')}
+                    className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg font-medium text-xs sm:text-sm transition-all ${
+                      selectedLensType === 'all'
+                        ? 'bg-purple-600 text-white shadow-md'
+                        : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    All Types
+                  </button>
+                  <button
+                    onClick={() => setSelectedLensType('single_vision')}
+                    className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg font-medium text-xs sm:text-sm transition-all ${
+                      selectedLensType === 'single_vision'
+                        ? 'bg-purple-600 text-white shadow-md'
+                        : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    Single Vision
+                  </button>
+                  <button
+                    onClick={() => setSelectedLensType('progressive')}
+                    className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg font-medium text-xs sm:text-sm transition-all ${
+                      selectedLensType === 'progressive'
+                        ? 'bg-purple-600 text-white shadow-md'
+                        : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    Progressive
+                  </button>
+                  <button
+                    onClick={() => setSelectedLensType('bifocal')}
+                    className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg font-medium text-xs sm:text-sm transition-all ${
+                      selectedLensType === 'bifocal'
+                        ? 'bg-purple-600 text-white shadow-md'
+                        : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    Bifocal
+                  </button>
+                  <button
+                    onClick={() => setSelectedLensType('reading')}
+                    className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg font-medium text-xs sm:text-sm transition-all ${
+                      selectedLensType === 'reading'
+                        ? 'bg-purple-600 text-white shadow-md'
+                        : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    Reading
+                  </button>
+                  <button
+                    onClick={() => setSelectedLensType('trifocal')}
+                    className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg font-medium text-xs sm:text-sm transition-all ${
+                      selectedLensType === 'trifocal'
+                        ? 'bg-purple-600 text-white shadow-md'
+                        : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    Trifocal
+                  </button>
+                  <button
+                    onClick={() => setSelectedLensType('photochromic')}
+                    className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg font-medium text-xs sm:text-sm transition-all ${
+                      selectedLensType === 'photochromic'
+                        ? 'bg-purple-600 text-white shadow-md'
+                        : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    Photochromic
+                  </button>
+                  <button
+                    onClick={() => setSelectedLensType('polarized')}
+                    className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg font-medium text-xs sm:text-sm transition-all ${
+                      selectedLensType === 'polarized'
+                        ? 'bg-purple-600 text-white shadow-md'
+                        : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    Polarized
+                  </button>
+                  <button
+                    onClick={() => setSelectedLensType('computer')}
+                    className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-lg font-medium text-xs sm:text-sm transition-all ${
+                      selectedLensType === 'computer'
+                        ? 'bg-purple-600 text-white shadow-md'
+                        : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    Computer
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
 
         {loading && (
           <div className="max-w-4xl mx-auto">

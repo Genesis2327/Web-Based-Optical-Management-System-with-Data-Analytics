@@ -31,8 +31,8 @@ axios.interceptors.response.use(
 /**
  * Get all products with optional filters
  */
-export const getProducts = async (search = '', categoryId?: number, isActive?: boolean, showAll?: boolean): Promise<Product[]> => {
-  console.log('getProducts called with:', { search, categoryId, isActive, showAll });
+export const getProducts = async (search = '', categoryId?: number, isActive?: boolean, showAll?: boolean, gender?: string, lensType?: string): Promise<Product[]> => {
+  console.log('getProducts called with:', { search, categoryId, isActive, showAll, gender, lensType });
   
   // Build params object, only including defined values
   const params: any = {};
@@ -47,6 +47,12 @@ export const getProducts = async (search = '', categoryId?: number, isActive?: b
   }
   if (showAll !== undefined && showAll !== null) {
     params.show_all = showAll;
+  }
+  if (gender) {
+    params.gender = gender;
+  }
+  if (lensType) {
+    params.lens_type = lensType;
   }
   
   const response = await axios.get(`${API_BASE}/products`, {

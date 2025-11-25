@@ -67,6 +67,7 @@ import StaffProductTrackingDashboard from "@/features/products/components/StaffP
 import AdminStockManagement from "@/features/admin/components/AdminStockManagement";
 import AdminProductManagement from "@/features/admin/components/AdminProductManagement";
 import AdminProductTrackingDashboard from "@/features/admin/components/AdminProductTrackingDashboard";
+import EOLensManagement from "@/features/admin/components/EOLensManagement";
 import { RealtimeProvider } from "@/contexts/RealtimeProvider";
 
 // Optometrist Components
@@ -188,6 +189,11 @@ const App = () => (
               <Route path="products" element={
                 <ErrorBoundary>
                   <AdminProductManagement />
+                </ErrorBoundary>
+              } />
+              <Route path="eo-lenses" element={
+                <ErrorBoundary>
+                  <EOLensManagement />
                 </ErrorBoundary>
               } />
               <Route path="product-tracking" element={<AdminProductTrackingDashboard />} />

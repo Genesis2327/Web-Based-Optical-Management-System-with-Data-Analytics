@@ -70,14 +70,17 @@ const StaffReservationDashboard: React.FC = () => {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to fetch reservations');
+        const errorData = await response.json().catch(() => null);
+        throw new Error(errorData?.message || 'Failed to fetch reservations');
       }
 
       const data = await response.json();
-      setReservations(data);
+      // Handle both array and wrapped response
+      const reservations = Array.isArray(data) ? data : (data?.reservations || data?.data || []);
+      setReservations(reservations);
     } catch (error) {
       console.error('Error fetching reservations:', error);
-      setError('Failed to load reservations');
+      setError(error instanceof Error ? error.message : 'Failed to load reservations');
     } finally {
       setLoading(false);
     }
@@ -266,10 +269,15 @@ const StaffReservationDashboard: React.FC = () => {
                           <span className="font-medium">Product Total:</span> P {(reservation.quantity * Number(reservation.product.price)).toFixed(2)}
                         </div>
                         <div>
-                          <span className="font-medium">Reservation Fee:</span> P {(reservation.reservation_fee ?? 150).toFixed(2)}
+                          <span className="font-medium">Reservation Fee:</span> P {(Number(reservation.reservation_fee) || 150).toFixed(2)}
                         </div>
                         <div>
-                          <span className="font-medium">Total Amount:</span> <span className="font-bold text-green-600">P {(reservation.total_amount ?? (reservation.quantity * Number(reservation.product.price) + (reservation.reservation_fee ?? 150))).toFixed(2)}</span>
+                          <span className="font-medium">Total Amount:</span> <span className="font-bold text-green-600">P {(() => {
+                            const fee = Number(reservation.reservation_fee) || 150;
+                            const productTotal = reservation.quantity * Number(reservation.product.price || 0);
+                            const total = Number(reservation.total_amount) || (productTotal + fee);
+                            return total.toFixed(2);
+                          })()}</span>
                         </div>
                         <div>
                           <span className="font-medium">Reserved:</span> {formatDate(reservation.reserved_at)}

@@ -45,11 +45,19 @@ const StaffDashboard = () => {
   const { data: reservationsData, isLoading: reservationsLoading, error: reservationsError } = useQuery({
     queryKey: ['staff-reservations', user?.branch?.id],
     queryFn: async () => {
-      const response = await axios.get(getApiUrl('/reservations'), {
-        headers: getAuthHeaders(),
-      });
-      return response.data;
+      try {
+        const response = await axios.get(getApiUrl('/reservations'), {
+          headers: getAuthHeaders(),
+        });
+        // Handle both array and wrapped response
+        const data = response.data;
+        return Array.isArray(data) ? data : (data?.reservations || data?.data || []);
+      } catch (error: any) {
+        console.error('Failed to fetch reservations:', error.response?.data || error.message);
+        throw error;
+      }
     },
+    enabled: !!user,
     retry: 3,
     refetchInterval: 30000, // Refetch every 30 seconds
   });
@@ -197,7 +205,7 @@ const StaffDashboard = () => {
         
         <DashboardCard
           title="Pending Reservations"
-          value={reservationsError ? 'Error' : (reservationsData?.filter((r: any) => r.status === 'pending').length || 0)}
+          value={reservationsError ? 'Error' : (Array.isArray(reservationsData) ? reservationsData.filter((r: any) => r.status === 'pending').length : 0)}
           description={reservationsError ? 'Failed to load' : "Awaiting approval"}
           icon={Users}
           action={{

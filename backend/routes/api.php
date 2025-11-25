@@ -15,6 +15,7 @@ use App\Http\Controllers\ImageUploadController;
 use App\Http\Controllers\OptometristController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\ProductCategoryController;
+use App\Http\Controllers\EOLensController;
 use App\Http\Controllers\PatientController;
 use App\Http\Controllers\AnalyticsController;
 use App\Http\Controllers\TransactionController;
@@ -569,6 +570,14 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/product-categories/{category}', [ProductCategoryController::class, 'show']);
     Route::put('/product-categories/{category}', [ProductCategoryController::class, 'update']);
     Route::delete('/product-categories/{category}', [ProductCategoryController::class, 'destroy']);
+
+    // EO Lens routes
+    Route::get('/eo-lenses', [EOLensController::class, 'index']);
+    Route::get('/eo-lenses/statistics', [EOLensController::class, 'statistics']);
+    Route::post('/eo-lenses', [EOLensController::class, 'store']);
+    Route::get('/eo-lenses/{eOLens}', [EOLensController::class, 'show']);
+    Route::put('/eo-lenses/{eOLens}', [EOLensController::class, 'update']);
+    Route::delete('/eo-lenses/{eOLens}', [EOLensController::class, 'destroy']);
 
     // Appointment routes
     Route::get('/appointments', [AppointmentController::class, 'index']);

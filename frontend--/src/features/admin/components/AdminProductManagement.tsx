@@ -50,6 +50,8 @@ const AdminProductManagement: React.FC = () => {
     description: '',
     price: '',
     category_id: '',
+    gender: '',
+    lens_type: '',
     is_active: true
   });
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -61,6 +63,8 @@ const AdminProductManagement: React.FC = () => {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [deletedProductIds, setDeletedProductIds] = useState<Set<number>>(new Set());
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
+  const [genderFilter, setGenderFilter] = useState<string>('all');
+  const [lensTypeFilter, setLensTypeFilter] = useState<string>('all');
   const [categories, setCategories] = useState<Array<{ id: number; name: string }>>([]);
   const [availableBranches, setAvailableBranches] = useState<Array<{ id: number; name: string; code: string }>>([]);
   const [showStockModal, setShowStockModal] = useState<boolean>(false);
@@ -103,7 +107,16 @@ const AdminProductManagement: React.FC = () => {
         }
       } catch {}
     })();
-  }, []); // Remove selectedBranchId dependency to prevent auto-refresh on toggle
+  }, [categoryFilter, genderFilter, lensTypeFilter, searchTerm]); // Refresh when filters or search change
+
+  // Also refresh when search term changes (with debounce)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchProductsList();
+    }, 500); // Debounce search by 500ms
+
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
   const fetchCategories = async () => {
     try {
@@ -150,7 +163,10 @@ const AdminProductManagement: React.FC = () => {
     try {
       setLoading(true);
       console.log('=== FETCHING PRODUCTS LIST ===', { force, timestamp: new Date().toISOString() });
-      const result = await getProducts();
+      const categoryId = categoryFilter !== 'all' ? parseInt(categoryFilter) : undefined;
+      const gender = genderFilter !== 'all' ? genderFilter : undefined;
+      const lensType = lensTypeFilter !== 'all' ? lensTypeFilter : undefined;
+      const result = await getProducts(searchTerm, categoryId, undefined, undefined, gender, lensType);
       console.log('Products fetched result:', result);
       console.log('Result type:', typeof result);
       console.log('Is array:', Array.isArray(result));
@@ -230,11 +246,19 @@ const AdminProductManagement: React.FC = () => {
       fd.append('price', priceValue.toString());
       fd.append('is_active', isActive);
       fd.append('category_id', categoryId);
+      if (formData.gender && formData.gender !== '') {
+        fd.append('gender', formData.gender);
+      }
+      if (formData.lens_type && formData.lens_type !== '') {
+        fd.append('lens_type', formData.lens_type);
+      }
       
       console.log('=== FORM DATA BEING SENT ===', {
         name: trimmedName,
         description: trimmedDescription,
         price: priceValue.toString(),
+        gender: formData.gender,
+        lens_type: formData.lens_type,
         is_active: isActive,
         category_id: categoryId,
         editingProduct: editingProduct ? editingProduct.id : null
@@ -583,6 +607,8 @@ const AdminProductManagement: React.FC = () => {
         description: product.description || '',
         price: product.price?.toString() || '0',
         category_id: categoryId ? categoryId.toString() : '',
+        gender: (product as any).gender || '',
+        lens_type: (product as any).lens_type || '',
         is_active: product.is_active !== undefined ? product.is_active : true
       };
       
@@ -793,6 +819,8 @@ const AdminProductManagement: React.FC = () => {
       description: '',
       price: '',
       category_id: '',
+      gender: '',
+      lens_type: '',
       is_active: true
     });
     setSelectedFiles([]);
@@ -871,6 +899,34 @@ const AdminProductManagement: React.FC = () => {
                   ))}
                 </SelectContent>
               </Select>
+              <Select value={genderFilter} onValueChange={(value: any) => setGenderFilter(value)}>
+                <SelectTrigger className="w-40">
+                  <SelectValue placeholder="All Gender" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Gender</SelectItem>
+                  <SelectItem value="men">Men&apos;s</SelectItem>
+                  <SelectItem value="women">Women&apos;s</SelectItem>
+                  <SelectItem value="kids">Kids</SelectItem>
+                  <SelectItem value="unisex">Unisex</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={lensTypeFilter} onValueChange={(value: any) => setLensTypeFilter(value)}>
+                <SelectTrigger className="w-40">
+                  <SelectValue placeholder="All Lens Types" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Lens Types</SelectItem>
+                  <SelectItem value="single_vision">Single Vision</SelectItem>
+                  <SelectItem value="bifocal">Bifocal</SelectItem>
+                  <SelectItem value="trifocal">Trifocal</SelectItem>
+                  <SelectItem value="progressive">Progressive</SelectItem>
+                  <SelectItem value="photochromic">Photochromic</SelectItem>
+                  <SelectItem value="polarized">Polarized</SelectItem>
+                  <SelectItem value="reading">Reading</SelectItem>
+                  <SelectItem value="computer">Computer</SelectItem>
+                </SelectContent>
+              </Select>
               <div className="flex border rounded-md">
           <Button
                   variant={viewMode === 'grid' ? 'default' : 'ghost'}
@@ -908,7 +964,13 @@ const AdminProductManagement: React.FC = () => {
                                    product.description.toLowerCase().includes(searchTerm.toLowerCase());
               const matchesCategory = categoryFilter === 'all' || 
                                     (product as any).category_id?.toString() === categoryFilter;
-              return matchesSearch && matchesCategory && !deletedProductIds.has(product.id);
+              const matchesGender = genderFilter === 'all' || 
+                                   !(product as any).gender || 
+                                   (product as any).gender === genderFilter;
+              const matchesLensType = lensTypeFilter === 'all' || 
+                                     !(product as any).lens_type || 
+                                     (product as any).lens_type === lensTypeFilter;
+              return matchesSearch && matchesCategory && matchesGender && matchesLensType && !deletedProductIds.has(product.id);
             })
             .map(product => (
               viewMode === 'grid' ? (
@@ -979,6 +1041,31 @@ const AdminProductManagement: React.FC = () => {
                           {product.description}
                         </p>
                       )}
+                      
+                      {/* Gender and Lens Type Badges */}
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        {(product as any).gender && (
+                          <Badge variant="outline" className="text-xs">
+                            {(product as any).gender === 'men' ? "Men's" : 
+                             (product as any).gender === 'women' ? "Women's" : 
+                             (product as any).gender === 'kids' ? "Kids" : 
+                             (product as any).gender === 'unisex' ? "Unisex" : 
+                             (product as any).gender}
+                          </Badge>
+                        )}
+                        {(product as any).lens_type && (
+                          <Badge variant="outline" className="text-xs">
+                            {(product as any).lens_type.split('_').map((word: string) => 
+                              word.charAt(0).toUpperCase() + word.slice(1)
+                            ).join(' ')}
+                          </Badge>
+                        )}
+                        {(product as any).category && (
+                          <Badge variant="secondary" className="text-xs">
+                            {(product as any).category.name}
+                          </Badge>
+                        )}
+                      </div>
                       
                       {/* Price and Stock */}
                       <div className="flex justify-between items-center mb-4">
@@ -1128,6 +1215,30 @@ const AdminProductManagement: React.FC = () => {
                                 {product.description}
                               </p>
                             )}
+                            {/* Gender and Lens Type Badges */}
+                            <div className="flex flex-wrap gap-2 mb-2">
+                              {(product as any).gender && (
+                                <Badge variant="outline" className="text-xs">
+                                  {(product as any).gender === 'men' ? "Men's" : 
+                                   (product as any).gender === 'women' ? "Women's" : 
+                                   (product as any).gender === 'kids' ? "Kids" : 
+                                   (product as any).gender === 'unisex' ? "Unisex" : 
+                                   (product as any).gender}
+                                </Badge>
+                              )}
+                              {(product as any).lens_type && (
+                                <Badge variant="outline" className="text-xs">
+                                  {(product as any).lens_type.split('_').map((word: string) => 
+                                    word.charAt(0).toUpperCase() + word.slice(1)
+                                  ).join(' ')}
+                                </Badge>
+                              )}
+                              {(product as any).category && (
+                                <Badge variant="secondary" className="text-xs">
+                                  {(product as any).category.name}
+                                </Badge>
+                              )}
+                            </div>
                             <div className="flex items-center gap-4 text-sm">
                               <span className="text-lg font-bold text-blue-600">
                                 ₱{Number(product.price || 0).toFixed(2)}
@@ -1291,6 +1402,50 @@ const AdminProductManagement: React.FC = () => {
                     </SelectContent>
                   </Select>
                       </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Gender</label>
+                  <Select 
+                    value={formData.gender || ''} 
+                    onValueChange={(value) => setFormData({ ...formData, gender: value })}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select gender" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">None</SelectItem>
+                      <SelectItem value="men">Men&apos;s</SelectItem>
+                      <SelectItem value="women">Women&apos;s</SelectItem>
+                      <SelectItem value="kids">Kids</SelectItem>
+                      <SelectItem value="unisex">Unisex</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Lens/Frame Type</label>
+                  <Select 
+                    value={formData.lens_type || ''} 
+                    onValueChange={(value) => setFormData({ ...formData, lens_type: value })}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select lens/frame type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">None</SelectItem>
+                      <SelectItem value="single_vision">Single Vision</SelectItem>
+                      <SelectItem value="bifocal">Bifocal</SelectItem>
+                      <SelectItem value="trifocal">Trifocal</SelectItem>
+                      <SelectItem value="progressive">Progressive</SelectItem>
+                      <SelectItem value="photochromic">Photochromic</SelectItem>
+                      <SelectItem value="polarized">Polarized</SelectItem>
+                      <SelectItem value="reading">Reading</SelectItem>
+                      <SelectItem value="computer">Computer</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
 
                 <div className="flex items-center gap-2">
                   <label className="flex items-center gap-2">

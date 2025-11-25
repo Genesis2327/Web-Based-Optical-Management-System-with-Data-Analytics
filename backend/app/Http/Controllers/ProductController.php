@@ -97,6 +97,16 @@ class ProductController extends Controller
                 $query->where('is_active', $request->boolean('active'));
             }
             
+            // Filter by gender (Men, Women, Kids, Unisex)
+            if ($request->has('gender') && $request->gender && $request->gender !== 'all') {
+                $query->where('gender', $request->gender);
+            }
+            
+            // Filter by lens_type
+            if ($request->has('lens_type') && $request->lens_type && $request->lens_type !== 'all') {
+                $query->where('lens_type', $request->lens_type);
+            }
+            
             // Order by created_at (simplified - avoid complex joins that might fail)
             $products = $query
                 ->orderBy('products.created_at', 'desc')
