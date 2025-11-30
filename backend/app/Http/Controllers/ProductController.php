@@ -86,7 +86,9 @@ class ProductController extends Controller
                 $search = trim($searchTerm);
                 $query->where(function ($q) use ($search) {
                     $q->where('name', 'like', "%{$search}%")
-                      ->orWhere('description', 'like', "%{$search}%");
+                      ->orWhere('description', 'like', "%{$search}%")
+                      ->orWhere('brand', 'like', "%{$search}%")
+                      ->orWhere('lens_type', 'like', "%{$search}%");
                 });
             }
             
@@ -95,6 +97,18 @@ class ProductController extends Controller
             // If show_all is true, don't apply active filter (show all products)
             if ($request->has('active') && $isAdminOrStaff && !$showAll) {
                 $query->where('is_active', $request->boolean('active'));
+            }
+            
+            // Filter by category
+            if ($request->has('category') && $request->category && $request->category !== 'all' && $request->category !== '') {
+                $categoryId = is_numeric($request->category) ? (int)$request->category : null;
+                if ($categoryId !== null) {
+                    $query->where('category_id', $categoryId);
+                    \Log::info('Category filter applied', [
+                        'category_id' => $categoryId,
+                        'request_params' => $request->all()
+                    ]);
+                }
             }
             
             // Filter by gender (Men, Women, Kids, Unisex)
@@ -106,6 +120,71 @@ class ProductController extends Controller
             if ($request->has('lens_type') && $request->lens_type && $request->lens_type !== 'all') {
                 $query->where('lens_type', $request->lens_type);
             }
+            
+            // Filter by brand OR lens_type (Brand/Type combined filter - case-insensitive, handles null/empty)
+            // Also handles special "Branded" and "Non-Branded" options
+            if ($request->has('brand') && $request->brand && $request->brand !== 'all' && $request->brand !== '') {
+                $brandOrType = trim($request->brand);
+                if ($brandOrType !== '') {
+                    // Handle special "Branded" filter - products that have a brand
+                    // Use TRIM to handle spaces and ensure brand is not empty after trimming
+                    if ($brandOrType === '__branded__') {
+                        $query->where(function ($q) {
+                            $q->whereNotNull('brand')
+                              ->whereRaw('TRIM(COALESCE(brand, \'\')) != \'\'');
+                        });
+                        \Log::info('Branded filter applied', [
+                            'category_id' => $request->input('category'),
+                            'request_params' => $request->all()
+                        ]);
+                    }
+                    // Handle special "Non-Branded" filter - products without a brand
+                    elseif ($brandOrType === '__non_branded__') {
+                        $query->where(function ($q) {
+                            $q->whereNull('brand')
+                              ->orWhere('brand', '=', '');
+                        });
+                    }
+                    // Regular brand or lens_type filter
+                    // When a specific brand is selected (after Branded), filter by that brand only
+                    else {
+                        // Case-insensitive comparison: match either brand OR lens_type
+                        // Handle null values by converting them to empty string for comparison
+                        $normalizedValue = strtolower(trim($brandOrType));
+                        
+                        // Log for debugging
+                        \Log::info('Brand filter applied', [
+                            'requested_brand' => $brandOrType,
+                            'normalized_value' => $normalizedValue,
+                            'category_id' => $request->input('category'),
+                            'request_params' => $request->all()
+                        ]);
+                        
+                        // Use exact match (case-insensitive, trimmed)
+                        // Also try LIKE for word-boundary matches to handle variations
+                        $query->where(function ($q) use ($normalizedValue) {
+                            // Primary: Exact match (case-insensitive, trimmed) - most accurate
+                            $q->whereRaw('LOWER(TRIM(COALESCE(brand, \'\'))) = ?', [$normalizedValue])
+                              // Fallback: LIKE match that starts with the brand (handles "BLOSSOM EYEWEAR" type variations)
+                              ->orWhereRaw('LOWER(TRIM(COALESCE(brand, \'\'))) LIKE ?', [$normalizedValue . '%'])
+                              // Also match lens_type exactly
+                              ->orWhereRaw('LOWER(TRIM(COALESCE(lens_type, \'\'))) = ?', [$normalizedValue])
+                              // Lens type LIKE fallback
+                              ->orWhereRaw('LOWER(TRIM(COALESCE(lens_type, \'\'))) LIKE ?', [$normalizedValue . '%']);
+                        });
+                    }
+                }
+            }
+            
+
+            // Log query before execution for debugging
+            \Log::info('Product query before execution', [
+                'category_id' => $request->input('category'),
+                'brand' => $request->input('brand'),
+                'show_all' => $request->input('show_all'),
+                'sql' => $query->toSql(),
+                'bindings' => $query->getBindings()
+            ]);
             
             // Order by created_at (simplified - avoid complex joins that might fail)
             $products = $query
@@ -120,6 +199,15 @@ class ProductController extends Controller
                         \Log::warning('Failed to load creator for product ' . $product->id . ': ' . $e->getMessage());
                     }
                 });
+            
+            \Log::info('Products returned', [
+                'count' => $products->count(),
+                'category_id' => $request->input('category'),
+                'brand' => $request->input('brand'),
+                'sample_products' => $products->take(3)->map(function($p) {
+                    return ['id' => $p->id, 'name' => $p->name, 'brand' => $p->brand, 'category_id' => $p->category_id];
+                })
+            ]);
         
         // Get branch data only if products exist and branch_stock table exists
         $branchStockData = [];
@@ -214,6 +302,15 @@ class ProductController extends Controller
                     'slug' => $category->slug,
                     'description' => $category->description,
                 ] : null,
+                // Product filter fields - needed for frontend filtering
+                'brand' => $product->brand,
+                'gender' => $product->gender,
+                'color' => $product->color,
+                'shape' => $product->shape,
+                'size' => $product->size ?? $product->frame_size,
+                'frame_size' => $product->frame_size,
+                'frame_material' => $product->frame_material,
+                'lens_type' => $product->lens_type,
                 'created_at' => $product->created_at,
                 'updated_at' => $product->updated_at,
                 'branch_availability' => $branchAvailability,

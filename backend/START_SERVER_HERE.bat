@@ -44,6 +44,14 @@ if defined IP (
 echo.
 echo IMPORTANT: Keep this window OPEN!
 echo Press Ctrl+C to stop the server
+echo.
+echo ========================================
+echo WebSocket Server (Optional):
+echo ========================================
+echo For real-time notifications, also start the WebSocket server:
+echo   - Run START_WEBSOCKET.bat in a separate window
+echo   - Or: cd websocket && npm start
+echo.
 echo ========================================
 echo.
 

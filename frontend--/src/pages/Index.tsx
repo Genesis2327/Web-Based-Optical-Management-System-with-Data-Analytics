@@ -146,12 +146,14 @@ const Index = () => {
       <div className="relative z-10">
       {/* Header */}
       <header className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-          <div className="flex items-center space-x-2">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center">
+          <div className="flex items-center justify-center sm:justify-start space-x-2">
             <Eye className="h-8 w-8 text-primary" />
-            <h1 className="text-2xl font-bold text-slate-900">Everbright Optical Clinic</h1>
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 text-center sm:text-left">
+              Everbright Optical Clinic
+            </h1>
           </div>
-          <div className="flex space-x-4">
+          <div className="flex flex-wrap justify-center sm:justify-end gap-2 sm:space-x-4">
             <Button variant="outline" asChild>
               <Link to="/faq">
                 <HelpCircle className="h-4 w-4 mr-2" />

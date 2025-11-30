@@ -8,7 +8,7 @@ use App\Models\ProductCategory;
 class SeedProductCategories extends Command
 {
     protected $signature = 'categories:seed';
-    protected $description = 'Seed product categories: Frames, Contact Lenses, Eye Care Products, Sunglasses';
+    protected $description = 'Seed product categories: Solution, Contact Lens, Frames, Sunglasses';
 
     public function handle()
     {
@@ -17,23 +17,23 @@ class SeedProductCategories extends Command
 
         $categories = [
             [
-                'name' => 'Frames',
-                'slug' => 'frames',
-                'description' => 'Eyeglass frames and prescription frames',
+                'name' => 'Solution',
+                'slug' => 'solution',
+                'description' => 'Eye care solutions and cleaning products',
                 'sort_order' => 1,
                 'is_active' => true,
             ],
             [
-                'name' => 'Contact Lenses',
-                'slug' => 'contact-lenses',
+                'name' => 'Contact Lens',
+                'slug' => 'contact-lens',
                 'description' => 'Various types of contact lenses',
                 'sort_order' => 2,
                 'is_active' => true,
             ],
             [
-                'name' => 'Eye Care Products',
-                'slug' => 'eye-care-products',
-                'description' => 'Eye care solutions, cleaning products, and accessories',
+                'name' => 'Frames',
+                'slug' => 'frames',
+                'description' => 'Eyeglass frames and prescription frames',
                 'sort_order' => 3,
                 'is_active' => true,
             ],
@@ -76,9 +76,16 @@ class SeedProductCategories extends Command
         }
 
         foreach ($categories as $category) {
-            $existing = ProductCategory::where('slug', $category['slug'])->first();
+            // Check for existing category including soft-deleted ones
+            $existing = ProductCategory::withTrashed()->where('slug', $category['slug'])->first();
             
             if ($existing) {
+                // If it's soft-deleted, restore it first
+                if ($existing->trashed()) {
+                    $existing->restore();
+                    $this->line("  ♻️  Restored: {$category['name']}");
+                }
+                
                 // Update existing category to ensure all fields match
                 $existing->update([
                     'name' => $category['name'],

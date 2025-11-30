@@ -153,6 +153,50 @@ class User extends Authenticatable
     }
 
     /**
+     * Get roles assigned to this user (many-to-many)
+     */
+    public function roles()
+    {
+        return $this->belongsToMany(Role::class, 'user_roles')
+                    ->withTimestamps();
+    }
+
+    /**
+     * Get user groups this user belongs to
+     */
+    public function userGroups()
+    {
+        return $this->belongsToMany(UserGroup::class, 'user_group_members')
+                    ->withTimestamps();
+    }
+
+    /**
+     * Check if user has a specific role
+     */
+    public function hasRole(string $roleSlug): bool
+    {
+        return $this->roles()->where('slug', $roleSlug)->exists();
+    }
+
+    /**
+     * Check if user has a specific permission
+     */
+    public function hasPermission(string $permissionSlug): bool
+    {
+        return $this->roles()->whereHas('permissions', function ($query) use ($permissionSlug) {
+            $query->where('slug', $permissionSlug);
+        })->exists();
+    }
+
+    /**
+     * Check if user belongs to a specific group
+     */
+    public function belongsToGroup(string $groupName): bool
+    {
+        return $this->userGroups()->where('name', $groupName)->exists();
+    }
+
+    /**
      * Check if user has accepted the latest privacy policy
      */
     public function hasAcceptedLatestPrivacyPolicy(): bool

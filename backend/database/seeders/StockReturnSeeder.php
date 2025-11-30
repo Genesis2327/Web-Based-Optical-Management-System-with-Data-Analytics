@@ -15,6 +15,12 @@ class StockReturnSeeder extends Seeder
      */
     public function run(): void
     {
+        // For development/demo purposes, reset existing stock return data
+        // so we don't keep old records that point to deleted products/branches.
+        if (config('app.env') !== 'production') {
+            StockReturn::truncate();
+        }
+
         // Get some products (preferably eyeglasses or sunglasses)
         $products = Product::take(4)->get();
         if ($products->isEmpty()) {

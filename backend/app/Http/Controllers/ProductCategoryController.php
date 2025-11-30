@@ -82,9 +82,9 @@ class ProductCategoryController extends Controller
         $fallbackCategories = [
             [
                 'id' => 1,
-                'name' => 'Frames',
-                'slug' => 'frames',
-                'description' => 'Eyeglass frames and prescription frames',
+                'name' => 'Solution',
+                'slug' => 'solution',
+                'description' => 'Eye care solutions and cleaning products',
                 'icon' => null,
                 'color' => '#3B82F6',
                 'is_active' => true,
@@ -93,8 +93,8 @@ class ProductCategoryController extends Controller
             ],
             [
                 'id' => 2,
-                'name' => 'Contact Lenses',
-                'slug' => 'contact-lenses',
+                'name' => 'Contact Lens',
+                'slug' => 'contact-lens',
                 'description' => 'Various types of contact lenses',
                 'icon' => null,
                 'color' => '#3B82F6',
@@ -104,9 +104,9 @@ class ProductCategoryController extends Controller
             ],
             [
                 'id' => 3,
-                'name' => 'Eye Care Products',
-                'slug' => 'eye-care-products',
-                'description' => 'Eye care solutions, cleaning products, and accessories',
+                'name' => 'Frames',
+                'slug' => 'frames',
+                'description' => 'Eyeglass frames and prescription frames',
                 'icon' => null,
                 'color' => '#3B82F6',
                 'is_active' => true,

@@ -65,15 +65,17 @@ const CustomerAppointments: React.FC = () => {
   };
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex justify-between items-start">
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">My Appointments</h1>
-        <p className="text-gray-600 mt-2">View and manage your upcoming and past appointments</p>
+    <div className="p-4 sm:p-6 space-y-6">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 sm:gap-4">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">My Appointments</h1>
+          <p className="text-gray-600 mt-1 sm:mt-2">
+            View and manage your upcoming and past appointments
+          </p>
         </div>
         <Button 
           onClick={() => navigate('/customer/book-appointment')}
-          className="bg-customer hover:bg-customer/90"
+          className="bg-customer hover:bg-customer/90 w-full sm:w-auto"
         >
           <Plus className="h-4 w-4 mr-2" />
           Book Appointment

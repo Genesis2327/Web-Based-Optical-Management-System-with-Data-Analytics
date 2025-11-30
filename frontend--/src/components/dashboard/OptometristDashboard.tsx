@@ -306,7 +306,64 @@ const OptometristDashboard = () => {
   const todayAppointments = appointments.filter(apt => apt.createdAt === new Date().toISOString().split('T')[0]);
 
   return (
-    <div className="space-y-6">
+    <div className="optometrist-dashboard-container space-y-6">
+      <style>{`
+        /* ==========================================
+           COMPREHENSIVE RESPONSIVE MEDIA QUERIES
+           ========================================== */
+        
+        @media (max-width: 319px) {
+          .optometrist-dashboard-container {
+            padding: 0.5rem;
+          }
+        }
+        
+        @media (min-width: 320px) and (max-width: 480px) {
+          .optometrist-dashboard-container {
+            padding: 0.75rem;
+          }
+          .optometrist-dashboard-container h1 {
+            font-size: 1.5rem;
+          }
+          .optometrist-dashboard-container .grid {
+            grid-template-columns: 1fr !important;
+          }
+        }
+        
+        @media (min-width: 481px) and (max-width: 767px) {
+          .optometrist-dashboard-container {
+            padding: 1rem;
+          }
+          .optometrist-dashboard-container .grid {
+            grid-template-columns: repeat(2, 1fr) !important;
+          }
+        }
+        
+        @media (min-width: 768px) and (max-width: 1024px) {
+          .optometrist-dashboard-container {
+            padding: 1.5rem;
+          }
+        }
+        
+        @media (min-width: 1025px) {
+          .optometrist-dashboard-container {
+            padding: 2rem;
+          }
+        }
+        
+        @media (hover: none) and (pointer: coarse) {
+          .optometrist-dashboard-container * {
+            min-height: 44px;
+          }
+        }
+        
+        @media (prefers-reduced-motion: reduce) {
+          .optometrist-dashboard-container * {
+            animation-duration: 0.01ms !important;
+            transition-duration: 0.01ms !important;
+          }
+        }
+      `}</style>
       {/* Welcome Section */}
       <div className="bg-gradient-to-r from-purple-600 to-indigo-600 rounded-lg p-6 text-white">
         <h1 className="text-2xl font-bold mb-2">Good day, Dr. Genesis!</h1>

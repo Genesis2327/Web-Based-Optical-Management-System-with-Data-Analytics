@@ -35,6 +35,10 @@ use App\Http\Controllers\BranchContactController;
 use App\Http\Controllers\GlassOrderController;
 use App\Http\Controllers\ScheduleChangeRequestController;
 use App\Http\Controllers\StockReturnController;
+use App\Http\Controllers\RoleController;
+use App\Http\Controllers\PermissionController;
+use App\Http\Controllers\UserGroupController;
+use App\Http\Controllers\UserController;
 
 /*
 |--------------------------------------------------------------------------
@@ -730,5 +734,44 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/admin/users/{id}', [AuthController::class, 'deleteUser']);
     Route::post('/admin/users/{id}/approve', [AuthController::class, 'approveUser']);
     Route::post('/admin/users/{id}/reject', [AuthController::class, 'rejectUser']);
+
+    // Role Management Routes (Admin only)
+    Route::middleware('admin')->group(function () {
+        Route::get('/roles', [RoleController::class, 'index']);
+        Route::post('/roles', [RoleController::class, 'store']);
+        Route::get('/roles/{role}', [RoleController::class, 'show']);
+        Route::put('/roles/{role}', [RoleController::class, 'update']);
+        Route::delete('/roles/{role}', [RoleController::class, 'destroy']);
+        Route::post('/roles/{role}/permissions', [RoleController::class, 'assignPermissions']);
+    });
+
+    // Permission Management Routes (Admin only)
+    Route::middleware('admin')->group(function () {
+        Route::get('/permissions', [PermissionController::class, 'index']);
+        Route::get('/permissions/by-module', [PermissionController::class, 'byModule']);
+        Route::post('/permissions', [PermissionController::class, 'store']);
+        Route::get('/permissions/{permission}', [PermissionController::class, 'show']);
+        Route::put('/permissions/{permission}', [PermissionController::class, 'update']);
+        Route::delete('/permissions/{permission}', [PermissionController::class, 'destroy']);
+    });
+
+    // User Group Management Routes (Admin only)
+    Route::middleware('admin')->group(function () {
+        Route::get('/user-groups', [UserGroupController::class, 'index']);
+        Route::post('/user-groups', [UserGroupController::class, 'store']);
+        Route::get('/user-groups/{userGroup}', [UserGroupController::class, 'show']);
+        Route::put('/user-groups/{userGroup}', [UserGroupController::class, 'update']);
+        Route::delete('/user-groups/{userGroup}', [UserGroupController::class, 'destroy']);
+        Route::post('/user-groups/{userGroup}/users', [UserGroupController::class, 'addUsers']);
+        Route::delete('/user-groups/{userGroup}/users', [UserGroupController::class, 'removeUsers']);
+    });
+
+    // Enhanced User Management Routes (Admin only)
+    Route::middleware('admin')->group(function () {
+        Route::post('/users/{user}/roles', [UserController::class, 'assignRoles']);
+        Route::delete('/users/{user}/roles', [UserController::class, 'removeRoles']);
+        Route::get('/users/{user}/roles', [UserController::class, 'getUserRoles']);
+        Route::get('/users/{user}/permissions', [UserController::class, 'getUserPermissions']);
+    });
 
 });

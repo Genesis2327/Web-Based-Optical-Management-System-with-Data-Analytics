@@ -22,6 +22,7 @@ import {
   ScrollText,
   Receipt,
   X,
+  AlertTriangle,
 } from 'lucide-react';
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -125,6 +126,12 @@ const getNavItems = (role: UserRole): NavItem[] => {
         href: '/optometrist/prescriptions',
         icon: FileText,
         description: 'Create and manage prescriptions'
+      },
+      {
+        title: 'Inventory',
+        href: '/optometrist/inventory',
+        icon: Package,
+        description: 'View branch stock & returns'
       },
         {
             title: 'My Schedule',
@@ -231,6 +238,12 @@ const getNavItems = (role: UserRole): NavItem[] => {
         href: '/admin/inventory',
         icon: Package,
         description: 'Multi-branch inventory'
+      },
+      {
+        title: 'Stock Returns',
+        href: '/admin/stock-returns',
+        icon: AlertTriangle,
+        description: 'Approve defective/damaged returns'
       },
       {
         title: 'Product Gallery Management',

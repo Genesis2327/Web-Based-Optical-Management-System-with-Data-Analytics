@@ -13,8 +13,9 @@ class PermissionController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $query = Permission::query();
+        $query = Permission::with('roles');
 
+        // Filter by module if provided
         if ($request->has('module')) {
             $query->where('module', $request->module);
         }
@@ -51,6 +52,7 @@ class PermissionController extends Controller
         ]);
 
         $permission = Permission::create($validated);
+        $permission->load('roles');
 
         return response()->json([
             'message' => 'Permission created successfully',
@@ -71,6 +73,7 @@ class PermissionController extends Controller
         ]);
 
         $permission->update($validated);
+        $permission->load('roles');
 
         return response()->json([
             'message' => 'Permission updated successfully',
@@ -89,5 +92,20 @@ class PermissionController extends Controller
             'message' => 'Permission deleted successfully'
         ]);
     }
-}
 
+    /**
+     * Get permissions grouped by module
+     */
+    public function byModule(): JsonResponse
+    {
+        $permissions = Permission::with('roles')
+            ->orderBy('module')
+            ->orderBy('name')
+            ->get()
+            ->groupBy('module');
+
+        return response()->json([
+            'data' => $permissions
+        ]);
+    }
+}

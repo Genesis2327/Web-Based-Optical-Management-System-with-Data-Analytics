@@ -51,6 +51,64 @@ export const ReservedProductsGallery: React.FC<ReservedProductsGalleryProps> = (
   }
 
   return (
+    <div className="reserved-products-gallery-container">
+      <style>{`
+        /* ==========================================
+           COMPREHENSIVE RESPONSIVE MEDIA QUERIES
+           ========================================== */
+        
+        @media (max-width: 319px) {
+          .reserved-products-gallery-container {
+            padding: 0.5rem;
+          }
+        }
+        
+        @media (min-width: 320px) and (max-width: 480px) {
+          .reserved-products-gallery-container {
+            padding: 0.75rem;
+          }
+          .reserved-products-gallery-container .grid {
+            grid-template-columns: 1fr;
+          }
+        }
+        
+        @media (min-width: 481px) and (max-width: 767px) {
+          .reserved-products-gallery-container {
+            padding: 1rem;
+          }
+        }
+        
+        @media (min-width: 768px) and (max-width: 1024px) {
+          .reserved-products-gallery-container {
+            padding: 1.5rem;
+          }
+        }
+        
+        @media (min-width: 1025px) and (max-width: 1280px) {
+          .reserved-products-gallery-container {
+            padding: 2rem;
+          }
+        }
+        
+        @media (min-width: 1281px) {
+          .reserved-products-gallery-container {
+            padding: 2.5rem;
+          }
+        }
+        
+        @media (hover: none) and (pointer: coarse) {
+          .reserved-products-gallery-container * {
+            min-height: 44px;
+          }
+        }
+        
+        @media (prefers-reduced-motion: reduce) {
+          .reserved-products-gallery-container * {
+            animation-duration: 0.01ms !important;
+            transition-duration: 0.01ms !important;
+          }
+        }
+      `}</style>
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center space-x-2">
@@ -180,6 +238,7 @@ export const ReservedProductsGallery: React.FC<ReservedProductsGalleryProps> = (
         </div>
       </CardContent>
     </Card>
+    </div>
   );
 };
 

@@ -556,32 +556,33 @@ const AdminUserManagement: React.FC = () => {
   }
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
+    <div className="p-4 sm:p-6 max-w-7xl mx-auto">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 mb-6">
         <div className="flex items-center space-x-2">
-          <Users className="h-6 w-6 text-blue-600" />
-          <h1 className="text-2xl font-bold">User Management</h1>
+          <Users className="h-5 w-5 sm:h-6 sm:w-6 text-blue-600" />
+          <h1 className="text-xl sm:text-2xl font-bold">User Management</h1>
         </div>
-        <div className="flex space-x-2">
-          <Button variant="outline" onClick={fetchUsers} disabled={loading}>
-            {loading ? 'Loading...' : 'Refresh'}
+        <div className="flex flex-col sm:flex-row gap-2 sm:space-x-2">
+          <Button variant="outline" onClick={fetchUsers} disabled={loading} className="w-full sm:w-auto">
+            <RefreshCw className={`h-4 w-4 sm:mr-2 ${loading ? 'animate-spin' : ''}`} />
+            <span>{loading ? 'Loading...' : 'Refresh'}</span>
           </Button>
           <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
             <DialogTrigger asChild>
-              <Button onClick={resetForm}>
+              <Button onClick={resetForm} className="w-full sm:w-auto">
                 <Plus className="mr-2 h-4 w-4" />
                 Add User
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-2xl">
+            <DialogContent className="max-w-2xl w-full mx-4">
             <DialogHeader>
-              <DialogTitle>Add New User</DialogTitle>
-              <DialogDescription>
+              <DialogTitle className="text-lg sm:text-xl">Add New User</DialogTitle>
+              <DialogDescription className="text-sm">
                 Create a new user account with role and branch assignment. Note: Optometrists can select which branches to handle using checkboxes.
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleCreateUser} className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="name">Full Name</Label>
                   <Input
@@ -703,7 +704,7 @@ const AdminUserManagement: React.FC = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="role">Role</Label>
                   <Select value={formData.role} onValueChange={(value) => setFormData({ 
@@ -777,45 +778,50 @@ const AdminUserManagement: React.FC = () => {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center space-x-2">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 mb-4">
+            <div className="flex items-center space-x-2 flex-1">
               <Search className="h-4 w-4 text-gray-400" />
               <Input
                 placeholder="Search users..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="max-w-sm"
+                className="w-full sm:max-w-sm"
               />
             </div>
             
             {selectedUsers.size > 0 && (
-              <div className="flex items-center space-x-2">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:space-x-2">
                 <span className="text-sm text-gray-600">
                   {selectedUsers.size} user(s) selected
                 </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleBulkApprove}
-                  className="text-green-600 hover:text-green-700"
-                >
-                  <UserCheck className="h-4 w-4 mr-1" />
-                  Approve All
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleBulkDelete}
-                  className="text-red-600 hover:text-red-700"
-                >
-                  <Trash2 className="h-4 w-4 mr-1" />
-                  Delete All
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleBulkApprove}
+                    className="text-green-600 hover:text-green-700 flex-1 sm:flex-initial"
+                  >
+                    <UserCheck className="h-4 w-4 sm:mr-1" />
+                    <span className="hidden sm:inline">Approve All</span>
+                    <span className="sm:hidden">Approve</span>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleBulkDelete}
+                    className="text-red-600 hover:text-red-700 flex-1 sm:flex-initial"
+                  >
+                    <Trash2 className="h-4 w-4 sm:mr-1" />
+                    <span className="hidden sm:inline">Delete All</span>
+                    <span className="sm:hidden">Delete</span>
+                  </Button>
+                </div>
               </div>
             )}
           </div>
 
-          <Table>
+          <div className="w-full overflow-x-auto">
+            <Table>
             <TableHeader>
               <TableRow>
                 <TableHead className="w-12">
@@ -904,20 +910,21 @@ const AdminUserManagement: React.FC = () => {
               ))}
             </TableBody>
           </Table>
+          </div>
         </CardContent>
       </Card>
 
       {/* Edit User Dialog */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl w-full mx-4">
           <DialogHeader>
-            <DialogTitle>Edit User</DialogTitle>
-            <DialogDescription>
+            <DialogTitle className="text-lg sm:text-xl">Edit User</DialogTitle>
+            <DialogDescription className="text-sm">
               Update user information, role, and branch assignment. Note: Optometrists can select which branches to handle using checkboxes.
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleUpdateUser} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="edit-name">Full Name</Label>
                 <Input
@@ -974,7 +981,7 @@ const AdminUserManagement: React.FC = () => {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="edit-role">Role</Label>
                 <Select value={formData.role} onValueChange={(value) => setFormData({ 

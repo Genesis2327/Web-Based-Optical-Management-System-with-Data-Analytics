@@ -66,13 +66,70 @@ const AdminDashboard = () => {
       : 0;
 
   return (
-    <div className="space-y-6">
+    <div className="admin-dashboard-container space-y-6">
+      <style>{`
+        /* ==========================================
+           COMPREHENSIVE RESPONSIVE MEDIA QUERIES
+           ========================================== */
+        
+        @media (max-width: 319px) {
+          .admin-dashboard-container {
+            padding: 0.5rem;
+          }
+        }
+        
+        @media (min-width: 320px) and (max-width: 480px) {
+          .admin-dashboard-container {
+            padding: 0.75rem;
+          }
+          .admin-dashboard-container h1 {
+            font-size: 1.5rem;
+          }
+          .admin-dashboard-container .grid {
+            grid-template-columns: 1fr !important;
+          }
+        }
+        
+        @media (min-width: 481px) and (max-width: 767px) {
+          .admin-dashboard-container {
+            padding: 1rem;
+          }
+          .admin-dashboard-container .grid {
+            grid-template-columns: repeat(2, 1fr) !important;
+          }
+        }
+        
+        @media (min-width: 768px) and (max-width: 1024px) {
+          .admin-dashboard-container {
+            padding: 1.5rem;
+          }
+        }
+        
+        @media (min-width: 1025px) {
+          .admin-dashboard-container {
+            padding: 2rem;
+          }
+        }
+        
+        @media (hover: none) and (pointer: coarse) {
+          .admin-dashboard-container * {
+            min-height: 44px;
+          }
+        }
+        
+        @media (prefers-reduced-motion: reduce) {
+          .admin-dashboard-container * {
+            animation-duration: 0.01ms !important;
+            transition-duration: 0.01ms !important;
+          }
+        }
+      `}</style>
       {/* Welcome Section */}
-      <div className="bg-gradient-admin rounded-lg p-6 text-white">
+      <div className="bg-gradient-admin rounded-lg p-4 sm:p-6 text-white">
         <div className="flex justify-between items-start">
           <div>
-            <h1 className="text-2xl font-bold mb-2">Administrative Dashboard</h1>
-            <p className="text-admin-foreground/90">
+            <h1 className="text-xl sm:text-2xl font-bold mb-2">Administrative Dashboard</h1>
+            <p className="text-admin-foreground/90 text-sm sm:text-base">
               Complete overview of all clinic operations, performance metrics, and system management.
             </p>
           </div>
@@ -80,10 +137,10 @@ const AdminDashboard = () => {
       </div>
 
       {/* Controls Section */}
-      <div className="bg-white rounded-lg p-4 shadow-sm border">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-3">
+      <div className="bg-white rounded-lg p-3 sm:p-4 shadow-sm border">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:space-x-4">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:space-x-3">
               <BranchFilter
                 selectedBranchId={selectedBranchId}
                 onBranchChange={setSelectedBranchId}
@@ -91,15 +148,15 @@ const AdminDashboard = () => {
                 label="Filter by Branch"
                 placeholder="All branches"
                 useAdminData={true}
-                className="min-w-[200px]"
+                className="w-full sm:min-w-[200px]"
               />
               {selectedBranchId !== 'all' && (
-                <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 w-fit">
                   Showing: {branchData[0]?.name || 'Selected Branch'}
                 </Badge>
               )}
               {selectedBranchId === 'all' && (
-                <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 w-fit">
                   Showing: All Branches
                 </Badge>
               )}
@@ -113,11 +170,11 @@ const AdminDashboard = () => {
               }}
               variant="outline"
               size="sm"
-              className="min-w-[120px] disabled:opacity-50 transition-all duration-200 hover:bg-blue-50 hover:border-blue-300"
+              className="w-full sm:w-auto sm:min-w-[120px] disabled:opacity-50 transition-all duration-200 hover:bg-blue-50 hover:border-blue-300"
               disabled={branchLoading || topProductsLoading}
             >
-              <RefreshCw className={`h-4 w-4 mr-2 ${(branchLoading || topProductsLoading) ? 'animate-spin' : ''}`} />
-              {(branchLoading || topProductsLoading) ? 'Refreshing...' : 'Refresh'}
+              <RefreshCw className={`h-4 w-4 sm:mr-2 ${(branchLoading || topProductsLoading) ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">{(branchLoading || topProductsLoading) ? 'Refreshing...' : 'Refresh'}</span>
             </Button>
           </div>
         </div>

@@ -5,12 +5,15 @@ namespace App\Http\Controllers;
 use App\Models\StockReturn;
 use App\Models\Product;
 use App\Models\Branch;
+use App\Models\BranchStock;
+use App\Models\InventoryTransaction;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
 
 class StockReturnController extends Controller
 {
@@ -338,7 +341,7 @@ class StockReturnController extends Controller
                 ], 422);
             }
 
-            DB::transaction(function () use ($stockReturn, $user, $request) {
+            DB::transaction(function () use ($stockReturn, $user, $request, $userRole) {
                 $stockReturn->update([
                     'status' => 'approved',
                     'approved_by' => $user->id,
@@ -346,9 +349,62 @@ class StockReturnController extends Controller
                     'admin_notes' => $request->admin_notes,
                 ]);
 
-                // TODO: Here you would typically update the inventory system
-                // to remove the returned stock from the branch stock table
-                // and potentially add it to a returns/logistics inventory
+                // Find or create branch stock record for this product/branch
+                $branchStock = BranchStock::firstOrCreate(
+                    [
+                        'product_id' => $stockReturn->product_id,
+                        'branch_id' => $stockReturn->branch_id,
+                    ],
+                    [
+                        'stock_quantity' => 0,
+                        'reserved_quantity' => 0,
+                    ]
+                );
+
+                $oldQuantity = (int) $branchStock->stock_quantity;
+
+                // Never allow stock to go negative
+                $returnQuantity = min((int) $stockReturn->quantity, max(0, $oldQuantity));
+                $newQuantity = max(0, $oldQuantity - $returnQuantity);
+
+                // Update branch stock quantity
+                $branchStock->update([
+                    'stock_quantity' => $newQuantity,
+                ]);
+
+                // Create inventory transaction record for audit trail
+                $costPerUnit = $stockReturn->unit_cost ?? $branchStock->cost_per_unit ?? 0;
+
+                InventoryTransaction::create([
+                    'product_id' => $stockReturn->product_id,
+                    'branch_id' => $stockReturn->branch_id,
+                    'branch_stock_id' => $branchStock->id,
+                    'transaction_type' => 'return',
+                    'quantity_change' => -$returnQuantity,
+                    'previous_quantity' => $oldQuantity,
+                    'new_quantity' => $newQuantity,
+                    'reference_type' => StockReturn::class,
+                    'reference_id' => $stockReturn->id,
+                    'adjustment_reason' => $stockReturn->return_type,
+                    'notes' => $request->admin_notes,
+                    'reason' => $stockReturn->reason,
+                    'performed_by' => $user->id,
+                    'performed_by_role' => $userRole,
+                    'cost_per_unit' => $costPerUnit,
+                    'total_cost' => $costPerUnit * $returnQuantity,
+                ]);
+
+                // Sync product's total stock quantity across branches
+                $totalStock = BranchStock::where('product_id', $stockReturn->product_id)->sum('stock_quantity');
+                Product::where('id', $stockReturn->product_id)->update(['stock_quantity' => $totalStock]);
+
+                // Clear relevant inventory cache so dashboards use fresh data
+                $branchId = $stockReturn->branch_id;
+                if ($branchId) {
+                    Cache::forget('realtime_inventory_' . md5(serialize(['branch_id' => $branchId])));
+                    Cache::forget('enhanced_inventory_branch_' . $branchId);
+                }
+                Cache::forget('enhanced_inventory_all');
             });
 
             return response()->json([

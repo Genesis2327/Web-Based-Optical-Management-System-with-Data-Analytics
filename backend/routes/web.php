@@ -13,6 +13,25 @@ Route::get('/health', function () {
     ]);
 });
 
+// Serve storage files directly (fallback if symlink doesn't work on Windows)
+Route::get('/storage/{path}', function ($path) {
+    $filePath = storage_path('app/public/' . $path);
+    
+    if (!file_exists($filePath)) {
+        abort(404, 'File not found');
+    }
+    
+    $mimeType = mime_content_type($filePath);
+    if (!$mimeType) {
+        $mimeType = 'application/octet-stream';
+    }
+    
+    return response()->file($filePath, [
+        'Content-Type' => $mimeType,
+        'Cache-Control' => 'public, max-age=31536000',
+    ]);
+})->where('path', '.*');
+
 // Serve frontend for root route only
 Route::get('/', function () {
     // Try multiple possible paths for frontend

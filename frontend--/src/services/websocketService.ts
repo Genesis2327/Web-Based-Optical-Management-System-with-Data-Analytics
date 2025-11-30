@@ -156,7 +156,30 @@ class WebSocketService {
         ? rawToken
         : `Bearer ${rawToken}`;
       
-      const websocketUrl = import.meta.env.VITE_WEBSOCKET_URL || 'http://localhost:6001';
+      // Get websocket URL - use dynamic detection similar to API URL
+      let websocketUrl = import.meta.env.VITE_WEBSOCKET_URL;
+      
+      if (!websocketUrl && typeof window !== 'undefined') {
+        const host = window.location.hostname;
+        const port = window.location.port;
+        
+        // Check environment variables first
+        const envUrl = import.meta.env.VITE_WEBSOCKET_URL || import.meta.env.VITE_WEBSOCKET_SERVER;
+        if (envUrl) {
+          websocketUrl = envUrl;
+        } else if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) {
+          // Network IP access - use same IP for websocket
+          websocketUrl = `http://${host}:6001`;
+        } else if (host === 'localhost' || host === '127.0.0.1') {
+          websocketUrl = 'http://127.0.0.1:6001';
+        } else {
+          websocketUrl = 'http://localhost:6001';
+        }
+      }
+      
+      if (!websocketUrl) {
+        websocketUrl = 'http://localhost:6001';
+      }
       
       // Suppress console errors during socket creation
       // Always suppress WebSocket errors, but allow one log in dev mode on first attempt

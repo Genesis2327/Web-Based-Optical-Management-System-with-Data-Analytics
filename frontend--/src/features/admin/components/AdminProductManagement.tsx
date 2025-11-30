@@ -95,7 +95,7 @@ const AdminProductManagement: React.FC = () => {
   }, [products]);
 
   useEffect(() => {
-    fetchProductsList(true); // Force initial fetch
+    fetchProductsList(true); // Force initial fetch or when non-search filters change
     fetchCategories();
     
     // Load branches for branch selector
@@ -115,7 +115,7 @@ const AdminProductManagement: React.FC = () => {
         }
       } catch {}
     })();
-  }, [categoryFilter, genderFilter, searchTerm]); // Refresh when filters or search change
+  }, [categoryFilter, genderFilter]); // Refresh when main filters change (search handled separately with debounce)
 
   // Also refresh when search term changes (with debounce)
   useEffect(() => {
@@ -841,33 +841,38 @@ const AdminProductManagement: React.FC = () => {
     }
   };
 
-  // Comprehensive list of popular optical brands
-  const allBrands = React.useMemo(() => [
-    // Eyeglass Frames Brands
-    'Ray-Ban', 'Oakley', 'Warby Parker', 'Persol', 'Tom Ford', 'Gucci', 'Prada', 'Versace', 'Dior', 'Chanel',
-    'Burberry', 'Armani', 'Dolce & Gabbana', 'Fendi', 'Bottega Veneta', 'Maui Jim', 'Costa Del Mar', 'Serengeti',
-    'Randolph Engineering', 'Oliver Peoples', 'Cutler and Gross', 'Lindberg', 'Silhouette', 'Mykita', 'ic! berlin',
-    'Matsuda', 'Dita', 'Barton Perreira', 'Jacques Marie Mage', 'Lunor', 'Salt Optics', 'Moscot', 'Shuron',
-    'American Optical', 'Retrosuperfuture', 'Garrett Leight', 'Theo', 'Face a Face', 'Alain Mikli', 'Lafont',
-    'Prodesign Denmark', 'Etnia Barcelona', 'Police', 'Carrera', 'Vogue', 'Hugo Boss', 'Calvin Klein', 'Ralph Lauren',
-    'Tommy Hilfiger', 'Michael Kors', 'Kate Spade', 'Coach', 'Tory Burch', 'Marc Jacobs', 'Diesel', 'Emporio Armani',
-    'Guess', 'Fossil', 'Ray-Ban Junior', 'Oakley Youth',
-    // Contact Lens Brands
-    'Acuvue', 'Air Optix', 'Biofinity', 'Dailies', 'Proclear', 'Biotrue', 'SofLens', 'FreshLook', 'Focus', 'PureVision',
-    'Oasys', 'Clariti', 'MyDay', 'Avaira', 'Ultra', '1-Day Acuvue', 'Acuvue Oasys', 'Acuvue Vita', 'Air Optix Aqua',
-    'Biofinity Energys', 'Dailies AquaComfort Plus', 'Proclear Multifocal', 'Biotrue ONEday', 'SofLens Daily Disposable',
-    'FreshLook ColorBlends', 'Focus Dailies', 'PureVision 2 HD', 'Oasys for Astigmatism', 'Clariti 1 Day',
-    'MyDay Daily Disposable', 'Avaira Vitality', 'Ultra for Presbyopia',
-    // Sunglasses Brands
-    'Bolle', 'Smith', 'Julbo', 'Spy Optic', 'Electric', 'Von Zipper', 'Dragon', 'Native', 'Revo', 'Kaenon',
-    'Vuarnet', 'Polaroid', 'Quay Australia', 'Le Specs', 'Privé Revaux', 'Blenders', 'Shady Rays', 'Sunski', 'Goodr', 'Knockaround',
-    // Eye Care Products Brands
-    'Bausch + Lomb', 'Alcon', 'Allergan', 'Systane', 'Refresh', 'TheraTears', 'Blink', 'Optive', 'Genteal', 'Tears Naturale',
-    'Celluvisc', 'Lacri-Lube', 'Refresh Optive', 'Systane Ultra', 'TheraTears Dry Eye Therapy', 'Blink Contacts',
-    'Optive Advanced', 'Genteal Tears', 'Tears Naturale Forte', 'Celluvisc Lubricant', 'Lacri-Lube S.O.P.', 'Rohto',
-    'Visine', 'Clear Eyes', 'Murine', 'Zaditor', 'Alaway', 'Pataday', 'Lastacaft', 'Bepreve', 'Patanol', 'Optivar',
-    'Livostin', 'Azelastine', 'Ketotifen', 'Olopatadine', 'Emedastine', 'Epinastine',
-  ], []);
+  // Static frame brands from folder structure (same as PublicProductGallery)
+  const brandedFrameBrands = React.useMemo(
+    () => [
+      'AARALASE',
+      'ADIDAS',
+      'BLOSSOM',
+      'BUBLES',
+      'CHANEL',
+      'FANTASY',
+      'FIVE START',
+      'GUYS LAROCHE',
+      'JTLF UREN',
+      'KATE SPADE',
+      'MICHAEL KORS',
+      'MOONLIGH',
+      'MUSK EYEWEAR',
+      'NIKE',
+      'OSCARLIAN',
+      'RUDY PROJECT',
+      'SAINT LAURENT',
+      'SOOPER EYEWEAR',
+      'SPARK',
+      'STAR EYEWEAR',
+      'START LIGHT EYEWEAR',
+      'SUN',
+      'SUNCARI',
+      'Suryeoan',
+      'XYQ CRAFTSMAN',
+      'YAMEI',
+    ],
+    [],
+  );
 
   const allColors = React.useMemo(() => [
     'Black', 'White', 'Red', 'Blue', 'Green', 'Yellow', 'Purple', 'Pink',
@@ -885,35 +890,47 @@ const AdminProductManagement: React.FC = () => {
     'Aluminum', 'TR-90', 'Carbon Fiber', 'Wood', 'Horn', 'Mixed Materials'
   ], []);
 
-  // Memoized filter options
-  const availableBrands = React.useMemo(() => {
-    const productBrands = new Set<string>();
-    products.forEach(product => {
+  // Brand dropdown contents – mirror PublicProductGallery (category-aware)
+  const allAvailableBrands = React.useMemo(() => {
+    const brandMap = new Map<string, string>(); // normalized -> original
+
+    // Add brands that actually exist on products
+    products.forEach((product) => {
       if (product.brand && product.brand.trim() !== '') {
-        productBrands.add(product.brand.trim());
+        const normalized = product.brand.trim().toLowerCase();
+        if (!brandMap.has(normalized)) {
+          brandMap.set(normalized, product.brand.trim());
+        }
       }
     });
-    
-    const allAvailableBrands = new Set<string>([
-      ...allBrands.map(b => b.toLowerCase()),
-      ...Array.from(productBrands).map(b => b.toLowerCase())
-    ]);
-    
-    const sortedBrands = Array.from(allAvailableBrands).sort();
-    
-    return sortedBrands.map(brand => {
-      const productBrand = Array.from(productBrands).find(pb => pb.trim().toLowerCase() === brand);
-      return productBrand ? productBrand.trim() : brand.split(' ').map(word => {
-        if (word.includes('-') || word.includes('+')) {
-          return word.split(/([-+])/).map(part => {
-            if (part === '-' || part === '+') return part;
-            return part.charAt(0).toUpperCase() + part.slice(1);
-          }).join('');
+
+    // Determine current category name to decide when to include frame brands
+    const selectedCategoryName =
+      categoryFilter !== 'all'
+        ? categories.find((c) => c.id.toString() === categoryFilter)?.name?.toLowerCase() || ''
+        : 'all';
+
+    const isFramesCategory =
+      selectedCategoryName === 'all' ||
+      selectedCategoryName === '' ||
+      selectedCategoryName.includes('frame');
+
+    // Only merge static frame brands for Frames / All (same as public gallery)
+    if (isFramesCategory) {
+      brandedFrameBrands.forEach((brand) => {
+        const normalized = brand.toLowerCase();
+        if (!brandMap.has(normalized)) {
+          brandMap.set(normalized, brand);
         }
-        return word.charAt(0).toUpperCase() + word.slice(1);
-      }).join(' ');
-    });
-  }, [products, allBrands]);
+      });
+    }
+
+    const sorted = Array.from(brandMap.entries()).sort((a, b) =>
+      a[0].localeCompare(b[0]),
+    );
+
+    return sorted.map(([normalized, original]) => original);
+  }, [products, categories, categoryFilter, brandedFrameBrands]);
 
   const availableColors = React.useMemo(() => {
     const productColors = new Set<string>();
@@ -951,15 +968,26 @@ const AdminProductManagement: React.FC = () => {
     });
   }, [products, allShapes]);
 
+  // Common size labels for frames & sunglasses used in Product Management filters
+  const staticSizes = ['Kids', 'Small', 'Medium', 'Large', 'Oversized'];
+
   const availableSizes = React.useMemo(() => {
-    const sizes = new Set<string>();
+    const sizeSet = new Set<string>();
+
+    // Include static sizes
+    staticSizes.forEach((size) => sizeSet.add(size));
+
+    // Include any sizes coming from products (e.g. "48-18-140", "52-18")
     products.forEach(product => {
       const size = (product as any).size || (product as any).frame_size;
       if (size && size.toString().trim() !== '') {
-        sizes.add(size.toString().trim());
+        sizeSet.add(size.toString().trim());
       }
     });
-    return Array.from(sizes).sort();
+
+    return Array.from(sizeSet).sort((a, b) =>
+      a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }),
+    );
   }, [products]);
 
   const availableFrameMaterials = React.useMemo(() => {
@@ -989,36 +1017,114 @@ const AdminProductManagement: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="admin-product-management-container space-y-6">
+      <style>{`
+        /* ==========================================
+           COMPREHENSIVE RESPONSIVE MEDIA QUERIES
+           ========================================== */
+        
+        @media (max-width: 319px) {
+          .admin-product-management-container {
+            padding: 0.5rem;
+          }
+        }
+        
+        @media (min-width: 320px) and (max-width: 480px) {
+          .admin-product-management-container {
+            padding: 0.75rem;
+          }
+          .admin-product-management-container h1 {
+            font-size: 1.5rem;
+          }
+        }
+        
+        @media (min-width: 481px) and (max-width: 767px) {
+          .admin-product-management-container {
+            padding: 1rem;
+          }
+        }
+        
+        @media (min-width: 768px) and (max-width: 1024px) {
+          .admin-product-management-container {
+            padding: 1.5rem;
+          }
+        }
+        
+        @media (min-width: 1025px) and (max-width: 1280px) {
+          .admin-product-management-container {
+            padding: 2rem;
+          }
+        }
+        
+        @media (min-width: 1281px) and (max-width: 1919px) {
+          .admin-product-management-container {
+            padding: 2.5rem;
+          }
+        }
+        
+        @media (min-width: 1920px) {
+          .admin-product-management-container {
+            padding: 3rem;
+          }
+        }
+        
+        @media (orientation: landscape) and (max-height: 600px) {
+          .admin-product-management-container {
+            padding-top: 0.5rem;
+            padding-bottom: 0.5rem;
+          }
+        }
+        
+        @media (hover: none) and (pointer: coarse) {
+          .admin-product-management-container * {
+            min-height: 44px;
+          }
+        }
+        
+        @media (prefers-reduced-motion: reduce) {
+          .admin-product-management-container * {
+            animation-duration: 0.01ms !important;
+            transition-duration: 0.01ms !important;
+          }
+        }
+        
+        @media (max-width: 640px) {
+          .admin-product-management-container .max-w-7xl {
+            max-width: 100%;
+            padding-left: 0.75rem;
+            padding-right: 0.75rem;
+          }
+        }
+      `}</style>
       {/* Header */}
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 sm:gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Product Management</h1>
-          <p className="text-gray-600 mt-1">Manage your product inventory and details</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Product Management</h1>
+          <p className="text-gray-600 mt-1 sm:mt-2 text-sm sm:text-base">Manage your product inventory and details</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           <Button
             onClick={handleManualRefresh}
             variant="outline"
             size="sm"
-            className="flex items-center gap-2"
+            className="flex items-center gap-2 flex-1 sm:flex-initial"
           >
             <RefreshCw className="w-4 h-4" />
-            Refresh
+            <span>Refresh</span>
           </Button>
           <Button
             onClick={() => setShowModal(true)}
-            className="flex items-center gap-2"
+            className="flex items-center gap-2 flex-1 sm:flex-initial"
           >
             <Plus className="w-4 h-4" />
-            Add Product
+            <span>Add Product</span>
           </Button>
         </div>
       </div>
 
       {/* Filters and Search */}
         <Card>
-        <CardContent className="p-6">
+        <CardContent className="p-4 sm:p-6">
           <div className="flex flex-col gap-4">
             <div className="flex flex-col sm:flex-row gap-4">
               <div className="flex-1">
@@ -1087,11 +1193,23 @@ const AdminProductManagement: React.FC = () => {
                 </SelectTrigger>
                 <SelectContent className="max-h-[300px]">
                   <SelectItem value="all">All Brands</SelectItem>
-                  {availableBrands.map(brand => (
-                    <SelectItem key={brand} value={brand}>
-                      {brand}
-                    </SelectItem>
-                  ))}
+                  <SelectItem value="__branded__">Branded</SelectItem>
+                  <SelectItem value="__non_branded__">Non-Branded</SelectItem>
+                  {/* Show brand names when not showing Non-Branded */}
+                  {brandFilter !== '__non_branded__' && (
+                    <>
+                      {(brandFilter === '__branded__' || brandFilter === 'all') && (
+                        <div className="px-2 py-1.5 text-xs font-semibold text-gray-500">Brands</div>
+                      )}
+                      {allAvailableBrands
+                        .filter((brand) => brand && brand.trim() !== '')
+                        .map((brand) => (
+                          <SelectItem key={brand} value={brand}>
+                            {brand}
+                          </SelectItem>
+                        ))}
+                    </>
+                  )}
                 </SelectContent>
               </Select>
               
@@ -1220,12 +1338,37 @@ const AdminProductManagement: React.FC = () => {
                 product.description || ''
               );
               
-              const matchesBrand = matchesInFieldOrDescription(
-                product.brand,
-                brandFilter,
-                product.name || '',
-                product.description || ''
-              );
+              // Brand filter: handle Branded / Non-Branded & specific brands similarly to public gallery
+              let matchesBrand = true;
+              if (brandFilter !== 'all') {
+                if (brandFilter === '__non_branded__') {
+                  const hasNoBrandField = !product.brand || product.brand.trim() === '';
+
+                  // Fallback using image filename for sunglasses category
+                  let isNonBrandedByFilename = false;
+                  const categoryName = (product as any).category?.name?.toLowerCase() || '';
+                  if (categoryName.includes('sunglass')) {
+                    const imagePaths: string[] =
+                      ((product as any).image_paths as string[]) || [];
+                    const allPaths = Array.isArray(imagePaths) ? imagePaths : [];
+                    isNonBrandedByFilename = allPaths.some((p) =>
+                      p.toLowerCase().includes('nonbranded'),
+                    );
+                  }
+
+                  matchesBrand = hasNoBrandField || isNonBrandedByFilename;
+                } else if (brandFilter === '__branded__') {
+                  const hasBrandField = product.brand && product.brand.trim() !== '';
+                  matchesBrand = !!hasBrandField;
+                } else {
+                  matchesBrand = matchesInFieldOrDescription(
+                    product.brand,
+                    brandFilter,
+                    product.name || '',
+                    product.description || '',
+                  );
+                }
+              }
               
               const matchesShape = matchesInFieldOrDescription(
                 (product as any).shape,
@@ -1429,7 +1572,7 @@ const AdminProductManagement: React.FC = () => {
                 // List View Card
                 <Card key={`product-list-${product.id}-${refreshTrigger}-${product.price}-${product.name}`} className="group hover:shadow-lg transition-all duration-200 border border-gray-200 hover:border-gray-300">
                   <CardContent className="p-4">
-                    <div className="flex items-center gap-4">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
                       {/* Product Image - Smaller in list view */}
                       <div className="w-20 h-20 bg-gray-50 rounded-lg overflow-hidden relative flex-shrink-0">
                         {product.primary_image || (product.image_paths && product.image_paths[0]) ? (
@@ -1481,8 +1624,8 @@ const AdminProductManagement: React.FC = () => {
                       </div>
 
                       {/* Product Info */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-start justify-between">
+                      <div className="flex-1 min-w-0 w-full">
+                        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                           <div className="flex-1 min-w-0">
                             <h3 className="font-semibold text-lg text-gray-900 truncate mb-1">
                               {product.name}
@@ -1531,7 +1674,7 @@ const AdminProductManagement: React.FC = () => {
                           </div>
                           
                           {/* Action Buttons */}
-                          <div className="flex items-center gap-2 ml-4">
+                          <div className="flex flex-wrap items-center gap-2 ml-0 sm:ml-4 mt-2 sm:mt-0">
                             <Button
                               onClick={(e) => {
                                 e.preventDefault();
@@ -1545,7 +1688,7 @@ const AdminProductManagement: React.FC = () => {
                               type="button"
                             >
                               <Pencil className="w-4 h-4 mr-1" />
-                              Edit
+                              <span>Edit</span>
                             </Button>
                             <Button
                               onClick={(e) => {
@@ -1562,7 +1705,7 @@ const AdminProductManagement: React.FC = () => {
                               title={product.is_active ? 'Deactivate Product' : 'Activate Product'}
                             >
                               {product.is_active ? <EyeOff className="w-4 h-4 mr-1" /> : <Eye className="w-4 h-4 mr-1" />}
-                              {product.is_active ? 'Deactivate' : 'Activate'}
+                              <span>{product.is_active ? 'Deactivate' : 'Activate'}</span>
                             </Button>
                             <Button
                               onClick={(e) => handleManageStock(e, product)}
@@ -1572,7 +1715,7 @@ const AdminProductManagement: React.FC = () => {
                               title="Manage Stock"
                             >
                               <Building2 className="w-4 h-4 mr-1" />
-                              Stock
+                              <span>Stock</span>
                             </Button>
                             <Button
                               onClick={(e) => handleDelete(e, product.id)}
@@ -1582,7 +1725,7 @@ const AdminProductManagement: React.FC = () => {
                               title="Delete Product"
                             >
                               <Trash2 className="w-4 h-4 mr-1" />
-                              Delete
+                              <span>Delete</span>
                             </Button>
                           </div>
                         </div>
@@ -1597,24 +1740,25 @@ const AdminProductManagement: React.FC = () => {
 
       {/* Add/Edit Product Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-3 sm:p-4 z-50">
           <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b">
-              <div className="flex justify-between items-center">
-                <h2 className="text-2xl font-bold text-gray-900">
+            <div className="p-4 sm:p-6 border-b">
+              <div className="flex justify-between items-start gap-3">
+                <h2 className="text-xl sm:text-2xl font-bold text-gray-900 break-words flex-1">
                   {editingProduct ? `Edit Product: ${editingProduct.name}` : 'Add New Product'}
                 </h2>
                 <Button
                   onClick={resetForm}
                   variant="ghost"
                   size="sm"
+                  className="flex-shrink-0"
                 >
                   <X className="w-4 h-4" />
                 </Button>
               </div>
               </div>
               
-            <form onSubmit={handleSubmit} className="p-6 space-y-6">
+            <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4 sm:space-y-6">
               {/* Basic Information */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
@@ -1675,23 +1819,28 @@ const AdminProductManagement: React.FC = () => {
                           <SelectItem key={cat.id} value={cat.id.toString()}>{cat.name}</SelectItem>
                         ))
                       ) : (
-                        <SelectItem value="" disabled>Loading categories...</SelectItem>
+                        // Use a non-empty sentinel value to satisfy Radix Select requirements
+                        <SelectItem value="__loading__" disabled>Loading categories...</SelectItem>
                       )}
                     </SelectContent>
                   </Select>
-                      </div>
+                </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Gender</label>
                   <Select 
                     value={formData.gender || ''} 
-                    onValueChange={(value) => setFormData({ ...formData, gender: value })}
+                    onValueChange={(value) => {
+                      const normalized = value === '__none__' ? '' : value;
+                      setFormData({ ...formData, gender: normalized });
+                    }}
                   >
                     <SelectTrigger className="w-full">
                       <SelectValue placeholder="Select gender" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">None</SelectItem>
+                      {/* Use sentinel value instead of empty string to avoid Radix error */}
+                      <SelectItem value="__none__">None</SelectItem>
                       <SelectItem value="men">Men&apos;s</SelectItem>
                       <SelectItem value="women">Women&apos;s</SelectItem>
                       <SelectItem value="kids">Kids</SelectItem>
@@ -1706,13 +1855,17 @@ const AdminProductManagement: React.FC = () => {
                   <label className="block text-sm font-medium text-gray-700 mb-2">Lens/Frame Type</label>
                   <Select 
                     value={formData.lens_type || ''} 
-                    onValueChange={(value) => setFormData({ ...formData, lens_type: value })}
+                    onValueChange={(value) => {
+                      const normalized = value === '__none__' ? '' : value;
+                      setFormData({ ...formData, lens_type: normalized });
+                    }}
                   >
                     <SelectTrigger className="w-full">
                       <SelectValue placeholder="Select lens/frame type" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">None</SelectItem>
+                      {/* Use sentinel value instead of empty string to avoid Radix error */}
+                      <SelectItem value="__none__">None</SelectItem>
                       {loadingLensTypes ? (
                         <SelectItem value="__loading__" disabled>Loading lens types...</SelectItem>
                       ) : lensTypes.length > 0 ? (

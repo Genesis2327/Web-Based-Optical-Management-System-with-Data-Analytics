@@ -174,7 +174,9 @@ const ProductGallery: React.FC = () => {
       });
       if (response.ok) {
         const data = await response.json();
-        setCategories(data.categories || []);
+        const categoriesList = data.categories || data.data || [];
+        console.log('[ProductGallery] Categories loaded:', categoriesList.map((c: Category) => ({ id: c.id, name: c.name, slug: c.slug })));
+        setCategories(categoriesList);
       }
     } catch (error) {
       console.error('Failed to fetch categories:', error);
@@ -190,13 +192,72 @@ const ProductGallery: React.FC = () => {
       }
       
       const startTime = Date.now();
-      console.log('[ProductGallery] Fetching products...');
-      const data = await getProducts(searchQuery);
+      
+      // Convert selectedCategory to number if it's not 'all'
+      const categoryId = selectedCategory !== 'all' && selectedCategory !== '' 
+        ? parseInt(selectedCategory, 10) 
+        : undefined;
+      
+      // Find the category name for debugging
+      const selectedCategoryName = categoryId 
+        ? categories.find(c => c.id === categoryId)?.name || 'Unknown'
+        : 'All';
+      
+      console.log('[ProductGallery] Fetching products with filters:', {
+        search: searchQuery,
+        selectedCategory: selectedCategory,
+        categoryId: categoryId,
+        categoryName: selectedCategoryName,
+        gender: selectedGender,
+        brandOrType: selectedBrand
+      });
+      
+      // Send brand filter (including special __branded__ and __non_branded__ values)
+      const brandFilter = selectedBrand !== 'all' ? selectedBrand : undefined;
+      
+      const data = await getProducts(
+        searchQuery,
+        categoryId,
+        undefined, // isActive - let backend handle based on role
+        undefined, // showAll
+        selectedGender !== 'all' ? selectedGender : undefined,
+        undefined, // lensType - not currently used in this component
+        brandFilter
+      );
       const loadTime = Date.now() - startTime;
       
       console.log(`[ProductGallery] Products loaded in ${loadTime}ms`);
       console.log(`[ProductGallery] Received ${data.length} products`);
-      console.log(`[ProductGallery] First product:`, data[0] ? { id: data[0].id, name: data[0].name } : 'none');
+      console.log(`[ProductGallery] First product:`, data[0] ? { id: data[0].id, name: data[0].name, brand: data[0].brand, category_id: data[0].category_id } : 'none');
+      
+      // Verify category filtering - check if products match the selected category
+      if (categoryId !== undefined && data.length > 0) {
+        const mismatchedProducts = data.filter(p => p.category_id !== categoryId);
+        if (mismatchedProducts.length > 0) {
+          console.warn(`[ProductGallery] ⚠️ WARNING: Found ${mismatchedProducts.length} products with mismatched category_id!`, {
+            expectedCategoryId: categoryId,
+            expectedCategoryName: selectedCategoryName,
+            mismatchedProducts: mismatchedProducts.slice(0, 5).map(p => ({ 
+              id: p.id, 
+              name: p.name, 
+              category_id: p.category_id 
+            }))
+          });
+        } else {
+          console.log(`[ProductGallery] ✅ All products match category_id ${categoryId} (${selectedCategoryName})`);
+        }
+      }
+      
+      // Debug: Log brand values from received products
+      if (selectedBrand !== 'all' && selectedBrand !== '__branded__' && selectedBrand !== '__non_branded__') {
+        const brandsInResults = [...new Set(data.map(p => p.brand).filter(b => b))];
+        console.log(`[ProductGallery] Brand filter: "${selectedBrand}"`);
+        console.log(`[ProductGallery] Brands in results:`, brandsInResults);
+        console.log(`[ProductGallery] Products with matching brand:`, data.filter(p => 
+          p.brand && p.brand.toLowerCase().trim() === selectedBrand.toLowerCase().trim()
+        ).length);
+      }
+      
       setProducts(data);
       console.log(`[ProductGallery] Products state updated with ${data.length} items`);
     } catch (error) {
@@ -208,7 +269,7 @@ const ProductGallery: React.FC = () => {
     }
   };
 
-  // Handle search with longer debounce to reduce API calls
+  // Handle search and filter changes with debounce to reduce API calls
   useEffect(() => {
     const timeoutId = setTimeout(() => {
       // Only refresh if no products have been deleted recently (to prevent reappearing)
@@ -217,7 +278,7 @@ const ProductGallery: React.FC = () => {
       }
     }, 500); // Increased from 300ms to 500ms
     return () => clearTimeout(timeoutId);
-  }, [searchQuery]);
+  }, [searchQuery, selectedCategory, selectedGender, selectedBrand]);
 
 
   // Filter products by search query, category, and active status
@@ -226,6 +287,7 @@ const ProductGallery: React.FC = () => {
       totalProducts: products.length,
       searchQuery,
       selectedCategory,
+      selectedBrand,
       role
     });
     
@@ -249,13 +311,8 @@ const ProductGallery: React.FC = () => {
         return false;
       }
       
-      const matchesSearch = searchQuery === '' || 
-        product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        product.description?.toLowerCase().includes(searchQuery.toLowerCase());
-      
-      // Category matching: filter by category_id from product management
-      const matchesCategory = selectedCategory === 'all' || 
-        product.category_id?.toString() === selectedCategory;
+      // Note: Search, category, and gender are now filtered by the backend
+      // We only do client-side filtering for filters that backend doesn't support
       
       // Helper function to normalize values for comparison
       const normalize = (value: any): string => {
@@ -264,70 +321,130 @@ const ProductGallery: React.FC = () => {
       };
       
       // Helper function to check if value matches in field, name, or description
-      const matchesInFieldOrDescription = (fieldValue: any, filterValue: string, productName: string = '', description: string = ''): boolean => {
+      const matchesInFieldOrDescription = (
+        fieldValue: any,
+        filterValue: string,
+        productName: string = '',
+        description: string = '',
+      ): boolean => {
         if (filterValue === 'all') return true;
         const normalizedFilter = normalize(filterValue);
         const normalizedField = normalize(fieldValue);
         const normalizedName = normalize(productName);
         const normalizedDescription = normalize(description);
-        
-        // Check if it matches the field value exactly
-        if (normalizedField && normalizedField === normalizedFilter) return true;
-        
-        // Check if it appears in the product name
-        if (normalizedName && normalizedName.includes(normalizedFilter)) return true;
-        
-        // Check if it appears in the description
-        if (normalizedDescription && normalizedDescription.includes(normalizedFilter)) return true;
-        
+
+        // Remove spaces and special characters for better matching (handles "RAY BAN" vs "Ray-Ban")
+        const normalizeForMatching = (str: string): string => {
+          return str.replace(/[\s\-_]+/g, '').toLowerCase();
+        };
+
+        const filterNormalized = normalizeForMatching(normalizedFilter);
+
+        // Check field value (exact and contains)
+        if (normalizedField) {
+          if (normalizedField === normalizedFilter) return true;
+          if (normalizeForMatching(normalizedField) === filterNormalized) return true;
+          if (normalizeForMatching(normalizedField).includes(filterNormalized)) return true;
+        }
+
+        // Check product name
+        if (normalizedName) {
+          if (normalizedName.includes(normalizedFilter)) return true;
+          if (normalizeForMatching(normalizedName).includes(filterNormalized)) return true;
+        }
+
+        // Check description
+        if (normalizedDescription) {
+          if (normalizedDescription.includes(normalizedFilter)) return true;
+          if (normalizeForMatching(normalizedDescription).includes(filterNormalized)) return true;
+        }
+
         return false;
       };
-      
-      const matchesGender = selectedGender === 'all' || 
-        normalize((product as any).gender) === normalize(selectedGender);
-      
-      const matchesColor = matchesInFieldOrDescription(
-        (product as any).color,
-        selectedColor,
-        product.name || '',
-        product.description || ''
-      );
-      
-      const matchesBrand = matchesInFieldOrDescription(
-        product.brand,
-        selectedBrand,
-        product.name || '',
-        product.description || ''
-      );
-      
+
+      const matchesColor = selectedColor === 'all'
+        ? true
+        : matchesInFieldOrDescription(
+            (product as any).color,
+            selectedColor,
+            product.name || '',
+            product.description || '',
+          );
+
+      // Brand filtering is handled by the backend; client-side only handles Branded / Non-Branded as a safety net.
+      let matchesBrandFilter = true;
+      if (selectedBrand !== 'all') {
+        if (selectedBrand === '__non_branded__') {
+          const hasNoBrandField = !product.brand || product.brand.trim() === '';
+
+          // Fallback using image filename for sunglasses category
+          let isNonBrandedByFilename = false;
+          if (product.category_details?.slug?.toLowerCase() === 'sunglasses') {
+            const imagePaths: string[] =
+              ((product as any).image_paths as string[]) || [];
+            const allPaths = Array.isArray(imagePaths) ? imagePaths : [];
+            isNonBrandedByFilename = allPaths.some((p) =>
+              p.toLowerCase().includes('nonbranded'),
+            );
+          }
+
+          matchesBrandFilter = hasNoBrandField || isNonBrandedByFilename;
+        } else if (selectedBrand === '__branded__') {
+          const hasBrandField = product.brand && product.brand.trim() !== '';
+          matchesBrandFilter = !!hasBrandField;
+        }
+      }
+
       const matchesShape = matchesInFieldOrDescription(
         (product as any).shape,
         selectedShape,
         product.name || '',
-        product.description || ''
+        product.description || '',
       );
-      
+
       const productSize = (product as any).size || (product as any).frame_size;
       const matchesSize = matchesInFieldOrDescription(
         productSize,
         selectedSize,
         product.name || '',
-        product.description || ''
+        product.description || '',
       );
-      
+
       const matchesFrameMaterial = matchesInFieldOrDescription(
         (product as any).frame_material,
         selectedFrameMaterial,
         product.name || '',
-        product.description || ''
+        product.description || '',
       );
 
-      return matchesSearch && matchesCategory && matchesGender && matchesColor && matchesBrand && matchesShape && matchesSize && matchesFrameMaterial;
+      // Only filter by client-side filters (backend handles search, category, gender, and specific brand)
+      const result =
+        matchesColor && matchesBrandFilter && matchesShape && matchesSize && matchesFrameMaterial;
+      
+      // Debug logging for brand filter issues
+      if (selectedBrand !== 'all' && selectedBrand !== '__branded__' && selectedBrand !== '__non_branded__' && !result) {
+        console.log(`[ProductGallery] Product filtered out:`, {
+          id: product.id,
+          name: product.name,
+          brand: product.brand,
+          selectedBrand,
+          matchesColor,
+          matchesShape,
+          matchesSize,
+          matchesFrameMaterial
+        });
+      }
+      
+      return result;
     });
     
-    console.log(`[ProductGallery] Filtered products count: ${filtered.length}`);
+    console.log(`[ProductGallery] Filtered products count: ${filtered.length} (from ${products.length} total)`);
+    if (selectedBrand !== 'all' && selectedBrand !== '__branded__' && selectedBrand !== '__non_branded__') {
+      console.log(`[ProductGallery] Brand filter active: "${selectedBrand}"`);
+      console.log(`[ProductGallery] Products with brand in results:`, filtered.filter(p => p.brand).map(p => p.brand));
+    }
     return filtered;
-  }, [products, searchQuery, selectedCategory, selectedGender, selectedColor, selectedBrand, selectedShape, selectedSize, selectedFrameMaterial, role, categories, favorites]);
+  }, [products, selectedColor, selectedShape, selectedSize, selectedFrameMaterial, role, favorites]);
 
   // Comprehensive list of all available colors
   const allColors = [
@@ -578,41 +695,107 @@ const ProductGallery: React.FC = () => {
     'Epinastine',
   ];
 
-  const availableBrands = React.useMemo(() => {
-    const productBrands = new Set<string>();
+  // Brand names from the Branded folder structure
+  const brandedFrameBrands = [
+    'AARALASE',
+    'ADIDAS',
+    'BLOSSOM',
+    'BUBLES',
+    'CHANEL',
+    'FANTASY',
+    'FIVE START',
+    'GUYS LAROCHE',
+    'JTLF UREN',
+    'KATE SPADE',
+    'MICHAEL KORS',
+    'MOONLIGH',
+    'MUSK EYEWEAR',
+    'NIKE',
+    'OSCARLIAN',
+    'RUDY PROJECT',
+    'SAINT LAURENT',
+    'SOOPER EYEWEAR',
+    'SPARK',
+    'STAR EYEWEAR',
+    'START LIGHT EYEWEAR',
+    'SUN',
+    'SUNCARI',
+    'Suryeoan',
+    'XYQ CRAFTSMAN',
+    'YAMEI',
+  ];
+
+  // Get available brands from products (for dynamic brands not in the list)
+  // Normalize brands to handle case variations
+  const availableBrandsFromProducts = React.useMemo(() => {
+    const productBrands = new Map<string, string>(); // Map<normalized, original>
     products.forEach(product => {
       if (product.brand && product.brand.trim() !== '') {
-        productBrands.add(product.brand.trim());
-      }
-    });
-    
-    // Combine product brands with all brands list, removing duplicates
-    const allAvailableBrands = new Set<string>([
-      ...allBrands.map(b => b.toLowerCase()),
-      ...Array.from(productBrands).map(b => b.toLowerCase())
-    ]);
-    
-    const sortedBrands = Array.from(allAvailableBrands).sort();
-    
-    // Return with proper capitalization (preserve original from products or use title case)
-    return sortedBrands.map(brand => {
-      const productBrand = Array.from(productBrands).find(pb => pb.trim().toLowerCase() === brand);
-      if (productBrand) {
-        return productBrand.trim(); // Use original casing from product, trimmed
-      }
-      // Otherwise use title case
-      const words = brand.split(' ');
-      return words.map(word => {
-        // Handle special cases like "1-Day", "+", etc.
-        if (word.includes('-') || word.includes('+')) {
-          return word.split(/([-+])/).map(part => {
-            if (part === '-' || part === '+') return part;
-            return part.charAt(0).toUpperCase() + part.slice(1);
-          }).join('');
+        const normalized = product.brand.trim().toLowerCase();
+        const original = product.brand.trim();
+        // Keep the first occurrence of each normalized brand (preserve original casing)
+        if (!productBrands.has(normalized)) {
+          productBrands.set(normalized, original);
         }
-        return word.charAt(0).toUpperCase() + word.slice(1);
-      }).join(' ');
+      }
     });
+    return Array.from(productBrands.values());
+  }, [products]);
+
+  // Combine static branded-frame brands with product brands, removing duplicates.
+  // IMPORTANT: Static folder brands are only added for the Frames / All categories
+  // so that SUNGLASSES / SOLUTION / CONTACT LENSES don't show frame-only brands.
+  const allAvailableBrands = React.useMemo(() => {
+    // Create a map of normalized -> original brand names
+    const brandMap = new Map<string, string>();
+
+    // First, add product brands (these are the actual values from database)
+    availableBrandsFromProducts.forEach((brand) => {
+      const normalized = brand.toLowerCase();
+      if (!brandMap.has(normalized)) {
+        brandMap.set(normalized, brand);
+      }
+    });
+
+    // Work out current category slug to decide if we should add frame folder brands
+    const selectedCategorySlug =
+      selectedCategory !== 'all'
+        ? categories.find((c) => c.id.toString() === selectedCategory)?.slug?.toLowerCase() || ''
+        : 'all';
+
+    const isFramesCategory =
+      selectedCategorySlug === 'frames' ||
+      selectedCategorySlug === 'eyeglass-frames' ||
+      selectedCategorySlug === '' || // initial state before categories load
+      selectedCategorySlug === 'all';
+
+    // Only merge in static frame brands when we're looking at Frames / All
+    if (isFramesCategory) {
+      brandedFrameBrands.forEach((brand) => {
+        const normalized = brand.toLowerCase();
+        if (!brandMap.has(normalized)) {
+          brandMap.set(normalized, brand);
+        }
+      });
+    }
+
+    // Sort by normalized name, but return original casing
+    const sorted = Array.from(brandMap.entries()).sort((a, b) =>
+      a[0].localeCompare(b[0]),
+    );
+
+    return sorted.map(([normalized, original]) => original);
+  }, [availableBrandsFromProducts, selectedCategory, categories]);
+
+  // Get lens types from products (for when showing all or lens type filtering)
+  const availableLensTypes = React.useMemo(() => {
+    const productLensTypes = new Set<string>();
+    products.forEach(product => {
+      if ((product as any).lens_type && (product as any).lens_type.trim() !== '') {
+        productLensTypes.add((product as any).lens_type.trim());
+      }
+    });
+    return Array.from(productLensTypes).sort();
   }, [products]);
 
   // Extract unique shapes from products and combine with all shapes
@@ -640,15 +823,34 @@ const ProductGallery: React.FC = () => {
     });
   }, [products]);
 
+  // Common size labels for frames & sunglasses, used for the Size filter dropdown
+  const staticSizes = [
+    'Kids',
+    'Small',
+    'Medium',
+    'Large',
+    'Oversized',
+  ];
+
   const availableSizes = React.useMemo(() => {
-    const sizes = new Set<string>();
+    const sizeSet = new Set<string>();
+
+    // Include static size labels
+    staticSizes.forEach((size) => {
+      sizeSet.add(size);
+    });
+
+    // Include any sizes coming from products (e.g. "48-18-140", "52-18")
     products.forEach(product => {
       const size = (product as any).size || (product as any).frame_size;
       if (size && size.toString().trim() !== '') {
-        sizes.add(size.toString().trim());
+        sizeSet.add(size.toString().trim());
       }
     });
-    return Array.from(sizes).sort();
+
+    return Array.from(sizeSet).sort((a, b) =>
+      a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }),
+    );
   }, [products]);
 
   // Extract unique frame materials from products and combine with all materials
@@ -735,7 +937,7 @@ const ProductGallery: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 px-4 sm:px-6 lg:px-8 py-4 sm:py-6 lg:py-8">
+    <div className="multi-branch-gallery-container min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 px-3 sm:px-4 md:px-6 lg:px-8 xl:px-10 2xl:px-12 py-2 sm:py-3 md:py-4 lg:py-6 xl:py-8">
       <style>{`
         .scrollbar-hide {
           -ms-overflow-style: none;
@@ -754,9 +956,169 @@ const ProductGallery: React.FC = () => {
           touch-action: manipulation;
           -webkit-tap-highlight-color: transparent;
         }
-        @media (max-width: 640px) {
-          .product-card {
+
+        /* ==========================================
+           COMPREHENSIVE RESPONSIVE MEDIA QUERIES
+           ========================================== */
+
+        /* Extra Small Devices (Portrait phones, less than 320px) */
+        @media (max-width: 319px) {
+          .multi-branch-gallery-container {
+            padding-left: 0.5rem;
+            padding-right: 0.5rem;
+            padding-top: 0.5rem;
+            padding-bottom: 0.5rem;
+          }
+          .multi-branch-gallery-container .product-card {
             min-height: auto;
+          }
+        }
+
+        /* Small Devices (Portrait phones, 320px and up) */
+        @media (min-width: 320px) and (max-width: 480px) {
+          .multi-branch-gallery-container {
+            padding-left: 0.75rem;
+            padding-right: 0.75rem;
+            padding-top: 0.75rem;
+            padding-bottom: 0.75rem;
+          }
+          .multi-branch-gallery-container .product-card {
+            min-height: auto;
+          }
+        }
+
+        /* Medium Devices (Landscape phones, 481px and up) */
+        @media (min-width: 481px) and (max-width: 767px) {
+          .multi-branch-gallery-container {
+            padding-left: 1rem;
+            padding-right: 1rem;
+            padding-top: 1rem;
+            padding-bottom: 1rem;
+          }
+        }
+
+        /* Large Devices (Tablets, 768px and up) */
+        @media (min-width: 768px) and (max-width: 1024px) {
+          .multi-branch-gallery-container {
+            padding-left: 1.5rem;
+            padding-right: 1.5rem;
+            padding-top: 1.5rem;
+            padding-bottom: 1.5rem;
+          }
+        }
+
+        /* Extra Large Devices (Small laptops, 1025px and up) */
+        @media (min-width: 1025px) and (max-width: 1280px) {
+          .multi-branch-gallery-container {
+            padding-left: 2rem;
+            padding-right: 2rem;
+            padding-top: 2rem;
+            padding-bottom: 2rem;
+          }
+        }
+
+        /* XXL Devices (Desktops, 1281px and up) */
+        @media (min-width: 1281px) and (max-width: 1919px) {
+          .multi-branch-gallery-container {
+            padding-left: 2.5rem;
+            padding-right: 2.5rem;
+            padding-top: 2.5rem;
+            padding-bottom: 2.5rem;
+          }
+        }
+
+        /* XXXL Devices (Large desktops, 1920px and up) */
+        @media (min-width: 1920px) {
+          .multi-branch-gallery-container {
+            padding-left: 3rem;
+            padding-right: 3rem;
+            padding-top: 3rem;
+            padding-bottom: 3rem;
+          }
+        }
+
+        /* Landscape Orientation Optimizations */
+        @media (orientation: landscape) and (max-height: 600px) {
+          .multi-branch-gallery-container {
+            padding-top: 0.5rem;
+            padding-bottom: 0.5rem;
+          }
+        }
+
+        /* Portrait Orientation Optimizations */
+        @media (orientation: portrait) and (max-width: 768px) {
+          .multi-branch-gallery-container {
+            padding-left: 1rem;
+            padding-right: 1rem;
+          }
+        }
+
+        /* High DPI Displays (Retina) */
+        @media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+          .multi-branch-gallery-container {
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+          }
+        }
+
+        /* Touch Device Optimizations */
+        @media (hover: none) and (pointer: coarse) {
+          .multi-branch-gallery-container * {
+            min-height: 44px;
+          }
+          .multi-branch-gallery-container .product-card {
+            min-height: auto;
+          }
+        }
+
+        /* Hover Capable Devices (Desktop) */
+        @media (hover: hover) and (pointer: fine) {
+          .multi-branch-gallery-container {
+            /* Desktop-specific hover optimizations */
+          }
+        }
+
+        /* Print Styles */
+        @media print {
+          .multi-branch-gallery-container {
+            padding: 1rem;
+            max-width: 100%;
+          }
+        }
+
+        /* Reduced Motion Preference */
+        @media (prefers-reduced-motion: reduce) {
+          .multi-branch-gallery-container * {
+            animation-duration: 0.01ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: 0.01ms !important;
+          }
+        }
+
+        /* Container Max Width Responsive */
+        @media (max-width: 640px) {
+          .multi-branch-gallery-container .max-w-7xl {
+            max-width: 100%;
+            padding-left: 0.75rem;
+            padding-right: 0.75rem;
+          }
+        }
+
+        @media (min-width: 641px) and (max-width: 1024px) {
+          .multi-branch-gallery-container .max-w-7xl {
+            max-width: 90%;
+          }
+        }
+
+        @media (min-width: 1025px) and (max-width: 1280px) {
+          .multi-branch-gallery-container .max-w-7xl {
+            max-width: 85%;
+          }
+        }
+
+        @media (min-width: 1281px) {
+          .multi-branch-gallery-container .max-w-7xl {
+            max-width: 1280px;
           }
         }
       `}</style>
@@ -842,23 +1204,30 @@ const ProductGallery: React.FC = () => {
                   <span>SHOP ALL</span>
               </button>
               {categories
+                .filter((category) => category.is_active !== false) // Only show active categories
                 .sort((a, b) => {
-                    // Sort active categories first, then by sort_order, then by name
-                    if (a.is_active !== b.is_active) {
-                      return a.is_active ? -1 : 1;
-                    }
+                  // Sort by sort_order, then by name
                   if (a.sort_order !== undefined && b.sort_order !== undefined) {
                     return (a.sort_order || 0) - (b.sort_order || 0);
                   }
                   return (a.name || '').localeCompare(b.name || '');
                 })
                 .map((category) => {
-                // Count products in this category from current products list
-                const productCount = products.filter(p => p.category_id === category.id).length;
+                // Use product_count from API if available, otherwise calculate from loaded products
+                const productCount = category.product_count !== undefined 
+                  ? category.product_count 
+                  : products.filter(p => p.category_id === category.id).length;
                 return (
                   <button
                     key={category.id}
-                    onClick={() => setSelectedCategory(category.id.toString())}
+                    onClick={() => {
+                      console.log('[ProductGallery] Category button clicked:', { 
+                        categoryId: category.id, 
+                        categoryName: category.name, 
+                        categorySlug: category.slug 
+                      });
+                      setSelectedCategory(category.id.toString());
+                    }}
                     className={`inline-flex items-center justify-center px-4 py-2 sm:px-5 sm:py-2.5 rounded-lg sm:rounded-xl font-medium text-xs sm:text-sm md:text-base transition-all duration-200 whitespace-nowrap gap-1.5 sm:gap-2 ${
                       selectedCategory === category.id.toString()
                         ? 'text-white shadow-md sm:shadow-lg transform scale-[1.02] sm:scale-105'
@@ -916,10 +1285,10 @@ const ProductGallery: React.FC = () => {
               </Select>
               </div>
 
-            {/* Brand Filter */}
+            {/* Brand / Type Filter */}
             <div>
               <Label htmlFor="brand-filter" className="text-xs sm:text-sm font-medium text-gray-700 mb-1.5 block">
-                Brand
+                Brand / Type
               </Label>
               <Select value={selectedBrand} onValueChange={setSelectedBrand}>
                 <SelectTrigger id="brand-filter" className="w-full">
@@ -927,11 +1296,34 @@ const ProductGallery: React.FC = () => {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Brands</SelectItem>
-                  {availableBrands.map((brand) => (
-                    <SelectItem key={brand} value={brand}>
-                      {brand}
-                    </SelectItem>
-                  ))}
+                  <SelectItem value="__branded__">Branded</SelectItem>
+                  <SelectItem value="__non_branded__">Non-Branded</SelectItem>
+                  {/* Show brand names when not showing Non-Branded */}
+                  {selectedBrand !== '__non_branded__' && (
+                    <>
+                      {(selectedBrand === '__branded__' || selectedBrand === 'all') && (
+                        <div className="px-2 py-1.5 text-xs font-semibold text-gray-500">Brands</div>
+                      )}
+                      {allAvailableBrands
+                        .filter((brand) => brand && brand.trim() !== '')
+                        .map((brand) => (
+                          <SelectItem key={brand} value={brand}>
+                            {brand}
+                          </SelectItem>
+                        ))}
+                    </>
+                  )}
+                  {/* Show lens types only when showing all (not when Branded/Non-Branded is selected) */}
+                  {selectedBrand === 'all' && availableLensTypes.length > 0 && (
+                    <>
+                      <div className="px-2 py-1.5 text-xs font-semibold text-gray-500">Lens Types</div>
+                      {availableLensTypes.map((lensType) => (
+                        <SelectItem key={lensType} value={lensType}>
+                          {lensType}
+                        </SelectItem>
+                      ))}
+                    </>
+                  )}
                 </SelectContent>
               </Select>
             </div>

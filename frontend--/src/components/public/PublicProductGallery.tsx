@@ -190,14 +190,91 @@ const PublicProductGallery: React.FC = () => {
         setLoadingTimeout(false);
       }
       
+      // Convert selectedCategory to number if it's not 'all'
+      const categoryId = selectedCategory !== 'all' && selectedCategory !== '' 
+        ? parseInt(selectedCategory, 10) 
+        : undefined;
+      
       // Fetch all products (don't filter by active status for front page)
       // Pass show_all=true to bypass active status filter for public gallery
-      const data = await getProducts('', undefined, undefined, true);
+      // Also pass category and brand filters if selected
+      const brandFilter = selectedBrand !== 'all' ? selectedBrand : undefined;
+      const data = await getProducts('', categoryId, undefined, true, undefined, undefined, brandFilter);
+      
+      // Find the category name for debugging
+      const selectedCategoryName = categoryId 
+        ? categories.find(c => c.id === categoryId)?.name || 'Unknown'
+        : 'All';
+      
+      console.log('[PublicProductGallery] Fetching products with filters:', {
+        category: selectedCategory,
+        categoryId: categoryId,
+        categoryName: selectedCategoryName,
+        brand: selectedBrand,
+        brandFilter: brandFilter
+      });
+      
+      // Log image paths for debugging
+      if (import.meta.env.DEV && data.length > 0) {
+        console.log('[PublicProductGallery] Products fetched:', data.length);
+        console.log('[PublicProductGallery] First product:', {
+          id: data[0].id,
+          name: data[0].name,
+          brand: data[0].brand,
+          category_id: data[0].category_id
+        });
+        
+        // Verify category filtering
+        if (categoryId !== undefined && data.length > 0) {
+          const mismatchedProducts = data.filter(p => p.category_id !== categoryId);
+          if (mismatchedProducts.length > 0) {
+            console.warn(`[PublicProductGallery] ⚠️ WARNING: Found ${mismatchedProducts.length} products with mismatched category_id!`, {
+              expectedCategoryId: categoryId,
+              expectedCategoryName: selectedCategoryName,
+              mismatchedProducts: mismatchedProducts.slice(0, 5).map(p => ({ 
+                id: p.id, 
+                name: p.name, 
+                category_id: p.category_id 
+              }))
+            });
+          } else {
+            console.log(`[PublicProductGallery] ✅ All products match category_id ${categoryId} (${selectedCategoryName})`);
+          }
+        }
+        
+        // Verify brand filtering
+        if (brandFilter && brandFilter !== '__branded__' && brandFilter !== '__non_branded__') {
+          const mismatchedBrands = data.filter(p => {
+            const productBrand = p.brand ? p.brand.trim().toLowerCase() : '';
+            const filterBrand = brandFilter.trim().toLowerCase();
+            return productBrand !== filterBrand && !productBrand.startsWith(filterBrand);
+          });
+          if (mismatchedBrands.length > 0) {
+            console.warn(`[PublicProductGallery] ⚠️ WARNING: Found ${mismatchedBrands.length} products with mismatched brand!`, {
+              expectedBrand: brandFilter,
+              mismatchedProducts: mismatchedBrands.slice(0, 5).map(p => ({ 
+                id: p.id, 
+                name: p.name, 
+                brand: p.brand 
+              }))
+            });
+          } else {
+            console.log(`[PublicProductGallery] ✅ All products match brand "${brandFilter}"`);
+          }
+        } else if (brandFilter === '__branded__') {
+          const nonBrandedProducts = data.filter(p => !p.brand || p.brand.trim() === '');
+          if (nonBrandedProducts.length > 0) {
+            console.warn(`[PublicProductGallery] ⚠️ WARNING: Found ${nonBrandedProducts.length} non-branded products when "Branded" filter is selected!`);
+          } else {
+            console.log(`[PublicProductGallery] ✅ All products are branded`);
+          }
+        }
+      }
+      
       setProducts(data);
       // Reset carousel to first page when products are loaded
       setCarouselIndex(0);
-      // Ensure 'all' category is selected to show all products
-      setSelectedCategory('all');
+      // Don't reset category - keep the selected category
       setLoadingTimeout(false);
       // Re-enable polling on successful fetch
       setShouldPoll(true);
@@ -246,6 +323,45 @@ const PublicProductGallery: React.FC = () => {
     }
   }, [loading, hasLoadedOnce]);
 
+  // Reset filters when category changes (to avoid filters that don't apply to new category)
+  useEffect(() => {
+    // Get the new category slug
+    const newCategorySlug = selectedCategory !== 'all' 
+      ? categories.find(c => c.id.toString() === selectedCategory)?.slug?.toLowerCase() || ''
+      : 'all';
+    
+    const isFrames = newCategorySlug === 'frames' || newCategorySlug === 'eyeglass-frames';
+    const isSunglasses = newCategorySlug === 'sunglasses';
+    const isContactLens = newCategorySlug === 'contact-lens' || newCategorySlug === 'contact-lenses';
+    const isSolution = newCategorySlug === 'solution' || newCategorySlug === 'solutions';
+    
+    // Reset filters that don't apply to the new category
+    if (isContactLens || isSolution) {
+      // Reset all visual filters for contact lens and solution
+      setSelectedGender('all');
+      setSelectedBrand('all');
+      setSelectedColor('all');
+      setSelectedShape('all');
+      setSelectedSize('all');
+      setSelectedFrameMaterial('all');
+    } else if (isSunglasses) {
+      // Reset frame-specific filters for sunglasses
+      setSelectedFrameMaterial('all');
+    }
+    // For Frames, keep all filters
+    // For "all" category, keep all filters
+  }, [selectedCategory, categories]);
+
+  // Refetch products when category or brand filter changes
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      if (!shouldSkipRefresh()) {
+        fetchProducts(true);
+      }
+    }, 500);
+    return () => clearTimeout(timeoutId);
+  }, [selectedCategory, selectedBrand]);
+
   // Helper function to get color value (for styling)
   const getColorValue = (colorName: string): string => {
     const colorMap: { [key: string]: string } = {
@@ -272,372 +388,204 @@ const PublicProductGallery: React.FC = () => {
     return colorMap[normalized] || '#EC4899'; // Default to pink if not found
   };
 
-  // Comprehensive list of all available colors
+  // Colors extracted from folder structure only
   const allColors = [
     'Black',
-    'White',
-    'Red',
     'Blue',
-    'Green',
-    'Yellow',
-    'Purple',
-    'Pink',
-    'Orange',
     'Brown',
-    'Gray',
-    'Grey',
-    'Silver',
+    'Darkblue',
+    'Darkpink',
     'Gold',
-    'Navy',
-    'Beige',
-    'Tan',
-    'Clear',
-    'Rose Gold',
-    'Multicolor',
+    'Gray',
+    'Green',
+    'Lightblue',
+    'Lightbrown',
+    'Lightpink',
+    'Maroon',
+    'Pink',
+    'Purple',
+    'Red',
+    'Rosegold',
+    'Silver',
+    'Tortoise',
     'Transparent',
+    'White',
   ];
 
-  // Extract unique colors from products and combine with all colors
+  // Show all colors from folder structure
   const availableColors = React.useMemo(() => {
-    const productColors = new Set<string>();
-    products.forEach(product => {
-      if ((product as any).color && (product as any).color.trim() !== '') {
-        productColors.add((product as any).color.trim());
+    return allColors.map(color => {
+      // Format with proper capitalization
+      if (color.includes('rosegold')) {
+        return 'Rose Gold';
+      } else if (color.includes('darkblue')) {
+        return 'Dark Blue';
+      } else if (color.includes('darkpink')) {
+        return 'Dark Pink';
+      } else if (color.includes('lightblue')) {
+        return 'Light Blue';
+      } else if (color.includes('lightbrown')) {
+        return 'Light Brown';
+      } else if (color.includes('lightpink')) {
+        return 'Light Pink';
+      } else {
+        const words = color.split(' ');
+        return words.map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
       }
-    });
-    
-    // Combine product colors with all colors list, removing duplicates
-    const allAvailableColors = new Set<string>([
-      ...allColors.map(c => c.toLowerCase()),
-      ...Array.from(productColors).map(c => c.toLowerCase())
-    ]);
-    
-    // Convert back to array and sort, preserving original case from products or using title case
-    const sortedColors = Array.from(allAvailableColors).sort();
-    
-    // Return with proper capitalization (title case)
-    // Always normalize to lowercase for consistent comparison, but display with proper casing
-    return sortedColors.map(color => {
-      // Check if product has this color with different casing
-      const productColor = Array.from(productColors).find(pc => pc.trim().toLowerCase() === color);
-      if (productColor) {
-        return productColor.trim(); // Use original casing from product, trimmed
-      }
-      // Otherwise use title case
-      const words = color.split(' ');
-      return words.map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
-    });
-  }, [products]);
+    }).sort();
+  }, []);
 
-  // Comprehensive list of popular optical brands
-  const allBrands = [
-    // Eyeglass Frames Brands
-    'Ray-Ban',
-    'Oakley',
-    'Warby Parker',
-    'Persol',
-    'Tom Ford',
-    'Gucci',
-    'Prada',
-    'Versace',
-    'Dior',
-    'Chanel',
-    'Burberry',
-    'Armani',
-    'Dolce & Gabbana',
-    'Fendi',
-    'Bottega Veneta',
-    'Maui Jim',
-    'Costa Del Mar',
-    'Serengeti',
-    'Randolph Engineering',
-    'Oliver Peoples',
-    'Cutler and Gross',
-    'Lindberg',
-    'Silhouette',
-    'Mykita',
-    'ic! berlin',
-    'Matsuda',
-    'Dita',
-    'Barton Perreira',
-    'Jacques Marie Mage',
-    'Lunor',
-    'Salt Optics',
-    'Moscot',
-    'Shuron',
-    'American Optical',
-    'Retrosuperfuture',
-    'Garrett Leight',
-    'Theo',
-    'Face a Face',
-    'Alain Mikli',
-    'Lafont',
-    'Prodesign Denmark',
-    'Etnia Barcelona',
-    'Police',
-    'Carrera',
-    'Vogue',
-    'Hugo Boss',
-    'Calvin Klein',
-    'Ralph Lauren',
-    'Tommy Hilfiger',
-    'Michael Kors',
-    'Kate Spade',
-    'Coach',
-    'Tory Burch',
-    'Marc Jacobs',
-    'Diesel',
-    'Emporio Armani',
-    'Guess',
-    'Fossil',
-    'Ray-Ban Junior',
-    'Oakley Youth',
-    // Contact Lens Brands
-    'Acuvue',
-    'Air Optix',
-    'Biofinity',
-    'Dailies',
-    'Proclear',
-    'Biotrue',
-    'SofLens',
-    'FreshLook',
-    'Focus',
-    'PureVision',
-    'Oasys',
-    'Clariti',
-    'MyDay',
-    'Avaira',
-    'Ultra',
-    '1-Day Acuvue',
-    'Acuvue Oasys',
-    'Acuvue Vita',
-    'Air Optix Aqua',
-    'Biofinity Energys',
-    'Dailies AquaComfort Plus',
-    'Proclear Multifocal',
-    'Biotrue ONEday',
-    'SofLens Daily Disposable',
-    'FreshLook ColorBlends',
-    'Focus Dailies',
-    'PureVision 2 HD',
-    'Oasys for Astigmatism',
-    'Clariti 1 Day',
-    'MyDay Daily Disposable',
-    'Avaira Vitality',
-    'Ultra for Presbyopia',
-    // Sunglasses Brands
-    'Ray-Ban',
-    'Oakley',
-    'Maui Jim',
-    'Costa Del Mar',
-    'Persol',
-    'Serengeti',
-    'Randolph Engineering',
-    'Bolle',
-    'Smith',
-    'Julbo',
-    'Spy Optic',
-    'Electric',
-    'Von Zipper',
-    'Dragon',
-    'Native',
-    'Revo',
-    'Kaenon',
-    'Maui Jim',
-    'Costa Del Mar',
-    'Serengeti',
-    'Vuarnet',
-    'Polaroid',
-    'Quay Australia',
-    'Le Specs',
-    'Privé Revaux',
-    'Blenders',
-    'Shady Rays',
-    'Sunski',
-    'Goodr',
-    'Knockaround',
-    // Eye Care Products Brands
-    'Bausch + Lomb',
-    'Alcon',
-    'Allergan',
-    'Systane',
-    'Refresh',
-    'TheraTears',
-    'Blink',
-    'Optive',
-    'Genteal',
-    'Tears Naturale',
-    'Celluvisc',
-    'Lacri-Lube',
-    'Refresh Optive',
-    'Systane Ultra',
-    'TheraTears Dry Eye Therapy',
-    'Blink Contacts',
-    'Optive Advanced',
-    'Genteal Tears',
-    'Tears Naturale Forte',
-    'Celluvisc Lubricant',
-    'Lacri-Lube S.O.P.',
-    'Rohto',
-    'Visine',
-    'Clear Eyes',
-    'Murine',
-    'Zaditor',
-    'Alaway',
-    'Pataday',
-    'Lastacaft',
-    'Bepreve',
-    'Patanol',
-    'Optivar',
-    'Livostin',
-    'Azelastine',
-    'Ketotifen',
-    'Olopatadine',
-    'Emedastine',
-    'Epinastine',
+  // Brands extracted from folder structure only
+  // Brand names from the Branded folder structure
+  const brandedFrameBrands = [
+    'AARALASE',
+    'ADIDAS',
+    'BLOSSOM',
+    'BUBLES',
+    'CHANEL',
+    'FANTASY',
+    'FIVE START',
+    'GUYS LAROCHE',
+    'JTLF UREN',
+    'KATE SPADE',
+    'MICHAEL KORS',
+    'MOONLIGH',
+    'MUSK EYEWEAR',
+    'NIKE',
+    'OSCARLIAN',
+    'RUDY PROJECT',
+    'SAINT LAURENT',
+    'SOOPER EYEWEAR',
+    'SPARK',
+    'STAR EYEWEAR',
+    'START LIGHT EYEWEAR',
+    'SUN',
+    'SUNCARI',
+    'Suryeoan',
+    'XYQ CRAFTSMAN',
+    'YAMEI',
   ];
 
-  const availableBrands = React.useMemo(() => {
-    const productBrands = new Set<string>();
+  // Get available brands from products (for dynamic brands not in the list)
+  // Normalize brands to handle case variations
+  const availableBrandsFromProducts = React.useMemo(() => {
+    const productBrands = new Map<string, string>(); // Map<normalized, original>
     products.forEach(product => {
       if (product.brand && product.brand.trim() !== '') {
-        productBrands.add(product.brand.trim());
-      }
-    });
-    
-    // Combine product brands with all brands list, removing duplicates
-    const allAvailableBrands = new Set<string>([
-      ...allBrands.map(b => b.toLowerCase()),
-      ...Array.from(productBrands).map(b => b.toLowerCase())
-    ]);
-    
-    const sortedBrands = Array.from(allAvailableBrands).sort();
-    
-    // Return with proper capitalization (preserve original from products or use title case)
-    return sortedBrands.map(brand => {
-      const productBrand = Array.from(productBrands).find(pb => pb.trim().toLowerCase() === brand);
-      if (productBrand) {
-        return productBrand.trim(); // Use original casing from product, trimmed
-      }
-      // Otherwise use title case
-      const words = brand.split(' ');
-      return words.map(word => {
-        // Handle special cases like "1-Day", "+", etc.
-        if (word.includes('-') || word.includes('+')) {
-          return word.split(/([-+])/).map(part => {
-            if (part === '-' || part === '+') return part;
-            return part.charAt(0).toUpperCase() + part.slice(1);
-          }).join('');
+        const normalized = product.brand.trim().toLowerCase();
+        const original = product.brand.trim();
+        // Keep the first occurrence of each normalized brand (preserve original casing)
+        if (!productBrands.has(normalized)) {
+          productBrands.set(normalized, original);
         }
-        return word.charAt(0).toUpperCase() + word.slice(1);
-      }).join(' ');
+      }
     });
+    return Array.from(productBrands.values());
   }, [products]);
 
+  // Combine static branded-frame brands with product brands, removing duplicates.
+  // IMPORTANT: Static folder brands are only added for the Frames / All categories
+  // so that SUNGLASSES / SOLUTION / CONTACT LENSES don't show frame-only brands.
+  const allAvailableBrands = React.useMemo(() => {
+    // Create a map of normalized -> original brand names
+    const brandMap = new Map<string, string>();
 
-  // Comprehensive list of all available shapes
+    // First, add product brands (these are the actual values from database)
+    availableBrandsFromProducts.forEach((brand) => {
+      const normalized = brand.toLowerCase();
+      if (!brandMap.has(normalized)) {
+        brandMap.set(normalized, brand);
+      }
+    });
+
+    // Work out current category slug to decide if we should add frame folder brands
+    const selectedCategorySlug =
+      selectedCategory !== 'all'
+        ? categories.find((c) => c.id.toString() === selectedCategory)?.slug?.toLowerCase() || ''
+        : 'all';
+
+    const isFramesCategory =
+      selectedCategorySlug === 'frames' ||
+      selectedCategorySlug === 'eyeglass-frames' ||
+      selectedCategorySlug === '' || // initial state before categories load
+      selectedCategorySlug === 'all';
+
+    // Only merge in static frame brands when we're looking at Frames / All
+    if (isFramesCategory) {
+      brandedFrameBrands.forEach((brand) => {
+        const normalized = brand.toLowerCase();
+        if (!brandMap.has(normalized)) {
+          brandMap.set(normalized, brand);
+        }
+      });
+    }
+
+    // Sort by normalized name, but return original casing
+    const sorted = Array.from(brandMap.entries()).sort((a, b) =>
+      a[0].localeCompare(b[0]),
+    );
+
+    return sorted.map(([normalized, original]) => original);
+  }, [availableBrandsFromProducts, selectedCategory, categories]);
+
+
+  // Shapes extracted from folder structure only
   const allShapes = [
-    'Rectangle',
-    'Square',
-    'Round',
-    'Cat Eye',
-    'Aviator',
-    'Geometric',
-    'Oval',
     'Browline',
-    'Wayfarer',
-    'Clubmaster',
-    'Butterfly',
+    'Octagon',
+    'Oval',
+    'Oversized',
+    'Rectangle',
+    'Round',
+    'Square',
+  ];
+
+  // Show all shapes from folder structure
+  const availableShapes = React.useMemo(() => {
+    return [...allShapes].sort();
+  }, []);
+
+  // Frame materials extracted from folder structure only
+  const allFrameMaterials = [
+    'Metal',
+    'Titanium',
+  ];
+
+  // Show all frame materials from folder structure
+  const availableFrameMaterials = React.useMemo(() => {
+    return [...allFrameMaterials].sort();
+  }, []);
+
+  // Common size labels for frames & sunglasses, used to power the Size filter dropdown
+  const staticSizes = [
+    'Kids',
+    'Small',
+    'Medium',
+    'Large',
     'Oversized',
   ];
 
-  // Extract unique shapes from products and combine with all shapes
-  const availableShapes = React.useMemo(() => {
-    const productShapes = new Set<string>();
-    products.forEach(product => {
-      if ((product as any).shape && (product as any).shape.trim() !== '') {
-        productShapes.add((product as any).shape.trim());
-      }
-    });
-    
-    // Combine product shapes with all shapes list, removing duplicates
-    const allAvailableShapes = new Set<string>([
-      ...allShapes.map(s => s.toLowerCase()),
-      ...Array.from(productShapes).map(s => s.toLowerCase())
-    ]);
-    
-    // Convert back to array and sort, preserving original case from products or using title case
-    const sortedShapes = Array.from(allAvailableShapes).sort();
-    
-    // Return with proper capitalization (title case)
-    return sortedShapes.map(shape => {
-      // Check if product has this shape with different casing
-      const productShape = Array.from(productShapes).find(ps => ps.trim().toLowerCase() === shape);
-      if (productShape) {
-        return productShape.trim(); // Use original casing from product, trimmed
-      }
-      // Otherwise use title case
-      const words = shape.split(' ');
-      return words.map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
-    });
-  }, [products]);
-
-  // Comprehensive list of all available frame materials
-  const allFrameMaterials = [
-    'Plastic',
-    'Acetate',
-    'Metal',
-    'Titanium',
-    'Stainless Steel',
-    'Aluminum',
-    'TR-90',
-    'Carbon Fiber',
-    'Wood',
-    'Horn',
-    'Mixed Materials',
-  ];
-
-  // Extract unique frame materials from products and combine with all materials
-  const availableFrameMaterials = React.useMemo(() => {
-    const productMaterials = new Set<string>();
-    products.forEach(product => {
-      if ((product as any).frame_material && (product as any).frame_material.trim() !== '') {
-        productMaterials.add((product as any).frame_material.trim());
-      }
-    });
-    
-    // Combine product materials with all materials list, removing duplicates
-    const allAvailableMaterials = new Set<string>([
-      ...allFrameMaterials.map(m => m.toLowerCase()),
-      ...Array.from(productMaterials).map(m => m.toLowerCase())
-    ]);
-    
-    // Convert back to array and sort, preserving original case from products or using title case
-    const sortedMaterials = Array.from(allAvailableMaterials).sort();
-    
-    // Return with proper capitalization (title case)
-    return sortedMaterials.map(material => {
-      // Check if product has this material with different casing
-      const productMaterial = Array.from(productMaterials).find(pm => pm.trim().toLowerCase() === material);
-      if (productMaterial) {
-        return productMaterial.trim(); // Use original casing from product, trimmed
-      }
-      // Otherwise use title case
-      const words = material.split(' ');
-      return words.map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
-    });
-  }, [products]);
-
   const availableSizes = React.useMemo(() => {
-    const sizes = new Set<string>();
+    const sizeSet = new Set<string>();
+
+    // Include static size labels
+    staticSizes.forEach((size) => {
+      sizeSet.add(size);
+    });
+
+    // Include any sizes coming from products (e.g. "48-18-140", "52-18")
     products.forEach(product => {
       // Check for size field (could be in different formats)
       const size = (product as any).size || (product as any).frame_size;
       if (size && size.toString().trim() !== '') {
-        sizes.add(size.toString().trim());
+        sizeSet.add(size.toString().trim());
       }
     });
-    return Array.from(sizes).sort();
+
+    // Sort alphabetically (numeric-aware for values like 48-18-140)
+    return Array.from(sizeSet).sort((a, b) =>
+      a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }),
+    );
   }, [products]);
 
   // Filter products by search query and category
@@ -675,14 +623,55 @@ const PublicProductGallery: React.FC = () => {
         const normalizedName = normalize(productName);
         const normalizedDescription = normalize(description);
         
-        // Check if it matches the field value exactly
-        if (normalizedField && normalizedField === normalizedFilter) return true;
+        // Special handling for gender variations
+        if (normalizedFilter === 'men' || normalizedFilter === "men's") {
+          const menVariations = ['men', "men's", 'male', 'man', 'mens'];
+          if (normalizedField && menVariations.some(v => normalizedField.includes(v))) return true;
+          if (normalizedName && menVariations.some(v => normalizedName.includes(v))) return true;
+          if (normalizedDescription && menVariations.some(v => normalizedDescription.includes(v))) return true;
+        } else if (normalizedFilter === 'women' || normalizedFilter === "women's") {
+          const womenVariations = ['women', "women's", 'female', 'woman', 'womens'];
+          if (normalizedField && womenVariations.some(v => normalizedField.includes(v))) return true;
+          if (normalizedName && womenVariations.some(v => normalizedName.includes(v))) return true;
+          if (normalizedDescription && womenVariations.some(v => normalizedDescription.includes(v))) return true;
+        } else if (normalizedFilter === 'kids') {
+          const kidsVariations = ['kids', 'kid', 'children', 'child', 'youth'];
+          if (normalizedField && kidsVariations.some(v => normalizedField.includes(v))) return true;
+          if (normalizedName && kidsVariations.some(v => normalizedName.includes(v))) return true;
+          if (normalizedDescription && kidsVariations.some(v => normalizedDescription.includes(v))) return true;
+        } else if (normalizedFilter === 'unisex') {
+          const unisexVariations = ['unisex', 'unisexual', 'both', 'all'];
+          if (normalizedField && unisexVariations.some(v => normalizedField.includes(v))) return true;
+          if (normalizedName && unisexVariations.some(v => normalizedName.includes(v))) return true;
+          if (normalizedDescription && unisexVariations.some(v => normalizedDescription.includes(v))) return true;
+        }
         
-        // Check if it appears in the product name
-        if (normalizedName && normalizedName.includes(normalizedFilter)) return true;
+        // Remove spaces and special characters for better matching (handles "RAY BAN" vs "Ray-Ban")
+        const normalizeForMatching = (str: string): string => {
+          return str.replace(/[\s\-_]+/g, '').toLowerCase();
+        };
         
-        // Check if it appears in the description
-        if (normalizedDescription && normalizedDescription.includes(normalizedFilter)) return true;
+        const filterNormalized = normalizeForMatching(normalizedFilter);
+        
+        // Check if it matches the field value exactly (with and without spaces/special chars)
+        if (normalizedField) {
+          if (normalizedField === normalizedFilter) return true;
+          if (normalizeForMatching(normalizedField) === filterNormalized) return true;
+          // Also check if field contains the filter (partial match)
+          if (normalizeForMatching(normalizedField).includes(filterNormalized)) return true;
+        }
+        
+        // Check if it appears in the product name (with and without spaces/special chars)
+        if (normalizedName) {
+          if (normalizedName.includes(normalizedFilter)) return true;
+          if (normalizeForMatching(normalizedName).includes(filterNormalized)) return true;
+        }
+        
+        // Check if it appears in the description (with and without spaces/special chars)
+        if (normalizedDescription) {
+          if (normalizedDescription.includes(normalizedFilter)) return true;
+          if (normalizeForMatching(normalizedDescription).includes(filterNormalized)) return true;
+        }
         
         return false;
       };
@@ -691,22 +680,74 @@ const PublicProductGallery: React.FC = () => {
       const matchesCategory = selectedCategory === 'all' || 
         product.category_id?.toString() === selectedCategory;
       
+      // Filter by gender - check field, name, and description
       const matchesGender = selectedGender === 'all' || 
-        normalize((product as any).gender) === normalize(selectedGender);
+        matchesInFieldOrDescription(
+          (product as any).gender,
+          selectedGender,
+          product.name || '',
+          product.description || ''
+        );
       
-      const matchesColor = matchesInFieldOrDescription(
-        (product as any).color,
-        selectedColor,
-        product.name || '',
-        product.description || ''
-      );
+      // Color matching with special handling for compound colors
+      let matchesColor = true;
+      if (selectedColor !== 'all') {
+        const normalizeColor = (color: string): string => {
+          return color.replace(/[\s\-_]+/g, '').toLowerCase();
+        };
+        
+        const selectedColorNormalized = normalizeColor(selectedColor);
+        const productColorNormalized = (product as any).color ? normalizeColor((product as any).color) : '';
+        
+        // Check exact match after normalization (handles "Rose Gold" vs "Rosegold")
+        if (productColorNormalized === selectedColorNormalized) {
+          matchesColor = true;
+        } else {
+          // Also check in name and description
+          matchesColor = matchesInFieldOrDescription(
+            (product as any).color,
+            selectedColor,
+            product.name || '',
+            product.description || ''
+          );
+        }
+      }
       
-      const matchesBrand = matchesInFieldOrDescription(
-        product.brand,
-        selectedBrand,
-        product.name || '',
-        product.description || ''
-      );
+      // Brand filter now handles both specific brands and "Non-Branded"
+      // Brand filter now handles Branded, Non-Branded, and specific brands
+      // Note: Backend handles the filtering, so this is just for client-side fallback
+      let matchesBrandFilter = true;
+      if (selectedBrand !== 'all') {
+        if (selectedBrand === '__non_branded__') {
+          // Non-branded:
+          // 1) product has no brand in DB, OR
+          // 2) for SUNGLASSES, image filename clearly marked as NONBRANDED / NONBRANDED1 / NONBRANDED2, etc.
+          const hasNoBrandField = !product.brand || product.brand.trim() === '';
+
+          // Fallback using image filename for sunglasses category
+          let isNonBrandedByFilename = false;
+          if (product.category_details?.slug?.toLowerCase() === 'sunglasses') {
+            const imagePaths: string[] =
+              ((product as any).image_paths as string[]) || [];
+            const allPaths = Array.isArray(imagePaths) ? imagePaths : [];
+            isNonBrandedByFilename = allPaths.some((p) =>
+              p.toLowerCase().includes('nonbranded'),
+            );
+          }
+
+          matchesBrandFilter = hasNoBrandField || isNonBrandedByFilename;
+        } else if (selectedBrand === '__branded__') {
+          // Branded: product has a brand
+          matchesBrandFilter = product.brand && product.brand.trim() !== '';
+        } else {
+          // Specific brand: match the brand exactly (case-insensitive)
+          const productBrand = product.brand ? product.brand.trim() : '';
+          const selectedBrandTrimmed = selectedBrand.trim();
+          
+          // Exact match (case-insensitive)
+          matchesBrandFilter = productBrand.toLowerCase() === selectedBrandTrimmed.toLowerCase();
+        }
+      }
       
       const matchesShape = matchesInFieldOrDescription(
         (product as any).shape,
@@ -730,7 +771,38 @@ const PublicProductGallery: React.FC = () => {
         product.description || ''
       );
 
-      return matchesCategory && matchesGender && matchesColor && matchesBrand && matchesShape && matchesSize && matchesFrameMaterial;
+      const allMatches = matchesCategory && matchesGender && matchesColor && matchesBrandFilter && matchesShape && matchesSize && matchesFrameMaterial;
+      
+      // Debug logging in development mode
+      if (import.meta.env.DEV && !allMatches && (
+        selectedCategory !== 'all' || selectedGender !== 'all' || selectedColor !== 'all' || 
+        selectedBrand !== 'all' || selectedShape !== 'all' || selectedSize !== 'all' || selectedFrameMaterial !== 'all'
+      )) {
+        console.log('Product filter check:', {
+          productId: product.id,
+          productName: product.name,
+          matchesCategory,
+          matchesGender,
+          matchesColor,
+          matchesBrandFilter,
+          matchesShape,
+          matchesSize,
+          matchesFrameMaterial,
+          selectedCategory,
+          selectedGender,
+          selectedColor,
+          selectedBrand,
+          selectedShape,
+          selectedSize,
+          selectedFrameMaterial,
+          productBrand: product.brand,
+          productColor: (product as any).color,
+          productShape: (product as any).shape,
+          productGender: (product as any).gender,
+        });
+      }
+      
+      return allMatches;
     });
     
     return filtered;
@@ -939,13 +1011,15 @@ const PublicProductGallery: React.FC = () => {
 
   const handleManualRefresh = async () => {
     clearDeletionProtection();
+    // Force refresh by clearing cache and fetching fresh data
+    setHasLoadedOnce(false);
     await fetchProducts(false);
   };
 
   return (
     <section 
       id="product-gallery-section" 
-      className="relative py-8 sm:py-12"
+      className="product-gallery-section relative py-4 sm:py-6 md:py-8 lg:py-10 xl:py-12"
       style={{
         backgroundImage: `url(${everbrightBg})`,
         backgroundSize: 'cover',
@@ -957,7 +1031,7 @@ const PublicProductGallery: React.FC = () => {
       {/* Overlay for better readability */}
       <div className="absolute inset-0 bg-white/85 backdrop-blur-sm"></div>
       
-      <div className="relative z-10 min-h-screen px-4 sm:px-6 lg:px-8 py-2 sm:py-4">
+      <div className="product-gallery-container relative z-10 min-h-screen px-3 sm:px-4 md:px-6 lg:px-8 xl:px-10 2xl:px-12 py-2 sm:py-3 md:py-4 lg:py-6 xl:py-8">
         <style>{`
           .scrollbar-hide {
             -ms-overflow-style: none;
@@ -969,6 +1043,224 @@ const PublicProductGallery: React.FC = () => {
           .touch-manipulation {
             touch-action: manipulation;
             -webkit-tap-highlight-color: transparent;
+          }
+
+          /* ==========================================
+             COMPREHENSIVE RESPONSIVE MEDIA QUERIES
+             ========================================== */
+
+          /* Extra Small Devices (Portrait phones, less than 320px) */
+          @media (max-width: 319px) {
+            .product-gallery-section {
+              padding-top: 0.5rem;
+              padding-bottom: 0.5rem;
+            }
+            .product-gallery-container {
+              padding-left: 0.5rem;
+              padding-right: 0.5rem;
+              padding-top: 0.5rem;
+              padding-bottom: 0.5rem;
+            }
+          }
+
+          /* Small Devices (Portrait phones, 320px and up) */
+          @media (min-width: 320px) and (max-width: 480px) {
+            .product-gallery-section {
+              padding-top: 1rem;
+              padding-bottom: 1rem;
+            }
+            .product-gallery-container {
+              padding-left: 0.75rem;
+              padding-right: 0.75rem;
+              padding-top: 0.75rem;
+              padding-bottom: 0.75rem;
+            }
+          }
+
+          /* Medium Devices (Landscape phones, 481px and up) */
+          @media (min-width: 481px) and (max-width: 767px) {
+            .product-gallery-section {
+              padding-top: 1.5rem;
+              padding-bottom: 1.5rem;
+            }
+            .product-gallery-container {
+              padding-left: 1rem;
+              padding-right: 1rem;
+              padding-top: 1rem;
+              padding-bottom: 1rem;
+            }
+          }
+
+          /* Large Devices (Tablets, 768px and up) */
+          @media (min-width: 768px) and (max-width: 1024px) {
+            .product-gallery-section {
+              padding-top: 2rem;
+              padding-bottom: 2rem;
+            }
+            .product-gallery-container {
+              padding-left: 1.5rem;
+              padding-right: 1.5rem;
+              padding-top: 1.5rem;
+              padding-bottom: 1.5rem;
+            }
+          }
+
+          /* Extra Large Devices (Small laptops, 1025px and up) */
+          @media (min-width: 1025px) and (max-width: 1280px) {
+            .product-gallery-section {
+              padding-top: 2.5rem;
+              padding-bottom: 2.5rem;
+            }
+            .product-gallery-container {
+              padding-left: 2rem;
+              padding-right: 2rem;
+              padding-top: 2rem;
+              padding-bottom: 2rem;
+            }
+          }
+
+          /* XXL Devices (Desktops, 1281px and up) */
+          @media (min-width: 1281px) and (max-width: 1919px) {
+            .product-gallery-section {
+              padding-top: 3rem;
+              padding-bottom: 3rem;
+            }
+            .product-gallery-container {
+              padding-left: 2.5rem;
+              padding-right: 2.5rem;
+              padding-top: 2.5rem;
+              padding-bottom: 2.5rem;
+            }
+          }
+
+          /* XXXL Devices (Large desktops, 1920px and up) */
+          @media (min-width: 1920px) {
+            .product-gallery-section {
+              padding-top: 4rem;
+              padding-bottom: 4rem;
+            }
+            .product-gallery-container {
+              padding-left: 3rem;
+              padding-right: 3rem;
+              padding-top: 3rem;
+              padding-bottom: 3rem;
+            }
+          }
+
+          /* Landscape Orientation Optimizations */
+          @media (orientation: landscape) and (max-height: 600px) {
+            .product-gallery-section {
+              padding-top: 0.5rem;
+              padding-bottom: 0.5rem;
+            }
+            .product-gallery-container {
+              padding-top: 0.5rem;
+              padding-bottom: 0.5rem;
+            }
+          }
+
+          /* Portrait Orientation Optimizations */
+          @media (orientation: portrait) and (max-width: 768px) {
+            .product-gallery-section {
+              padding-top: 1rem;
+              padding-bottom: 1rem;
+            }
+            .product-gallery-container {
+              padding-left: 1rem;
+              padding-right: 1rem;
+            }
+          }
+
+          /* High DPI Displays (Retina) */
+          @media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+            .product-gallery-container {
+              /* Enhanced rendering for retina displays */
+              -webkit-font-smoothing: antialiased;
+              -moz-osx-font-smoothing: grayscale;
+            }
+          }
+
+          /* Touch Device Optimizations */
+          @media (hover: none) and (pointer: coarse) {
+            .product-gallery-container * {
+              /* Larger touch targets for mobile devices */
+              min-height: 44px;
+            }
+          }
+
+          /* Hover Capable Devices (Desktop) */
+          @media (hover: hover) and (pointer: fine) {
+            .product-gallery-container {
+              /* Desktop-specific hover optimizations */
+            }
+          }
+
+          /* Print Styles */
+          @media print {
+            .product-gallery-section {
+              background-image: none !important;
+              background-color: white !important;
+            }
+            .product-gallery-container {
+              padding: 1rem;
+              max-width: 100%;
+            }
+          }
+
+          /* Reduced Motion Preference */
+          @media (prefers-reduced-motion: reduce) {
+            .product-gallery-container * {
+              animation-duration: 0.01ms !important;
+              animation-iteration-count: 1 !important;
+              transition-duration: 0.01ms !important;
+            }
+          }
+
+          /* Dark Mode Support (if needed in future) */
+          @media (prefers-color-scheme: dark) {
+            /* Dark mode styles can be added here if needed */
+          }
+
+          /* Container Max Width Responsive */
+          @media (max-width: 640px) {
+            .product-gallery-container .max-w-7xl {
+              max-width: 100%;
+              padding-left: 0.75rem;
+              padding-right: 0.75rem;
+            }
+          }
+
+          @media (min-width: 641px) and (max-width: 1024px) {
+            .product-gallery-container .max-w-7xl {
+              max-width: 90%;
+            }
+          }
+
+          @media (min-width: 1025px) and (max-width: 1280px) {
+            .product-gallery-container .max-w-7xl {
+              max-width: 85%;
+            }
+          }
+
+          @media (min-width: 1281px) {
+            .product-gallery-container .max-w-7xl {
+              max-width: 1280px;
+            }
+          }
+
+          /* Background Image Responsive Adjustments */
+          @media (max-width: 768px) {
+            .product-gallery-section {
+              background-attachment: scroll !important;
+              background-size: cover !important;
+            }
+          }
+
+          @media (min-width: 769px) {
+            .product-gallery-section {
+              background-attachment: fixed;
+              background-size: cover;
+            }
           }
         `}</style>
         
@@ -997,18 +1289,34 @@ const PublicProductGallery: React.FC = () => {
         )}
 
         {/* Header */}
-        <div className="max-w-7xl mx-auto mb-4 sm:mb-6 text-center">
-          <h2 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2 sm:mb-3">
-            Our Product Gallery
-          </h2>
-          <p className="text-lg text-slate-600 max-w-2xl mx-auto mb-2 sm:mb-3">
-            Browse our collection of premium eyewear and optical products.
-          </p>
-          {!user && (
-            <p className="text-sm text-slate-500">
-              <span className="text-primary font-medium">Sign in</span> or <span className="text-primary font-medium">sign up</span> to reserve products for pickup at your preferred branch.
-            </p>
-          )}
+        <div className="max-w-7xl mx-auto mb-4 sm:mb-6">
+          <div className="flex items-center justify-between mb-2 sm:mb-3">
+            <div className="flex-1"></div>
+            <div className="text-center flex-1">
+              <h2 className="text-3xl md:text-4xl font-bold text-slate-900 mb-2 sm:mb-3">
+                Our Product Gallery
+              </h2>
+              <p className="text-lg text-slate-600 max-w-2xl mx-auto mb-2 sm:mb-3">
+                Browse our collection of premium eyewear and optical products.
+              </p>
+              {!user && (
+                <p className="text-sm text-slate-500">
+                  <span className="text-primary font-medium">Sign in</span> or <span className="text-primary font-medium">sign up</span> to reserve products for pickup at your preferred branch.
+                </p>
+              )}
+            </div>
+            <div className="flex-1 flex justify-end">
+              <button
+                onClick={handleManualRefresh}
+                disabled={loading}
+                className="p-2 hover:bg-gray-100 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Refresh products"
+                aria-label="Refresh products"
+              >
+                <RefreshCw className={`w-5 h-5 text-gray-600 ${loading ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Category Filter - Shop By Category */}
@@ -1039,18 +1347,19 @@ const PublicProductGallery: React.FC = () => {
                     <span>SHOP ALL</span>
                   </button>
                   {categories
+                    .filter((category) => category.is_active !== false) // Only show active categories
                     .sort((a, b) => {
-                      // Sort active categories first, then by sort_order, then by name
-                      if (a.is_active !== b.is_active) {
-                        return a.is_active ? -1 : 1;
-                      }
+                      // Sort by sort_order, then by name
                       if (a.sort_order !== undefined && b.sort_order !== undefined) {
                         return (a.sort_order || 0) - (b.sort_order || 0);
                       }
                       return (a.name || '').localeCompare(b.name || '');
                     })
                     .map((category) => {
-                      const productCount = products.filter(p => p.category_id === category.id).length;
+                      // Use product_count from API if available, otherwise calculate from loaded products
+                      const productCount = category.product_count !== undefined 
+                        ? category.product_count 
+                        : products.filter(p => p.category_id === category.id).length;
                       return (
                         <button
                           key={category.id}
@@ -1088,150 +1397,215 @@ const PublicProductGallery: React.FC = () => {
           </div>
         )}
 
-        {/* Product Filters - Gender, Brand, Make, Color, Shape, Size */}
-        <div className="max-w-7xl mx-auto mb-4 sm:mb-6 lg:mb-8">
-          <div className="bg-white/70 backdrop-blur-sm rounded-xl sm:rounded-2xl shadow-lg border border-white/20 p-4 sm:p-5 lg:p-6">
-            <h3 className="text-sm sm:text-base font-semibold text-gray-800 mb-3 sm:mb-4">Product Filters</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-6 gap-3 sm:gap-4">
-              {/* Gender Filter */}
-              <div>
-                <Label htmlFor="gender-filter" className="text-xs sm:text-sm font-medium text-gray-700 mb-1.5 block">
-                  Gender
-                </Label>
-                <Select value={selectedGender} onValueChange={setSelectedGender}>
-                  <SelectTrigger id="gender-filter" className="w-full">
-                    <SelectValue placeholder="All Gender" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Gender</SelectItem>
-                    <SelectItem value="men">Men&apos;s</SelectItem>
-                    <SelectItem value="women">Women&apos;s</SelectItem>
-                    <SelectItem value="kids">Kids</SelectItem>
-                    <SelectItem value="unisex">Unisex</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+        {/* Product Filters - Dynamic based on selected category */}
+        {(() => {
+          // Get the selected category slug to determine which filters to show
+          const selectedCategorySlug = selectedCategory !== 'all' 
+            ? categories.find(c => c.id.toString() === selectedCategory)?.slug?.toLowerCase() || ''
+            : 'all';
+          
+          // Define which filters to show for each category
+          const isFrames = selectedCategorySlug === 'frames' || selectedCategorySlug === 'eyeglass-frames';
+          const isSunglasses = selectedCategorySlug === 'sunglasses';
+          const isContactLens = selectedCategorySlug === 'contact-lens' || selectedCategorySlug === 'contact-lenses';
+          const isSolution = selectedCategorySlug === 'solution' || selectedCategorySlug === 'solutions';
+          const isAll = selectedCategorySlug === 'all';
+          
+          // Show filters only for relevant categories
+          const showGenderFilter = isAll || isFrames || isSunglasses;
+          const showBrandFilter = isAll || isFrames || isSunglasses;
+          const showColorFilter = isAll || isFrames || isSunglasses;
+          const showShapeFilter = isAll || isFrames || isSunglasses;
+          // Size filter is now available for Frames and Sunglasses (and All)
+          const showSizeFilter = isAll || isFrames || isSunglasses;
+          const showFrameMaterialFilter = isFrames;
+          
+          // Count active filters for grid sizing
+          const activeFilterCount = [showGenderFilter, showBrandFilter, showColorFilter, showShapeFilter, showSizeFilter, showFrameMaterialFilter].filter(Boolean).length;
+          
+          // Don't show filter section for Solution and Contact Lens (they don't have these attributes)
+          if (isContactLens || isSolution) {
+            return null;
+          }
+          
+          return (
+            <div className="max-w-7xl mx-auto mb-4 sm:mb-6 lg:mb-8">
+              <div className="bg-white/70 backdrop-blur-sm rounded-xl sm:rounded-2xl shadow-lg border border-white/20 p-4 sm:p-5 lg:p-6">
+                <h3 className="text-sm sm:text-base font-semibold text-gray-800 mb-3 sm:mb-4">
+                  Product Filters
+                  {selectedCategorySlug !== 'all' && (
+                    <span className="ml-2 text-xs font-normal text-gray-500">
+                      ({categories.find(c => c.id.toString() === selectedCategory)?.name || 'All'})
+                    </span>
+                  )}
+                </h3>
+                <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 ${activeFilterCount <= 4 ? 'xl:grid-cols-4' : 'xl:grid-cols-3 2xl:grid-cols-6'}`}>
+                  
+                  {/* Gender Filter - Frames & Sunglasses */}
+                  {showGenderFilter && (
+                    <div>
+                      <Label htmlFor="gender-filter" className="text-xs sm:text-sm font-medium text-gray-700 mb-1.5 block">
+                        Gender
+                      </Label>
+                      <Select value={selectedGender} onValueChange={setSelectedGender}>
+                        <SelectTrigger id="gender-filter" className="w-full">
+                          <SelectValue placeholder="All Gender" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Gender</SelectItem>
+                          <SelectItem value="men">Men&apos;s</SelectItem>
+                          <SelectItem value="women">Women&apos;s</SelectItem>
+                          <SelectItem value="kids">Kids</SelectItem>
+                          <SelectItem value="unisex">Unisex</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
 
-              {/* Brand Filter */}
-              <div>
-                <Label htmlFor="brand-filter" className="text-xs sm:text-sm font-medium text-gray-700 mb-1.5 block">
-                  Brand
-                </Label>
-                <Select value={selectedBrand} onValueChange={setSelectedBrand}>
-                  <SelectTrigger id="brand-filter" className="w-full">
-                    <SelectValue placeholder="All Brands" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Brands</SelectItem>
-                    {availableBrands.map((brand) => (
-                      <SelectItem key={brand} value={brand}>
-                        {brand}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+                  {/* Brand/Type Filter - Frames & Sunglasses */}
+                  {showBrandFilter && (
+                    <div>
+                      <Label htmlFor="brand-filter" className="text-xs sm:text-sm font-medium text-gray-700 mb-1.5 block">
+                        Brand / Type
+                      </Label>
+                      <Select value={selectedBrand} onValueChange={setSelectedBrand}>
+                        <SelectTrigger id="brand-filter" className="w-full">
+                          <SelectValue placeholder="All Brands" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-[300px]">
+                          <SelectItem value="all">All Brands</SelectItem>
+                          <SelectItem value="__branded__">Branded</SelectItem>
+                          <SelectItem value="__non_branded__">Non-Branded</SelectItem>
+                          {selectedBrand !== '__non_branded__' && (
+                            <>
+                              {(selectedBrand === '__branded__' || selectedBrand === 'all') && (
+                                <div className="px-2 py-1.5 text-xs font-semibold text-gray-500">Brands</div>
+                              )}
+                        {allAvailableBrands
+                          .filter((brand) => brand && brand.trim() !== '')
+                          .map((brand) => (
+                            <SelectItem key={brand} value={brand}>
+                              {brand}
+                            </SelectItem>
+                          ))}
+                            </>
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
 
-              {/* Color Filter */}
-              <div>
-                <Label htmlFor="color-filter" className="text-xs sm:text-sm font-medium text-gray-700 mb-1.5 block">
-                  Color
-                </Label>
-                <Select value={selectedColor} onValueChange={setSelectedColor}>
-                  <SelectTrigger id="color-filter" className="w-full">
-                    <SelectValue placeholder="All Colors" />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-[300px]">
-                    <SelectItem value="all">All Colors</SelectItem>
-                    {availableColors.map((color) => {
-                      const productCount = products.filter(p => 
-                        (p as any).color && 
-                        (p as any).color?.toLowerCase() === color.toLowerCase()
-                      ).length;
-                      return (
-                        <SelectItem key={color} value={color}>
-                          {color} {productCount > 0 && `(${productCount})`}
-                        </SelectItem>
-                      );
-                    })}
-                  </SelectContent>
-                </Select>
-              </div>
+                  {/* Color Filter - Frames & Sunglasses */}
+                  {showColorFilter && (
+                    <div>
+                      <Label htmlFor="color-filter" className="text-xs sm:text-sm font-medium text-gray-700 mb-1.5 block">
+                        Color
+                      </Label>
+                      <Select value={selectedColor} onValueChange={setSelectedColor}>
+                        <SelectTrigger id="color-filter" className="w-full">
+                          <SelectValue placeholder="All Colors" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-[300px]">
+                          <SelectItem value="all">All Colors</SelectItem>
+                          {availableColors.map((color) => {
+                            const productCount = products.filter(p => 
+                              (p as any).color && 
+                              (p as any).color?.toLowerCase() === color.toLowerCase()
+                            ).length;
+                            return (
+                              <SelectItem key={color} value={color}>
+                                {color} {productCount > 0 && `(${productCount})`}
+                              </SelectItem>
+                            );
+                          })}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
 
-              {/* Shape Filter */}
-              <div>
-                <Label htmlFor="shape-filter" className="text-xs sm:text-sm font-medium text-gray-700 mb-1.5 block">
-                  Shape
-                </Label>
-                <Select value={selectedShape} onValueChange={setSelectedShape}>
-                  <SelectTrigger id="shape-filter" className="w-full">
-                    <SelectValue placeholder="All Shapes" />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-[300px]">
-                    <SelectItem value="all">All Shapes</SelectItem>
-                    {availableShapes.map((shape) => {
-                      const productCount = products.filter(p => 
-                        (p as any).shape && 
-                        (p as any).shape?.toLowerCase() === shape.toLowerCase()
-                      ).length;
-                      return (
-                        <SelectItem key={shape} value={shape}>
-                          {shape} {productCount > 0 && `(${productCount})`}
-                        </SelectItem>
-                      );
-                    })}
-                  </SelectContent>
-                </Select>
-              </div>
+                  {/* Shape Filter - Frames & Sunglasses */}
+                  {showShapeFilter && (
+                    <div>
+                      <Label htmlFor="shape-filter" className="text-xs sm:text-sm font-medium text-gray-700 mb-1.5 block">
+                        Shape
+                      </Label>
+                      <Select value={selectedShape} onValueChange={setSelectedShape}>
+                        <SelectTrigger id="shape-filter" className="w-full">
+                          <SelectValue placeholder="All Shapes" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-[300px]">
+                          <SelectItem value="all">All Shapes</SelectItem>
+                          {availableShapes.map((shape) => {
+                            const productCount = products.filter(p => 
+                              (p as any).shape && 
+                              (p as any).shape?.toLowerCase() === shape.toLowerCase()
+                            ).length;
+                            return (
+                              <SelectItem key={shape} value={shape}>
+                                {shape} {productCount > 0 && `(${productCount})`}
+                              </SelectItem>
+                            );
+                          })}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
 
-              {/* Size Filter */}
-              <div>
-                <Label htmlFor="size-filter" className="text-xs sm:text-sm font-medium text-gray-700 mb-1.5 block">
-                  Size
-                </Label>
-                <Select value={selectedSize} onValueChange={setSelectedSize}>
-                  <SelectTrigger id="size-filter" className="w-full">
-                    <SelectValue placeholder="All Sizes" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Sizes</SelectItem>
-                    {availableSizes.map((size) => (
-                      <SelectItem key={size} value={size}>
-                        {size}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+                  {/* Size Filter - Frames only */}
+                  {showSizeFilter && (
+                    <div>
+                      <Label htmlFor="size-filter" className="text-xs sm:text-sm font-medium text-gray-700 mb-1.5 block">
+                        Size
+                      </Label>
+                      <Select value={selectedSize} onValueChange={setSelectedSize}>
+                        <SelectTrigger id="size-filter" className="w-full">
+                          <SelectValue placeholder="All Sizes" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Sizes</SelectItem>
+                          {availableSizes.map((size) => (
+                            <SelectItem key={size} value={size}>
+                              {size}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
 
-              {/* Frame Material Filter */}
-              <div>
-                <Label htmlFor="frame-material-filter" className="text-xs sm:text-sm font-medium text-gray-700 mb-1.5 block">
-                  Frame Material
-                </Label>
-                <Select value={selectedFrameMaterial} onValueChange={setSelectedFrameMaterial}>
-                  <SelectTrigger id="frame-material-filter" className="w-full">
-                    <SelectValue placeholder="All Materials" />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-[300px]">
-                    <SelectItem value="all">All Materials</SelectItem>
-                    {availableFrameMaterials.map((material) => {
-                      const productCount = products.filter(p => 
-                        (p as any).frame_material && 
-                        (p as any).frame_material?.toLowerCase() === material.toLowerCase()
-                      ).length;
-                      return (
-                        <SelectItem key={material} value={material}>
-                          {material} {productCount > 0 && `(${productCount})`}
-                        </SelectItem>
-                      );
-                    })}
-                  </SelectContent>
-                </Select>
+                  {/* Frame Material Filter - Frames only */}
+                  {showFrameMaterialFilter && (
+                    <div>
+                      <Label htmlFor="frame-material-filter" className="text-xs sm:text-sm font-medium text-gray-700 mb-1.5 block">
+                        Frame Material
+                      </Label>
+                      <Select value={selectedFrameMaterial} onValueChange={setSelectedFrameMaterial}>
+                        <SelectTrigger id="frame-material-filter" className="w-full">
+                          <SelectValue placeholder="All Materials" />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-[300px]">
+                          <SelectItem value="all">All Materials</SelectItem>
+                          {availableFrameMaterials.map((material) => {
+                            const productCount = products.filter(p => 
+                              (p as any).frame_material && 
+                              (p as any).frame_material?.toLowerCase() === material.toLowerCase()
+                            ).length;
+                            return (
+                              <SelectItem key={material} value={material}>
+                                {material} {productCount > 0 && `(${productCount})`}
+                              </SelectItem>
+                            );
+                          })}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+
+                </div>
               </div>
             </div>
-          </div>
-        </div>
+          );
+        })()}
 
         {loading && (
           <div className="max-w-4xl mx-auto">
@@ -1308,90 +1682,139 @@ const PublicProductGallery: React.FC = () => {
                   className="group bg-white rounded-lg sm:rounded-xl lg:rounded-2xl shadow-sm sm:shadow-md lg:shadow-lg hover:shadow-lg sm:hover:shadow-xl lg:hover:shadow-2xl transition-all duration-300 overflow-hidden border border-gray-100 hover:border-blue-200 active:scale-[0.98] sm:hover:-translate-y-1 cursor-pointer relative h-full"
                 >
                 {/* Product Image - Clickable for Gallery */}
-                {product.image_paths && product.image_paths.length > 0 ? (
-                  <div 
-                    className="relative aspect-square overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100 cursor-pointer"
-                    onTouchStart={onTouchStartProductCard}
-                    onTouchMove={onTouchMoveProductCard}
-                    onTouchEnd={() => onTouchEndProductCard(product.id, product.image_paths?.length || 0)}
-                    onClick={(e) => handleImageClick(e, product)}
-                  >
-                    <img
-                      src={getStorageUrl((product.image_order || product.image_paths || [])[selectedImageIndices[product.id] || 0])}
-                      alt={product.name}
-                      className="w-full h-full object-contain transition-transform duration-300 sm:group-hover:scale-105"
-                      loading="lazy"
-                      onError={(e) => {
-                        e.currentTarget.src = getFallbackImageUrl(product.name, '400x400');
-                      }}
-                    />
-                    {/* Image Gallery Indicator */}
-                    {(product.image_paths?.length || 0) > 1 && (
-                      <div className="absolute bottom-2 right-2 bg-black/60 text-white text-xs px-2 py-1 rounded-full backdrop-blur-sm">
-                        {(product.image_paths?.length || 0)} photos
+                {(() => {
+                  // Safely extract image paths with better error handling
+                  let imagePaths: string[] = [];
+                  try {
+                    // Handle different data formats from database
+                    if (product.image_order) {
+                      imagePaths = Array.isArray(product.image_order) 
+                        ? product.image_order 
+                        : (typeof product.image_order === 'string' ? JSON.parse(product.image_order) : []);
+                    } else if (product.image_paths) {
+                      imagePaths = Array.isArray(product.image_paths) 
+                        ? product.image_paths 
+                        : (typeof product.image_paths === 'string' ? JSON.parse(product.image_paths) : []);
+                    }
+                    
+                    // Ensure it's an array and filter out null/empty values
+                    if (!Array.isArray(imagePaths)) {
+                      imagePaths = [];
+                    }
+                    imagePaths = imagePaths.filter(path => path && typeof path === 'string' && path.trim() !== '');
+                  } catch (error) {
+                    console.error('Error parsing image paths for product', product.id, error);
+                    imagePaths = [];
+                  }
+                  
+                  const hasImages = imagePaths.length > 0;
+                  const currentImageIndex = selectedImageIndices[product.id] || 0;
+                  const currentImagePath = hasImages && currentImageIndex < imagePaths.length 
+                    ? imagePaths[currentImageIndex] 
+                    : null;
+                  
+                  if (!hasImages || !currentImagePath) {
+                    // Log missing images in development
+                    if (import.meta.env.DEV) {
+                      console.warn('Product missing images:', {
+                        productId: product.id,
+                        productName: product.name,
+                        image_paths: product.image_paths,
+                        image_order: product.image_order,
+                        hasImagePaths: !!product.image_paths,
+                        hasImageOrder: !!product.image_order
+                      });
+                    }
+                    return (
+                      <div className="relative aspect-square overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
+                        <img
+                          src={getFallbackImageUrl(product.name, '400x400')}
+                          alt={product.name}
+                          className="w-full h-full object-contain"
+                        />
                       </div>
-                    )}
-                    {/* Heart Icon */}
-                    <button
-                      onClick={(e) => toggleFavorite(product.id, e)}
-                      className="absolute top-1 right-1 sm:top-1.5 sm:right-1.5 md:top-2 md:right-2 lg:top-3 lg:right-3 p-1 sm:p-1.5 md:p-2 bg-white/90 backdrop-blur-sm rounded-full shadow-sm sm:shadow-md hover:bg-white active:scale-95 sm:hover:scale-110 transition-all duration-200 z-10 touch-manipulation"
-                      aria-label={favorites.includes(product.id) ? 'Remove from favorites' : 'Add to favorites'}
+                    );
+                  }
+                  
+                  return (
+                    <div 
+                      className="relative aspect-square overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100 cursor-pointer"
+                      onTouchStart={onTouchStartProductCard}
+                      onTouchMove={onTouchMoveProductCard}
+                      onTouchEnd={() => onTouchEndProductCard(product.id, imagePaths.length)}
+                      onClick={(e) => handleImageClick(e, product)}
                     >
-                      <svg
-                        className={`w-3 h-3 sm:w-3.5 sm:h-3.5 md:w-4 md:h-4 lg:w-5 lg:h-5 transition-colors ${
-                          favorites.includes(product.id)
-                            ? 'text-red-500 fill-current'
-                            : 'text-gray-400 sm:hover:text-red-400'
-                        }`}
-                        fill={favorites.includes(product.id) ? 'currentColor' : 'none'}
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
+                      <img
+                        src={getStorageUrl(currentImagePath)}
+                        alt={product.name}
+                        className="w-full h-full object-contain transition-transform duration-300 sm:group-hover:scale-105"
+                        loading="lazy"
+                        onError={(e) => {
+                          const attemptedUrl = e.currentTarget.src;
+                          const constructedUrl = getStorageUrl(currentImagePath);
+                          
+                          // Only log in development mode to reduce console noise
+                          if (import.meta.env.DEV) {
+                            console.warn('Image failed to load, using fallback:', {
+                              productId: product.id,
+                              productName: product.name,
+                              imagePath: currentImagePath,
+                              constructedUrl: constructedUrl,
+                              attemptedUrl: attemptedUrl,
+                              suggestion: 'Check if storage symlink exists: php artisan storage:link'
+                            });
+                          }
+                          
+                          // Prevent infinite loop by checking if already using fallback
+                          if (!e.currentTarget.src.includes('data:image/svg+xml')) {
+                            e.currentTarget.src = getFallbackImageUrl(product.name, '400x400');
+                          }
+                        }}
+                      />
+                      {/* Image Gallery Indicator */}
+                      {imagePaths.length > 1 && (
+                        <div className="absolute bottom-2 right-2 bg-black/60 text-white text-xs px-2 py-1 rounded-full backdrop-blur-sm">
+                          {imagePaths.length} photos
+                        </div>
+                      )}
+                      {/* Heart Icon */}
+                      <button
+                        onClick={(e) => toggleFavorite(product.id, e)}
+                        className="absolute top-1 right-1 sm:top-1.5 sm:right-1.5 md:top-2 md:right-2 lg:top-3 lg:right-3 p-1 sm:p-1.5 md:p-2 bg-white/90 backdrop-blur-sm rounded-full shadow-sm sm:shadow-md hover:bg-white active:scale-95 sm:hover:scale-110 transition-all duration-200 z-10 touch-manipulation"
+                        aria-label={favorites.includes(product.id) ? 'Remove from favorites' : 'Add to favorites'}
                       >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"
-                        />
-                      </svg>
-                    </button>
-                  </div>
-                ) : (
-                  <div className="relative aspect-square bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center text-gray-400">
-                    <svg className="w-6 h-6 sm:w-8 sm:h-8 md:w-10 md:h-10 lg:w-12 lg:h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                    <button
-                      onClick={(e) => toggleFavorite(product.id, e)}
-                      className="absolute top-1 right-1 sm:top-1.5 sm:right-1.5 md:top-2 md:right-2 lg:top-3 lg:right-3 p-1 sm:p-1.5 md:p-2 bg-white/90 backdrop-blur-sm rounded-full shadow-sm sm:shadow-md hover:bg-white active:scale-95 sm:hover:scale-110 transition-all duration-200 z-10 touch-manipulation"
-                      aria-label={favorites.includes(product.id) ? 'Remove from favorites' : 'Add to favorites'}
-                    >
-                      <svg
-                        className={`w-3 h-3 sm:w-3.5 sm:h-3.5 md:w-4 md:h-4 lg:w-5 lg:h-5 transition-colors ${
-                          favorites.includes(product.id)
-                            ? 'text-red-500 fill-current'
-                            : 'text-gray-400 sm:hover:text-red-400'
-                        }`}
-                        fill={favorites.includes(product.id) ? 'currentColor' : 'none'}
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"
-                        />
-                      </svg>
-                    </button>
-                  </div>
-                )}
+                        <svg
+                          className={`w-3 h-3 sm:w-3.5 sm:h-3.5 md:w-4 md:h-4 lg:w-5 lg:h-5 transition-colors ${
+                            favorites.includes(product.id)
+                              ? 'text-red-500 fill-current'
+                              : 'text-gray-400 sm:hover:text-red-400'
+                          }`}
+                          fill={favorites.includes(product.id) ? 'currentColor' : 'none'}
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                  );
+                })()}
 
-                {/* Product Name and Price */}
+                {/* Product Name, Description, and Price */}
                 <div className="p-2 sm:p-2.5 md:p-3 lg:p-4">
                   <h3 className="font-semibold text-xs sm:text-sm md:text-base text-gray-800 mb-1 sm:mb-1.5 md:mb-2 line-clamp-2 min-h-[2rem] sm:min-h-[2.25rem] md:min-h-[2.5rem] lg:min-h-[3rem] leading-tight">
                     {product.name}
                   </h3>
+                  {product.description && (
+                    <p className="text-xs sm:text-sm text-gray-600 mb-2 sm:mb-2.5 line-clamp-2 min-h-[2rem] sm:min-h-[2.25rem]">
+                      {product.description}
+                    </p>
+                  )}
                   <div className="text-center mt-1 sm:mt-1.5">
                     <span className="text-sm sm:text-base md:text-lg lg:text-xl xl:text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
                       ₱{Number(product.price || 0).toFixed(2)}
@@ -1539,7 +1962,10 @@ const PublicProductGallery: React.FC = () => {
                                     transformOrigin: index === galleryImageIndex ? `${zoomState.x}% ${zoomState.y}%` : 'center center'
                                   }}
                                   onError={(e) => {
-                                    e.currentTarget.src = getFallbackImageUrl(selectedProductForGallery.name, '800x800');
+                                    // Prevent infinite loop by checking if already using fallback
+                                    if (!e.currentTarget.src.includes('data:image/svg+xml')) {
+                                      e.currentTarget.src = getFallbackImageUrl(selectedProductForGallery.name, '800x800');
+                                    }
                                   }}
                                 />
                               </div>
@@ -1640,7 +2066,10 @@ const PublicProductGallery: React.FC = () => {
                                     index === galleryImageIndex ? 'border-blue-500' : 'border-gray-200'
                                   }`}
                                   onError={(e) => {
-                                    e.currentTarget.src = getFallbackImageUrl('N/A', '80x80');
+                                    // Prevent infinite loop by checking if already using fallback
+                                    if (!e.currentTarget.src.includes('data:image/svg+xml')) {
+                                      e.currentTarget.src = getFallbackImageUrl('N/A', '80x80');
+                                    }
                                   }}
                                 />
                               </button>

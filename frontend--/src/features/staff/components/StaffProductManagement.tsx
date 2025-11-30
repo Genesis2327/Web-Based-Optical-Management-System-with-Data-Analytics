@@ -308,7 +308,85 @@ const StaffProductManagement: React.FC = () => {
   });
 
   return (
-    <div className="space-y-6">
+    <div className="staff-product-management-container space-y-6">
+      <style>{`
+        /* ==========================================
+           COMPREHENSIVE RESPONSIVE MEDIA QUERIES
+           ========================================== */
+        
+        @media (max-width: 319px) {
+          .staff-product-management-container {
+            padding: 0.5rem;
+          }
+        }
+        
+        @media (min-width: 320px) and (max-width: 480px) {
+          .staff-product-management-container {
+            padding: 0.75rem;
+          }
+          .staff-product-management-container h1 {
+            font-size: 1.5rem;
+          }
+        }
+        
+        @media (min-width: 481px) and (max-width: 767px) {
+          .staff-product-management-container {
+            padding: 1rem;
+          }
+        }
+        
+        @media (min-width: 768px) and (max-width: 1024px) {
+          .staff-product-management-container {
+            padding: 1.5rem;
+          }
+        }
+        
+        @media (min-width: 1025px) and (max-width: 1280px) {
+          .staff-product-management-container {
+            padding: 2rem;
+          }
+        }
+        
+        @media (min-width: 1281px) and (max-width: 1919px) {
+          .staff-product-management-container {
+            padding: 2.5rem;
+          }
+        }
+        
+        @media (min-width: 1920px) {
+          .staff-product-management-container {
+            padding: 3rem;
+          }
+        }
+        
+        @media (orientation: landscape) and (max-height: 600px) {
+          .staff-product-management-container {
+            padding-top: 0.5rem;
+            padding-bottom: 0.5rem;
+          }
+        }
+        
+        @media (hover: none) and (pointer: coarse) {
+          .staff-product-management-container * {
+            min-height: 44px;
+          }
+        }
+        
+        @media (prefers-reduced-motion: reduce) {
+          .staff-product-management-container * {
+            animation-duration: 0.01ms !important;
+            transition-duration: 0.01ms !important;
+          }
+        }
+        
+        @media (max-width: 640px) {
+          .staff-product-management-container .max-w-7xl {
+            max-width: 100%;
+            padding-left: 0.75rem;
+            padding-right: 0.75rem;
+          }
+        }
+      `}</style>
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
@@ -555,12 +633,19 @@ const StaffProductManagement: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="gender">Gender</Label>
-                <Select value={formData.gender || ''} onValueChange={(value) => setFormData({...formData, gender: value})}>
+                <Select
+                  value={formData.gender || ''}
+                  onValueChange={(value) => {
+                    const normalized = value === '__none__' ? '' : value;
+                    setFormData({ ...formData, gender: normalized });
+                  }}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Select gender" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">None</SelectItem>
+                    {/* Use sentinel value instead of empty string to avoid Radix error */}
+                    <SelectItem value="__none__">None</SelectItem>
                     <SelectItem value="men">Men&apos;s</SelectItem>
                     <SelectItem value="women">Women&apos;s</SelectItem>
                     <SelectItem value="kids">Kids</SelectItem>
@@ -570,12 +655,19 @@ const StaffProductManagement: React.FC = () => {
               </div>
               <div>
                 <Label htmlFor="lens_type">Lens/Frame Type</Label>
-                <Select value={formData.lens_type || ''} onValueChange={(value) => setFormData({...formData, lens_type: value})}>
+                <Select
+                  value={formData.lens_type || ''}
+                  onValueChange={(value) => {
+                    const normalized = value === '__none__' ? '' : value;
+                    setFormData({ ...formData, lens_type: normalized });
+                  }}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Select lens/frame type" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">None</SelectItem>
+                    {/* Use sentinel value instead of empty string to avoid Radix error */}
+                    <SelectItem value="__none__">None</SelectItem>
                     {loadingLensTypes ? (
                       <SelectItem value="__loading__" disabled>Loading lens types...</SelectItem>
                     ) : lensTypes.length > 0 ? (

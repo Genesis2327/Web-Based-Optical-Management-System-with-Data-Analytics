@@ -183,20 +183,27 @@ const StaffAppointments = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Appointment Management</h1>
-          <p className="text-gray-600">Manage appointments for your branch - {user?.branch?.name || 'Current Branch'}</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Appointment Management</h1>
+          <p className="text-gray-600 mt-1 sm:mt-2">
+            Manage appointments for your branch - {user?.branch?.name || 'Current Branch'}
+          </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto sm:justify-end">
           <Button 
             variant="outline"
             onClick={() => setShowBookingForm(true)}
+            className="w-full sm:w-auto"
           >
             <Plus className="h-4 w-4 mr-2" />
             New Walk-in
           </Button>
-          <Button onClick={refetch} disabled={loading}>
+          <Button 
+            onClick={refetch} 
+            disabled={loading}
+            className="w-full sm:w-auto"
+          >
             <Calendar className="h-4 w-4 mr-2" />
             Refresh
           </Button>
@@ -275,7 +282,8 @@ const StaffAppointments = () => {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Table>
+          <div className="w-full overflow-x-auto">
+          <Table className="min-w-[720px]">
             <TableHeader>
               <TableRow>
                 <TableHead className="w-[150px]">Patient</TableHead>
@@ -474,6 +482,7 @@ const StaffAppointments = () => {
               ))}
             </TableBody>
           </Table>
+          </div>
 
           {appointments.length === 0 && (
             <div className="text-center py-8">

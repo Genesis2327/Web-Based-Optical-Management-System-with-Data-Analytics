@@ -31,15 +31,15 @@ axios.interceptors.response.use(
 /**
  * Get all products with optional filters
  */
-export const getProducts = async (search = '', categoryId?: number, isActive?: boolean, showAll?: boolean, gender?: string, lensType?: string): Promise<Product[]> => {
-  console.log('getProducts called with:', { search, categoryId, isActive, showAll, gender, lensType });
+export const getProducts = async (search = '', categoryId?: number, isActive?: boolean, showAll?: boolean, gender?: string, lensType?: string, brand?: string): Promise<Product[]> => {
+  console.log('getProducts called with:', { search, categoryId, isActive, showAll, gender, lensType, brand });
   
   // Build params object, only including defined values
   const params: any = {};
-  if (search) {
-    params.search = search;
+  if (search && search.trim() !== '') {
+    params.search = search.trim();
   }
-  if (categoryId !== undefined && categoryId !== null) {
+  if (categoryId !== undefined && categoryId !== null && !isNaN(categoryId)) {
     params.category = categoryId;
   }
   if (isActive !== undefined && isActive !== null) {
@@ -48,11 +48,17 @@ export const getProducts = async (search = '', categoryId?: number, isActive?: b
   if (showAll !== undefined && showAll !== null) {
     params.show_all = showAll;
   }
-  if (gender) {
-    params.gender = gender;
+  if (gender && gender !== 'all' && gender.trim() !== '') {
+    params.gender = gender.trim();
   }
-  if (lensType) {
-    params.lens_type = lensType;
+  if (lensType && lensType !== 'all' && lensType.trim() !== '') {
+    params.lens_type = lensType.trim();
+  }
+  if (brand && brand !== 'all' && brand.trim() !== '') {
+    // Normalize brand value: trim and ensure consistent formatting
+    const normalizedBrand = brand.trim();
+    params.brand = normalizedBrand;
+    console.log('Brand filter param:', normalizedBrand);
   }
   
   const response = await axios.get(`${API_BASE}/products`, {

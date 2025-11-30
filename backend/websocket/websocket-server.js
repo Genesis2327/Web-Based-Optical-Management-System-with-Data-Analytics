@@ -7,20 +7,60 @@ const app = express();
 const server = http.createServer(app);
 
 // Configure CORS for your frontend (allow network IPs)
-const allowedOrigins = [
-  'http://localhost:5173',
-  'http://127.0.0.1:5173',
-  'http://192.168.100.6:5173', // Network IP
-];
+// Get allowed origins from environment or use defaults
+const getAllowedOrigins = () => {
+  const envOrigins = process.env.CORS_ORIGINS;
+  if (envOrigins) {
+    return envOrigins.split(',').map(origin => origin.trim());
+  }
+  
+  // Default origins - include common development ports
+  const defaultOrigins = [
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'http://localhost:5174',
+    'http://127.0.0.1:5174',
+  ];
+  
+  // Add network IP if available
+  const networkIP = process.env.NETWORK_IP || '192.168.100.6';
+  defaultOrigins.push(`http://${networkIP}:5173`);
+  defaultOrigins.push(`http://${networkIP}:3000`);
+  
+  return defaultOrigins;
+};
+
+const allowedOrigins = getAllowedOrigins();
 
 // Configure CORS for your frontend
 const io = new Server(server, {
   cors: {
-    origin: allowedOrigins,
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps, Postman, etc.)
+      if (!origin) return callback(null, true);
+      
+      // Check if origin is in allowed list
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        // In development, be more permissive
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(`[WebSocket] Allowing origin in dev mode: ${origin}`);
+          callback(null, true);
+        } else {
+          console.warn(`[WebSocket] Blocked origin: ${origin}`);
+          callback(new Error('Not allowed by CORS'));
+        }
+      }
+    },
     methods: ['GET', 'POST'],
     credentials: true,
+    allowedHeaders: ['Authorization', 'Content-Type'],
   },
   transports: ['websocket', 'polling'],
+  allowEIO3: true, // Allow Engine.IO v3 clients
 });
 
 // Middleware to authenticate socket connections
@@ -33,24 +73,25 @@ io.use((socket, next) => {
     token = token.slice(7).trim();
   }
 
-  // Development mode: skip authentication entirely unless SKIP_WS_AUTH is explicitly false
-  if (process.env.NODE_ENV !== 'production' || process.env.SKIP_WS_AUTH === 'true') {
+  // Skip authentication if SKIP_WS_AUTH is explicitly set to 'true'
+  if (process.env.SKIP_WS_AUTH === 'true') {
     socket.userId = 'dev-user';
     socket.userRole = 'admin'; // Default to admin for development
+    socket.userBranchId = null;
+    return next();
+  }
+
+  // In development mode, be more lenient but still try to verify token if provided
+  if (process.env.NODE_ENV !== 'production' && !token) {
+    // No token in dev mode - allow connection with default user
+    socket.userId = 'dev-user';
+    socket.userRole = 'admin';
     socket.userBranchId = null;
     return next();
   }
 
   if (!token) {
     return next(new Error('Authentication error: No token provided'));
-  }
-
-  // Dev bypass flag: skip JWT verification entirely
-  if (process.env.SKIP_WS_AUTH === 'true') {
-    socket.userId = 'dev-user';
-    socket.userRole = 'admin'; // Default to admin for development
-    socket.userBranchId = null;
-    return next();
   }
 
   try {

@@ -153,6 +153,7 @@ class ProductSeeder extends Seeder
                 'stock_quantity' => 20,
                 'is_active' => true,
                 'approval_status' => 'approved',
+                'sku' => 'SG-SPORT-001',
             ],
             [
                 'name' => 'Classic Wayfarer Sunglasses',
@@ -162,6 +163,7 @@ class ProductSeeder extends Seeder
                 'stock_quantity' => 28,
                 'is_active' => true,
                 'approval_status' => 'approved',
+                'sku' => 'SG-WAY-001',
             ],
             [
                 'name' => 'Oversized Fashion Sunglasses',
@@ -171,6 +173,7 @@ class ProductSeeder extends Seeder
                 'stock_quantity' => 15,
                 'is_active' => true,
                 'approval_status' => 'approved',
+                'sku' => 'SG-OVR-001',
             ],
 
             // Contact Lenses
@@ -182,6 +185,7 @@ class ProductSeeder extends Seeder
                 'stock_quantity' => 50,
                 'is_active' => true,
                 'approval_status' => 'approved',
+                'sku' => 'CL-DAILY-001',
             ],
             [
                 'name' => 'Monthly Contact Lenses',
@@ -191,6 +195,7 @@ class ProductSeeder extends Seeder
                 'stock_quantity' => 40,
                 'is_active' => true,
                 'approval_status' => 'approved',
+                'sku' => 'CL-MONTH-001',
             ],
             [
                 'name' => 'Colored Contact Lenses',
@@ -200,6 +205,7 @@ class ProductSeeder extends Seeder
                 'stock_quantity' => 35,
                 'is_active' => true,
                 'approval_status' => 'approved',
+                'sku' => 'CL-COLOR-001',
             ],
 
             // Accessories
@@ -211,6 +217,7 @@ class ProductSeeder extends Seeder
                 'stock_quantity' => 100,
                 'is_active' => true,
                 'approval_status' => 'approved',
+                'sku' => 'AC-CASE-001',
             ],
             [
                 'name' => 'Lens Cleaning Solution',
@@ -220,6 +227,7 @@ class ProductSeeder extends Seeder
                 'stock_quantity' => 150,
                 'is_active' => true,
                 'approval_status' => 'approved',
+                'sku' => 'AC-LENS-001',
             ],
             [
                 'name' => 'Microfiber Cleaning Cloth Set',
@@ -229,6 +237,7 @@ class ProductSeeder extends Seeder
                 'stock_quantity' => 200,
                 'is_active' => true,
                 'approval_status' => 'approved',
+                'sku' => 'AC-CLOTH-001',
             ],
             [
                 'name' => 'Anti-Slip Eyeglass Strap',
@@ -238,6 +247,7 @@ class ProductSeeder extends Seeder
                 'stock_quantity' => 80,
                 'is_active' => true,
                 'approval_status' => 'approved',
+                'sku' => 'AC-STRAP-001',
             ],
         ];
 

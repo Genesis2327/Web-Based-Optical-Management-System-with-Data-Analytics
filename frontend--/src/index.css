@@ -125,6 +125,30 @@
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground min-h-screen antialiased;
+  }
+
+  #root {
+    @apply min-h-screen;
+  }
+
+  /* Hard clamp global width to viewport to prevent sideways scrolling */
+  html,
+  body {
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+
+  #root {
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+}
+
+@layer components {
+  .page-container {
+    @apply w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
   }
 }

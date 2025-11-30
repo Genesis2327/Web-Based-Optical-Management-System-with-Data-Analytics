@@ -218,10 +218,18 @@ class ScheduleController extends Controller
                 'line' => $e->getLine()
             ]);
             
+            // Fail gracefully with an empty schedule instead of a hard 500,
+            // so the frontend can continue working even if there is a DB/schema issue.
             return response()->json([
+                'doctor' => [
+                    'id' => (int) $doctorId,
+                    'name' => null,
+                    'email' => null,
+                ],
+                'schedule' => [],
                 'error' => 'Failed to fetch doctor schedule',
-                'message' => config('app.debug') ? $e->getMessage() : 'An error occurred while fetching the schedule'
-            ], 500);
+                'message' => config('app.debug') ? $e->getMessage() : 'An error occurred while fetching the schedule',
+            ], 200);
         }
     }
 

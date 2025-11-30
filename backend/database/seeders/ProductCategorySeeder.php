@@ -14,23 +14,23 @@ class ProductCategorySeeder extends Seeder
     {
         $categories = [
             [
-                'name' => 'Frames',
-                'slug' => 'frames',
-                'description' => 'Eyeglass frames and prescription frames',
+                'name' => 'Solution',
+                'slug' => 'solution',
+                'description' => 'Eye care solutions and cleaning products',
                 'sort_order' => 1,
                 'is_active' => true,
             ],
             [
-                'name' => 'Contact Lenses',
-                'slug' => 'contact-lenses',
+                'name' => 'Contact Lens',
+                'slug' => 'contact-lens',
                 'description' => 'Various types of contact lenses',
                 'sort_order' => 2,
                 'is_active' => true,
             ],
             [
-                'name' => 'Eye Care Products',
-                'slug' => 'eye-care-products',
-                'description' => 'Eye care solutions, cleaning products, and accessories',
+                'name' => 'Frames',
+                'slug' => 'frames',
+                'description' => 'Eyeglass frames and prescription frames',
                 'sort_order' => 3,
                 'is_active' => true,
             ],
@@ -44,7 +44,7 @@ class ProductCategorySeeder extends Seeder
         ];
 
         foreach ($categories as $category) {
-            ProductCategory::firstOrCreate(
+            ProductCategory::updateOrCreate(
                 ['slug' => $category['slug']],
                 $category
             );

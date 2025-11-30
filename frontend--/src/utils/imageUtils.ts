@@ -21,10 +21,34 @@ export const getStorageUrl = (path: string): string => {
   }
   
   // Get the API base URL and construct the storage URL
-  const apiBaseUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api';
-  const baseUrl = apiBaseUrl.replace('/api', '');
+  // Use dynamic detection to support network access
+  let baseUrl = 'http://127.0.0.1:8000';
+  
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    const port = window.location.port;
+    
+    // Check environment variables first
+    const envUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL;
+    if (envUrl) {
+      baseUrl = envUrl.replace('/api', '');
+    } else if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) {
+      // Network IP access
+      baseUrl = `http://${host}:8000`;
+    } else if (host === 'localhost' || host === '127.0.0.1') {
+      baseUrl = 'http://127.0.0.1:8000';
+    }
+  } else {
+    // Fallback for SSR
+    const apiBaseUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api';
+    baseUrl = apiBaseUrl.replace('/api', '');
+  }
+  
+  // Clean the path - remove leading slash if present
   const cleanPath = path.startsWith('/') ? path.substring(1) : path;
   
+  // Construct the storage URL
+  // Laravel storage is accessible via /storage/ symlink
   return `${baseUrl}/storage/${cleanPath}`;
 };
 

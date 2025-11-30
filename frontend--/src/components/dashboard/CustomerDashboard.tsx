@@ -44,7 +44,64 @@ const CustomerDashboard: React.FC = () => {
   
 
   return (
-    <div className="space-y-6">
+    <div className="customer-dashboard-container space-y-6">
+      <style>{`
+        /* ==========================================
+           COMPREHENSIVE RESPONSIVE MEDIA QUERIES
+           ========================================== */
+        
+        @media (max-width: 319px) {
+          .customer-dashboard-container {
+            padding: 0.5rem;
+          }
+        }
+        
+        @media (min-width: 320px) and (max-width: 480px) {
+          .customer-dashboard-container {
+            padding: 0.75rem;
+          }
+          .customer-dashboard-container h1 {
+            font-size: 1.5rem;
+          }
+          .customer-dashboard-container .grid {
+            grid-template-columns: 1fr !important;
+          }
+        }
+        
+        @media (min-width: 481px) and (max-width: 767px) {
+          .customer-dashboard-container {
+            padding: 1rem;
+          }
+          .customer-dashboard-container .grid {
+            grid-template-columns: repeat(2, 1fr) !important;
+          }
+        }
+        
+        @media (min-width: 768px) and (max-width: 1024px) {
+          .customer-dashboard-container {
+            padding: 1.5rem;
+          }
+        }
+        
+        @media (min-width: 1025px) {
+          .customer-dashboard-container {
+            padding: 2rem;
+          }
+        }
+        
+        @media (hover: none) and (pointer: coarse) {
+          .customer-dashboard-container * {
+            min-height: 44px;
+          }
+        }
+        
+        @media (prefers-reduced-motion: reduce) {
+          .customer-dashboard-container * {
+            animation-duration: 0.01ms !important;
+            transition-duration: 0.01ms !important;
+          }
+        }
+      `}</style>
       <div className="bg-gradient-to-r from-blue-600 to-cyan-600 rounded-lg p-6 text-white">
         <h1 className="text-2xl font-bold mb-2">
           Welcome back, {user?.name || 'Customer'}!

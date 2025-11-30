@@ -82,6 +82,14 @@ const UnifiedStaffInventory: React.FC = () => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
+  const [showReturnModal, setShowReturnModal] = useState(false);
+  const [returnItem, setReturnItem] = useState<InventoryItem | null>(null);
+  const [returnSubmitting, setReturnSubmitting] = useState(false);
+  const [returnForm, setReturnForm] = useState({
+    return_type: 'defective',
+    quantity: '',
+    reason: '',
+  });
   const [formData, setFormData] = useState({
     name: '',
     sku: '',
@@ -377,6 +385,91 @@ const UnifiedStaffInventory: React.FC = () => {
     setShowEditModal(true);
   };
 
+  const openReturnModal = (item: InventoryItem) => {
+    setReturnItem(item);
+    setReturnForm({
+      return_type: 'defective',
+      quantity: '1',
+      reason: '',
+    });
+    setShowReturnModal(true);
+  };
+
+  const handleCreateStockReturn = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!returnItem) {
+      setError('No inventory item selected for stock return');
+      return;
+    }
+
+    const branchIdForReturn =
+      selectedBranchId || (user?.branch?.id ? String(user.branch.id) : '');
+
+    if (!branchIdForReturn) {
+      setError('No branch selected for stock return');
+      return;
+    }
+
+    const quantity = parseInt(returnForm.quantity, 10) || 0;
+
+    if (quantity < 1) {
+      setError('Return quantity must be at least 1');
+      return;
+    }
+
+    // Ensure we don't return more than is available
+    if (quantity > returnItem.available_quantity) {
+      setError('Return quantity cannot exceed available quantity');
+      return;
+    }
+
+    try {
+      setReturnSubmitting(true);
+      setError(null);
+
+      await axios.post(
+        getApiUrl('/stock-returns'),
+        {
+          product_id: returnItem.product_id,
+          branch_id: Number(branchIdForReturn),
+          return_type: returnForm.return_type,
+          quantity,
+          reason:
+            returnForm.reason && returnForm.reason.trim().length > 0
+              ? returnForm.reason.trim()
+              : `${returnForm.return_type} stock return from inventory`,
+        },
+        {
+          headers: getAuthHeaders(),
+        }
+      );
+
+      setSuccess('Stock return request submitted for approval');
+      setShowReturnModal(false);
+      setReturnItem(null);
+      setReturnForm({
+        return_type: 'defective',
+        quantity: '',
+        reason: '',
+      });
+
+      // Refresh inventory in case future logic adjusts stock on approval
+      loadInventory();
+
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err: any) {
+      console.error('Error creating stock return:', err);
+      const errorMsg =
+        err?.response?.data?.message ||
+        err?.response?.data?.error ||
+        'Failed to create stock return request';
+      setError(errorMsg);
+    } finally {
+      setReturnSubmitting(false);
+    }
+  };
+
 
   // Filter inventory based on search and status
   const filteredInventory = useMemo(() => {
@@ -431,25 +524,25 @@ const UnifiedStaffInventory: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header Section */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
         <div>
-          <h1 className="text-3xl font-bold">Branch Inventory Management</h1>
-          <p className="text-muted-foreground mt-1">
+          <h1 className="text-2xl sm:text-3xl font-bold">Branch Inventory Management</h1>
+          <p className="text-muted-foreground mt-1 sm:mt-2">
             {user?.branch?.name ? `Managing inventory for ${user.branch.name}` : 'Manage products for your branch'}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto sm:justify-end">
           <Button 
             onClick={loadInventory} 
             variant="outline" 
-            className="gap-2"
+            className="gap-2 w-full sm:w-auto"
           >
             <RefreshCw className="h-4 w-4" />
             Refresh
           </Button>
           <Button 
             onClick={() => { resetForm(); setShowAddModal(true); }} 
-            className="gap-2"
+            className="gap-2 w-full sm:w-auto"
           >
             <Plus className="h-4 w-4" />
             Add Product
@@ -633,6 +726,16 @@ const UnifiedStaffInventory: React.FC = () => {
                             onClick={() => openEditModal(item)}
                           >
                             <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => openReturnModal(item)}
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                            title="Create stock return (defective/damaged)"
+                          >
+                            <AlertTriangle className="h-4 w-4 mr-1" />
+                            Return
                           </Button>
                           <Button
                             variant="ghost"
@@ -843,6 +946,115 @@ const UnifiedStaffInventory: React.FC = () => {
                 Cancel
               </Button>
               <Button type="submit">Update</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Stock Return Modal */}
+      <Dialog
+        open={showReturnModal}
+        onOpenChange={(open) => {
+          setShowReturnModal(open);
+          if (!open) {
+            setReturnItem(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              Stock Return
+              {returnItem ? ` - ${returnItem.product_name}` : ''}
+            </DialogTitle>
+            <DialogDescription>
+              Record a stock return for defective or damaged items. This will
+              create a request for admin review and approval.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleCreateStockReturn}>
+            <div className="grid gap-4 py-4">
+              {returnItem && (
+                <div className="text-sm text-muted-foreground">
+                  <p>
+                    <span className="font-medium">SKU:</span> {returnItem.sku}
+                  </p>
+                  <p>
+                    <span className="font-medium">Available:</span>{' '}
+                    {returnItem.available_quantity}
+                  </p>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="return_type">Return Type *</Label>
+                  <select
+                    id="return_type"
+                    value={returnForm.return_type}
+                    onChange={(e) =>
+                      setReturnForm((prev) => ({
+                        ...prev,
+                        return_type: e.target.value,
+                      }))
+                    }
+                    className="w-full rounded-md border border-input bg-background px-3 py-2"
+                    required
+                  >
+                    <option value="defective">Defective</option>
+                    <option value="damaged">Damaged</option>
+                    <option value="expired">Expired</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+                <div>
+                  <Label htmlFor="return_quantity">Quantity *</Label>
+                  <Input
+                    id="return_quantity"
+                    type="number"
+                    min={1}
+                    value={returnForm.quantity}
+                    onChange={(e) =>
+                      setReturnForm((prev) => ({
+                        ...prev,
+                        quantity: e.target.value,
+                      }))
+                    }
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <Label htmlFor="return_reason">Reason *</Label>
+                <Textarea
+                  id="return_reason"
+                  value={returnForm.reason}
+                  onChange={(e) =>
+                    setReturnForm((prev) => ({
+                      ...prev,
+                      reason: e.target.value,
+                    }))
+                  }
+                  rows={3}
+                  placeholder="Describe the issue with the returned items (e.g., lenses scratched on arrival, frame broken during fitting)."
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setShowReturnModal(false);
+                  setReturnItem(null);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={returnSubmitting}>
+                {returnSubmitting ? 'Submitting...' : 'Submit Return'}
+              </Button>
             </DialogFooter>
           </form>
         </DialogContent>

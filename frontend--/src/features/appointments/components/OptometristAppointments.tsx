@@ -189,12 +189,14 @@ const OptometristAppointments: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">All Appointments</h1>
-          <p className="text-gray-600">Manage all appointments - you can proceed with any appointment</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">All Appointments</h1>
+          <p className="text-gray-600 mt-1 sm:mt-2">
+            Manage all appointments - you can proceed with any appointment
+          </p>
         </div>
-        <Button>
+        <Button className="w-full sm:w-auto">
           <Calendar className="h-4 w-4 mr-2" />
           Schedule New Appointment
         </Button>
@@ -273,7 +275,8 @@ const OptometristAppointments: React.FC = () => {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Table>
+          <div className="w-full overflow-x-auto">
+          <Table className="min-w-[720px]">
             <TableHeader>
               <TableRow>
                 <TableHead>Patient</TableHead>
@@ -378,6 +381,7 @@ const OptometristAppointments: React.FC = () => {
               <p className="text-gray-600">No appointments found</p>
             </div>
           )}
+          </div>
         </CardContent>
       </Card>
 

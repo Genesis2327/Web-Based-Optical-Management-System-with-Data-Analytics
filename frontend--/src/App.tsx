@@ -65,6 +65,7 @@ import StaffProductTrackingDashboard from "@/features/products/components/StaffP
 
 // Admin Components
 import AdminStockManagement from "@/features/admin/components/AdminStockManagement";
+import AdminStockReturns from "@/features/admin/components/AdminStockReturns";
 import AdminProductManagement from "@/features/admin/components/AdminProductManagement";
 import AdminProductTrackingDashboard from "@/features/admin/components/AdminProductTrackingDashboard";
 import { RealtimeProvider } from "@/contexts/RealtimeProvider";
@@ -78,6 +79,9 @@ import OptometristSchedule from "@/components/schedule/OptometristSchedule";
 import StaffSchedule from "@/components/schedule/StaffSchedule";
 import UserProfile from "@/components/user/UserProfile";
 import AdminUserManagement from "@/components/admin/AdminUserManagement";
+import RoleManagement from "@/features/admin/components/RoleManagement";
+import PermissionManagement from "@/features/admin/components/PermissionManagement";
+import UserGroupManagement from "@/features/admin/components/UserGroupManagement";
 import BranchManagement from "@/components/admin/BranchManagement";
 import EmployeeScheduleManagement from "@/components/admin/EmployeeScheduleManagement";
 import LensTypeManagement from "@/components/admin/LensTypeManagement";
@@ -145,6 +149,7 @@ const App = () => (
               <Route path="patients" element={<OptometristPatientRecords />} />
               <Route path="prescriptions" element={<OptometristPrescriptionManagement />} />
               <Route path="schedule" element={<OptometristSchedule />} />
+          <Route path="inventory" element={<UnifiedStaffInventory />} />
               <Route path="notifications" element={<NotificationCenter />} />
               <Route path="profile" element={<UserProfile />} />
             </Route>
@@ -180,11 +185,15 @@ const App = () => (
               <Route path="dashboard" element={<AdminDashboard />} />
               <Route path="analytics" element={<AnalyticsDashboard />} />
               <Route path="users" element={<AdminUserManagement />} />
+              <Route path="roles" element={<RoleManagement />} />
+              <Route path="permissions" element={<PermissionManagement />} />
+              <Route path="user-groups" element={<UserGroupManagement />} />
               <Route path="branches" element={<BranchManagement />} />
               <Route path="lens-types" element={<LensTypeManagement />} />
               <Route path="inventory" element={<AdminCentralInventory />} />
               <Route path="inventory/consolidated" element={<AdminConsolidatedInventory />} />
               <Route path="stock-management" element={<AdminStockManagement />} />
+              <Route path="stock-returns" element={<AdminStockReturns />} />
               <Route path="products" element={
                 <ErrorBoundary>
                   <AdminProductManagement />

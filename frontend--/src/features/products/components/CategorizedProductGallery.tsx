@@ -98,8 +98,8 @@ const CategorizedProductGallery: React.FC = () => {
     try {
       setLoading(true);
       const params = new URLSearchParams();
-      if (selectedCategory !== 'all') params.append('category_id', selectedCategory);
-      if (selectedBrand !== 'all') params.append('brand', selectedBrand);
+      if (selectedCategory !== 'all') params.append('category', selectedCategory);
+      if (selectedBrand !== 'all' && selectedBrand !== '') params.append('brand', selectedBrand);
       if (searchTerm) params.append('search', searchTerm);
       if (sortBy) params.append('sort', sortBy);
 
@@ -121,9 +121,77 @@ const CategorizedProductGallery: React.FC = () => {
     }
   };
 
+  // Brand names from the Branded folder structure (Frames)
+  const brandedFrameBrands = [
+    'AARALASE',
+    'ADIDAS',
+    'BLOSSOM',
+    'BUBLES',
+    'CHANEL',
+    'FANTASY',
+    'FIVE START',
+    'GUYS LAROCHE',
+    'JTLF UREN',
+    'KATE SPADE',
+    'MICHAEL KORS',
+    'MOONLIGH',
+    'MUSK EYEWEAR',
+    'NIKE',
+    'OSCARLIAN',
+    'RUDY PROJECT',
+    'SAINT LAURENT',
+    'SOOPER EYEWEAR',
+    'SPARK',
+    'STAR EYEWEAR',
+    'START LIGHT EYEWEAR',
+    'SUN',
+    'SUNCARI',
+    'Suryeoan',
+    'XYQ CRAFTSMAN',
+    'YAMEI',
+  ];
+
+  // Brand dropdown contents – match PublicProductGallery behavior
   const getBrands = () => {
-    const brands = [...new Set(products.map(p => p.brand).filter(brand => brand && brand.trim() !== ''))];
-    return brands.sort();
+    // Collect brands from current products, normalizing case
+    const productBrandMap = new Map<string, string>(); // Map<normalized, original>
+    products.forEach((p) => {
+      if (p.brand && p.brand.trim() !== '') {
+        const normalized = p.brand.trim().toLowerCase();
+        if (!productBrandMap.has(normalized)) {
+          productBrandMap.set(normalized, p.brand.trim());
+        }
+      }
+    });
+
+    // Work out selected category slug to know when to add static frame brands
+    const selectedCategorySlug =
+      selectedCategory !== 'all'
+        ? categories.find((c) => c.id.toString() === selectedCategory)?.slug?.toLowerCase() || ''
+        : 'all';
+
+    const isFramesCategory =
+      selectedCategorySlug === 'frames' ||
+      selectedCategorySlug === 'eyeglass-frames' ||
+      selectedCategorySlug === '' ||
+      selectedCategorySlug === 'all';
+
+    // Only add static frame brands for Frames / All (same as public gallery)
+    if (isFramesCategory) {
+      brandedFrameBrands.forEach((brand) => {
+        const normalized = brand.toLowerCase();
+        if (!productBrandMap.has(normalized)) {
+          productBrandMap.set(normalized, brand);
+        }
+      });
+    }
+
+    // Sort by normalized name, return original casing
+    const sorted = Array.from(productBrandMap.entries()).sort((a, b) =>
+      a[0].localeCompare(b[0]),
+    );
+
+    return sorted.map(([normalized, original]) => original);
   };
 
   const filteredProducts = products.filter(product => {
@@ -143,8 +211,83 @@ const CategorizedProductGallery: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
-      <div className="container mx-auto px-4 py-8">
+    <div className="categorized-product-gallery-container min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
+      <style>{`
+        /* ==========================================
+           COMPREHENSIVE RESPONSIVE MEDIA QUERIES
+           ========================================== */
+        
+        @media (max-width: 319px) {
+          .categorized-product-gallery-container {
+            padding: 0.5rem;
+          }
+          .categorized-product-gallery-container .container {
+            padding-left: 0.5rem;
+            padding-right: 0.5rem;
+          }
+        }
+        
+        @media (min-width: 320px) and (max-width: 480px) {
+          .categorized-product-gallery-container {
+            padding: 0.75rem;
+          }
+          .categorized-product-gallery-container .container {
+            padding-left: 0.75rem;
+            padding-right: 0.75rem;
+          }
+        }
+        
+        @media (min-width: 481px) and (max-width: 767px) {
+          .categorized-product-gallery-container {
+            padding: 1rem;
+          }
+        }
+        
+        @media (min-width: 768px) and (max-width: 1024px) {
+          .categorized-product-gallery-container {
+            padding: 1.5rem;
+          }
+        }
+        
+        @media (min-width: 1025px) and (max-width: 1280px) {
+          .categorized-product-gallery-container {
+            padding: 2rem;
+          }
+        }
+        
+        @media (min-width: 1281px) and (max-width: 1919px) {
+          .categorized-product-gallery-container {
+            padding: 2.5rem;
+          }
+        }
+        
+        @media (min-width: 1920px) {
+          .categorized-product-gallery-container {
+            padding: 3rem;
+          }
+        }
+        
+        @media (orientation: landscape) and (max-height: 600px) {
+          .categorized-product-gallery-container {
+            padding-top: 0.5rem;
+            padding-bottom: 0.5rem;
+          }
+        }
+        
+        @media (hover: none) and (pointer: coarse) {
+          .categorized-product-gallery-container * {
+            min-height: 44px;
+          }
+        }
+        
+        @media (prefers-reduced-motion: reduce) {
+          .categorized-product-gallery-container * {
+            animation-duration: 0.01ms !important;
+            transition-duration: 0.01ms !important;
+          }
+        }
+      `}</style>
+      <div className="container mx-auto px-3 sm:px-4 md:px-6 lg:px-8 xl:px-10 2xl:px-12 py-2 sm:py-3 md:py-4 lg:py-6 xl:py-8">
         {/* Header */}
         <div className="text-center mb-8">
           <h1 className="text-4xl font-bold text-gray-900 mb-4">Product Gallery</h1>
@@ -196,11 +339,21 @@ const CategorizedProductGallery: React.FC = () => {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Brands</SelectItem>
-                    {getBrands().map((brand) => (
-                      <SelectItem key={brand} value={brand}>
-                        {brand}
-                      </SelectItem>
-                    ))}
+                    <SelectItem value="__branded__">Branded</SelectItem>
+                    <SelectItem value="__non_branded__">Non-Branded</SelectItem>
+                    {/* Show brand names when not showing Non-Branded */}
+                    {selectedBrand !== '__non_branded__' && (
+                      <>
+                        {(selectedBrand === '__branded__' || selectedBrand === 'all') && (
+                          <div className="px-2 py-1.5 text-xs font-semibold text-gray-500">Brands</div>
+                        )}
+                        {getBrands().map((brand) => (
+                          <SelectItem key={brand} value={brand}>
+                            {brand}
+                          </SelectItem>
+                        ))}
+                      </>
+                    )}
                   </SelectContent>
                 </Select>
 
