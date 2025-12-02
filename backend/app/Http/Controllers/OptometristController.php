@@ -247,6 +247,8 @@ class OptometristController extends Controller
                                 'vision_acuity' => $prescription->vision_acuity ?? null,
                                 'recommendations' => $prescription->recommendations ?? null,
                                 'additional_notes' => $prescription->additional_notes ?? null,
+                                'attachment_url' => $prescription->attachment_url,
+                                'attachment_path' => $prescription->attachment_path,
                             ];
                         } catch (\Exception $e) {
                             \Log::warning('Error mapping prescription: ' . $e->getMessage());
@@ -262,6 +264,8 @@ class OptometristController extends Controller
                                 'vision_acuity' => null,
                                 'recommendations' => null,
                                 'additional_notes' => null,
+                                'attachment_url' => null,
+                                'attachment_path' => null,
                             ];
                         }
                     });
@@ -366,6 +370,8 @@ class OptometristController extends Controller
                     'vision_acuity' => $prescription->vision_acuity,
                     'recommendations' => $prescription->recommendations,
                     'additional_notes' => $prescription->additional_notes,
+                    'attachment_url' => $prescription->attachment_url,
+                    'attachment_path' => $prescription->attachment_path,
                 ];
             });
 

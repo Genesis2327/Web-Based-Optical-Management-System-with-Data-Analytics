@@ -37,6 +37,8 @@ class PrescriptionResource extends JsonResource
             'expiry_date' => $this->expiry_date,
             'status' => $this->status,
             'notes' => $this->notes,
+            'attachment_path' => $this->attachment_path,
+            'attachment_url' => $this->attachment_url,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
             'deleted_at' => $this->deleted_at,

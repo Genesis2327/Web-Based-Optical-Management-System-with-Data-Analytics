@@ -21,8 +21,10 @@ class StockReturnSeeder extends Seeder
             StockReturn::truncate();
         }
 
-        // Get some products (preferably eyeglasses or sunglasses)
-        $products = Product::take(4)->get();
+        // Get products - excluding specifically "Frame 1" through "Frame 9"
+        $products = Product::whereNotIn('name', [
+            'Frame 1', 'Frame 2', 'Frame 3', 'Frame 4', 'Frame 5', 'Frame 6', 'Frame 7', 'Frame 8', 'Frame 9'
+        ])->take(8)->get();
         if ($products->isEmpty()) {
             $this->command->error('No products found. Please run ProductSeeder first.');
             return;
@@ -44,89 +46,66 @@ class StockReturnSeeder extends Seeder
             return;
         }
 
-        // Sample stock returns data
+        // Sample stock returns data - using products that are NOT named "frame 1 - frame 9"
         $stockReturns = [
             [
-                'product_id' => $products[0]->id,
-                'branch_id' => $branches[0]->id,
-                'return_type' => 'defective',
+                'product_id' => 14, // Contact Lense 1
+                'branch_id' => 1, // Emerald Branch
                 'quantity' => 2,
-                'unit_cost' => 1250.00,
-                'total_cost' => 2500.00,
-                'reason' => 'Frames arrived with cracked nose bridge',
-                'return_reference' => 'RET-DEF-001',
-                'status' => 'approved',
-                'approved_by' => $adminUser->id,
-                'approved_at' => now()->subDays(5),
-                'product_condition' => '{"damage_type": "cracked_nose_bridge", "damage_severity": "minor", "is_repairable": true}',
-                'admin_notes' => 'Approved for return - quality issue confirmed',
-                'created_by' => $staffUser->id,
-                'created_at' => now()->subDays(7),
-            ],
-            [
-                'product_id' => $products[1]->id,
-                'branch_id' => $branches[0]->id,
-                'return_type' => 'damaged',
-                'quantity' => 1,
-                'unit_cost' => 3200.00,
-                'total_cost' => 3200.00,
-                'reason' => 'Lens scratched during transportation',
-                'return_reference' => 'RET-DAM-002',
-                'status' => 'approved',
-                'approved_by' => $adminUser->id,
-                'approved_at' => now()->subDays(3),
-                'product_condition' => '{"damage_type": "scratched_lens", "damage_severity": "moderate", "is_repairable": false}',
-                'admin_notes' => 'Approved - scratches too deep for repair',
-                'created_by' => $staffUser->id,
-                'created_at' => now()->subDays(5),
-            ],
-            [
-                'product_id' => $products[2]->id,
-                'branch_id' => $branches[1]->id,
-                'return_type' => 'expired',
-                'quantity' => 3,
-                'unit_cost' => 933.33,
-                'total_cost' => 2800.00,
-                'reason' => 'Products exceeded expiration date',
-                'return_reference' => 'RET-EXP-003',
-                'status' => 'pending',
-                'product_condition' => '{"expiration_date": "2024-12-15", "reason": "passed_expiry_date"}',
-                'created_by' => $staffUser->id,
-                'created_at' => now()->subDays(2),
-            ],
-            [
-                'product_id' => $products[0]->id,
-                'branch_id' => $branches[1]->id,
-                'return_type' => 'other',
-                'quantity' => 1,
-                'unit_cost' => 2500.00,
-                'total_cost' => 2500.00,
-                'reason' => 'Wrong model received - ordered XXL, received XL',
-                'return_reference' => 'RET-OTH-004',
-                'status' => 'rejected',
-                'approved_by' => $adminUser->id,
-                'approved_at' => now()->subDay(),
-                'product_condition' => '{"issue_type": "wrong_model", "ordered_size": "XXL", "received_size": "XL"}',
-                'admin_notes' => 'Rejected - items are in good condition, seller error not applicable for return',
-                'created_by' => $staffUser->id,
-                'created_at' => now()->subDays(3),
-            ],
-            [
-                'product_id' => $products[3]->id,
-                'branch_id' => $branches[0]->id,
                 'return_type' => 'defective',
-                'quantity' => 4,
-                'unit_cost' => 875.00,
-                'total_cost' => 3500.00,
-                'reason' => 'Hinges broken on all frames in batch',
-                'return_reference' => 'RET-DEF-005',
+                'reason' => 'Defective lens quality detected during quality check',
+                'created_by' => 12, // Staff Emerald
+                'approved_by' => 1, // Main Admin
+                'status' => 'approved',
+                'approved_at' => now()->subDays(1),
+                'admin_notes' => 'Returned due to manufacturing defect in lens coating.',
+                'product_condition' => '{"defect": "lens_coating"}',
+            ],
+            [
+                'product_id' => 15, // Contact Lense 2
+                'branch_id' => 1, // Emerald Branch
+                'quantity' => 1,
+                'return_type' => 'damaged',
+                'reason' => 'Customer dissatisfaction with color accuracy',
+                'created_by' => 12, // Staff Emerald
+                'approved_by' => 1, // Main Admin
+                'status' => 'approved',
+                'approved_at' => now()->subDays(4),
+                'admin_notes' => 'Customer reported color distortion issues.',
+            ],
+            [
+                'product_id' => 77, // CL1 Contact Lens
+                'branch_id' => 2, // Unitop Branch
+                'quantity' => 3,
+                'return_type' => 'expired',
+                'reason' => 'Expired batch received',
+                'created_by' => 13, // Staff Unitop
+                'status' => 'pending',
+                'admin_notes' => 'Batch expired during transportation delay.',
+            ],
+            [
+                'product_id' => 16, // Contact Lense 3
+                'branch_id' => 2, // Unitop Branch
+                'quantity' => 1,
+                'return_type' => 'other',
+                'reason' => 'Wrong product shipped',
+                'created_by' => 13, // Staff Unitop
+                'approved_by' => 1, // Main Admin
+                'status' => 'rejected',
+                'approved_at' => now()->subDays(3),
+                'admin_notes' => 'Incorrect model sent instead of ordered item.',
+            ],
+            [
+                'product_id' => 112, // SOLUTION1 Solution
+                'branch_id' => 3, // Newstar Branch
+                'quantity' => 2,
+                'return_type' => 'damaged',
+                'reason' => 'Packaging damaged during shipping',
+                'created_by' => 14, // Staff Newstar
+                'approved_by' => 1, // Main Admin
                 'status' => 'processed',
-                'approved_by' => $adminUser->id,
-                'approved_at' => now()->subDays(10),
-                'product_condition' => '{"damage_type": "broken_hinges", "damage_severity": "major", "affects_all_items": true}',
-                'admin_notes' => 'Processed return - supplier credited account',
-                'created_by' => $staffUser->id,
-                'created_at' => now()->subDays(12),
+                'approved_at' => now()->subDays(6),
+                'admin_notes' => 'Outer packaging compromised but product intact.',
             ],
         ];
 

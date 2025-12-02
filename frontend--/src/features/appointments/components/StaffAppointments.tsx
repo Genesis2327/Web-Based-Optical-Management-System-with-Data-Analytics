@@ -47,10 +47,8 @@ const StaffAppointments = () => {
     switch (status) {
       case 'scheduled':
         return 'bg-blue-100 text-blue-800';
-      case 'confirmed':
-        return 'bg-green-100 text-green-800';
       case 'in_progress':
-        return 'bg-yellow-100 text-yellow-800';
+        return 'bg-blue-100 text-blue-800';
       case 'completed':
         return 'bg-gray-100 text-gray-800';
       case 'cancelled':
@@ -394,22 +392,9 @@ const StaffAppointments = () => {
                         </DialogContent>
                       </Dialog>
 
-                      {/* Status Actions */}
+                        {/* Status Actions */}
                       <div className="flex flex-wrap gap-1">
                         {appointment.status === 'scheduled' && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleStatusUpdate(appointment.id.toString(), 'confirmed')}
-                            disabled={updating}
-                            className="text-green-700 border-green-200 hover:bg-green-50"
-                          >
-                            <CheckCircle className="h-3 w-3 mr-1" />
-                            Confirm
-                          </Button>
-                        )}
-
-                        {appointment.status === 'confirmed' && (
                           <Button
                             variant="outline"
                             size="sm"
@@ -436,7 +421,7 @@ const StaffAppointments = () => {
                         )}
 
                         {/* Reschedule */}
-                        {['scheduled', 'confirmed'].includes(appointment.status) && (
+                        {appointment.status === 'scheduled' && (
                           <Button
                             variant="outline"
                             size="sm"
@@ -449,7 +434,7 @@ const StaffAppointments = () => {
                         )}
 
                         {/* Cancel */}
-                        {['scheduled', 'confirmed'].includes(appointment.status) && (
+                        {appointment.status === 'scheduled' && (
                           <Button
                             variant="outline"
                             size="sm"
@@ -463,7 +448,7 @@ const StaffAppointments = () => {
                         )}
 
                         {/* No Show */}
-                        {['scheduled', 'confirmed'].includes(appointment.status) && (
+                        {appointment.status === 'scheduled' && (
                           <Button
                             variant="outline"
                             size="sm"

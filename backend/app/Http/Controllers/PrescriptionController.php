@@ -8,6 +8,8 @@ use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use App\Enums\UserRole;
 use App\Helpers\Realtime;
 
@@ -116,7 +118,16 @@ class PrescriptionController extends Controller
                 return response()->json(['error' => 'Only optometrists can create prescriptions'], 403);
             }
 
-        $validator = Validator::make($request->all(), [
+            // Handle FormData - decode JSON strings if they exist
+            $requestData = $request->all();
+            if (is_string($request->right_eye)) {
+                $requestData['right_eye'] = json_decode($request->right_eye, true) ?? [];
+            }
+            if (is_string($request->left_eye)) {
+                $requestData['left_eye'] = json_decode($request->left_eye, true) ?? [];
+            }
+
+        $validator = Validator::make($requestData, [
             'appointment_id' => 'required|exists:appointments,id',
             'right_eye' => 'required|array',
             'right_eye.sphere' => 'nullable|numeric',
@@ -135,11 +146,16 @@ class PrescriptionController extends Controller
             'coating' => 'nullable|string|max:100',
             'follow_up_date' => 'nullable|date|after:today',
             'follow_up_notes' => 'nullable|string|max:1000',
+            'attachment' => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:10240', // Max 10MB
         ]);
 
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->errors()], 422);
         }
+
+        // Use decoded data
+        $rightEye = $requestData['right_eye'];
+        $leftEye = $requestData['left_eye'];
 
         // Get appointment details
         $appointment = \App\Models\Appointment::with(['patient', 'branch'])->findOrFail($request->appointment_id);
@@ -155,6 +171,15 @@ class PrescriptionController extends Controller
             return response()->json(['error' => 'Can only create prescriptions for appointments in progress'], 422);
         }
 
+        // Handle file upload if provided
+        $attachmentPath = null;
+        if ($request->hasFile('attachment')) {
+            $file = $request->file('attachment');
+            $fileName = time() . '_' . $user->id . '_' . Str::random(10) . '.' . $file->getClientOriginalExtension();
+            $filePath = $file->storeAs('prescriptions', $fileName, 'public');
+            $attachmentPath = $filePath;
+        }
+
         // Create prescription
         $prescription = Prescription::create([
             'appointment_id' => $request->appointment_id,
@@ -162,8 +187,8 @@ class PrescriptionController extends Controller
             'optometrist_id' => $user->id,
             'type' => 'glasses', // Use valid enum value
             'prescription_data' => [
-                'right_eye' => $request->right_eye,
-                'left_eye' => $request->left_eye,
+                'right_eye' => $rightEye,
+                'left_eye' => $leftEye,
                 'vision_acuity' => $request->vision_acuity,
                 'additional_notes' => $request->additional_notes,
                 'recommendations' => $request->recommendations,
@@ -173,10 +198,11 @@ class PrescriptionController extends Controller
                 'follow_up_notes' => $request->follow_up_notes,
                 'prescription_number' => Prescription::generatePrescriptionNumber(),
             ],
-            'issue_date' => now()->toDateString(),
-            'expiry_date' => now()->addYear()->toDateString(),
+            'issue_date' => $request->issue_date ?? now()->toDateString(),
+            'expiry_date' => $request->expiry_date ?? now()->addYear()->toDateString(),
             'status' => 'active',
             'notes' => $request->additional_notes, // Store additional notes in the notes field
+            'attachment_path' => $attachmentPath,
         ]);
 
         // Update appointment status to completed

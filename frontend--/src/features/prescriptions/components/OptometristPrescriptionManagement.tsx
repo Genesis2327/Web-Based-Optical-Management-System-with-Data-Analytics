@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
-import { Calendar, Clock, Eye, User, FileText, Plus, Edit, Loader2, AlertCircle, Info } from 'lucide-react';
+import { Calendar, Clock, Eye, User, FileText, Plus, Edit, Loader2, AlertCircle, Info, Download } from 'lucide-react';
 import {
   Table,
   TableBody,
@@ -140,6 +140,19 @@ const OptometristPrescriptionManagement: React.FC = () => {
     
     // Reload data
     await loadData();
+  };
+
+  const handleOpenAttachment = (url?: string) => {
+    if (!url) {
+      toast({
+        variant: 'destructive',
+        title: 'Attachment unavailable',
+        description: 'This prescription does not have an uploaded test result.',
+      });
+      return;
+    }
+
+    window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   const getStatusColor = (status: string) => {
@@ -350,6 +363,30 @@ const OptometristPrescriptionManagement: React.FC = () => {
                 </Card>
               )}
 
+              {/* Attachments */}
+              {selectedPrescription.attachment_url && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Test Result Attachment</CardTitle>
+                  </CardHeader>
+                  <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <Label className="text-sm text-muted-foreground">Stored File</Label>
+                      <p className="text-sm break-all">{selectedPrescription.attachment_path || 'prescriptions/uploaded-file'}</p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="flex items-center gap-2"
+                      onClick={() => handleOpenAttachment(selectedPrescription.attachment_url)}
+                    >
+                      <Download className="h-4 w-4" />
+                      Download Test Result
+                    </Button>
+                  </CardContent>
+                </Card>
+              )}
+
               {/* Follow-up Information */}
               {(selectedPrescription.follow_up_date || selectedPrescription.follow_up_notes) && (
                 <Card>
@@ -514,18 +551,31 @@ const OptometristPrescriptionManagement: React.FC = () => {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <Button 
-                        size="sm" 
-                        variant="outline"
-                        onClick={() => {
-                          setSelectedPrescription(prescription);
-                          setShowPrescriptionDetails(true);
-                        }}
-                        className="flex items-center gap-2"
-                      >
-                        <Info className="h-4 w-4" />
-                        View Details
-                      </Button>
+                      <div className="flex flex-col gap-2">
+                        <Button 
+                          size="sm" 
+                          variant="outline"
+                          onClick={() => {
+                            setSelectedPrescription(prescription);
+                            setShowPrescriptionDetails(true);
+                          }}
+                          className="flex items-center gap-2"
+                        >
+                          <Info className="h-4 w-4" />
+                          View Details
+                        </Button>
+                        {prescription.attachment_url && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="flex items-center gap-2 justify-start"
+                            onClick={() => handleOpenAttachment(prescription.attachment_url)}
+                          >
+                            <Download className="h-4 w-4" />
+                            Download Test Result
+                          </Button>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}

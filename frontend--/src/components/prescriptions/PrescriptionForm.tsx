@@ -68,6 +68,9 @@ const PrescriptionForm: React.FC<PrescriptionFormProps> = ({ appointment, onSucc
   const [referralNotes, setReferralNotes] = useState('');
   const [suggestedCondition, setSuggestedCondition] = useState('');
 
+  // File upload state
+  const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
+
   const handleEyeDataChange = (eye: 'right' | 'left', field: keyof EyeData, value: string) => {
     if (eye === 'right') {
       setRightEye(prev => ({ ...prev, [field]: value }));
@@ -265,14 +268,39 @@ const PrescriptionForm: React.FC<PrescriptionFormProps> = ({ appointment, onSucc
       console.log('Full request body:', JSON.stringify(requestBody, null, 2));
       console.log('API URL:', `${import.meta.env.VITE_API_URL || 'http://localhost:8000/api'}/prescriptions`);
 
+      // Create FormData for file upload
+      const formDataToSend = new FormData();
+      
+      // Append all form fields
+      formDataToSend.append('appointment_id', appointment.id.toString());
+      formDataToSend.append('right_eye', JSON.stringify(cleanedRightEye));
+      formDataToSend.append('left_eye', JSON.stringify(cleanedLeftEye));
+      formDataToSend.append('vision_acuity', formData.vision_acuity || '');
+      formDataToSend.append('additional_notes', formData.additional_notes || '');
+      formDataToSend.append('recommendations', formData.recommendations || '');
+      formDataToSend.append('lens_type', formData.lens_type || '');
+      formDataToSend.append('coating', formData.coating || '');
+      formDataToSend.append('follow_up_date', formData.follow_up_date || '');
+      formDataToSend.append('follow_up_notes', formData.follow_up_notes || '');
+      formDataToSend.append('issue_date', requestBody.issue_date);
+      formDataToSend.append('expiry_date', requestBody.expiry_date);
+      formDataToSend.append('condition', requestBody.condition || '');
+      formDataToSend.append('trackable', requestBody.trackable ? '1' : '0');
+      formDataToSend.append('referral_notes', requestBody.referral_notes || '');
+
+      // Append file if selected
+      if (attachmentFile) {
+        formDataToSend.append('attachment', attachmentFile);
+      }
+
     const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000/api'}/prescriptions`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
         'Accept': 'application/json',
         'Authorization': `Bearer ${token}`
+        // Don't set Content-Type header - let browser set it with boundary for FormData
       },
-      body: JSON.stringify(requestBody)
+      body: formDataToSend
     });
 
       console.log('Response status:', response.status);
@@ -571,6 +599,35 @@ const PrescriptionForm: React.FC<PrescriptionFormProps> = ({ appointment, onSucc
                   />
                 </div>
               )}
+
+              {/* Prescription/Checkup Result File Upload */}
+              <div>
+                <Label htmlFor="attachment">Prescription/Checkup Result File (Optional)</Label>
+                <Input
+                  id="attachment"
+                  type="file"
+                  accept=".pdf,.jpg,.jpeg,.png"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      if (file.size > 10 * 1024 * 1024) {
+                        toast.error('File size must be less than 10MB');
+                        return;
+                      }
+                      setAttachmentFile(file);
+                    }
+                  }}
+                  className="cursor-pointer"
+                />
+                {attachmentFile && (
+                  <p className="text-xs text-green-600 mt-1">
+                    Selected: {attachmentFile.name} ({(attachmentFile.size / 1024 / 1024).toFixed(2)} MB)
+                  </p>
+                )}
+                <p className="text-xs text-gray-500 mt-1">
+                  Upload prescription document or eye checkup result from machine (PDF, JPG, PNG - Max 10MB)
+                </p>
+              </div>
             </CardContent>
           </Card>
 

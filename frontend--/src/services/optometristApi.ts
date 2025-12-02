@@ -81,6 +81,8 @@ export interface OptometristPatientDetails {
     vision_acuity?: string;
     recommendations?: string;
     additional_notes?: string;
+    attachment_url?: string;
+    attachment_path?: string;
   }>;
   statistics: {
     total_appointments: number;
@@ -112,6 +114,8 @@ export interface OptometristPrescription {
   vision_acuity?: string;
   recommendations?: string;
   additional_notes?: string;
+  attachment_url?: string;
+  attachment_path?: string;
 }
 
 export interface OptometristAppointment {

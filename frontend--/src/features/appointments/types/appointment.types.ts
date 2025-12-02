@@ -100,7 +100,6 @@ export const APPOINTMENT_TYPES = [
 
 export const APPOINTMENT_STATUSES = [
   'scheduled',
-  'confirmed',
   'in_progress',
   'completed',
   'cancelled',

@@ -5,7 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use Carbon\Carbon;
+use Illuminate\Support\Facades\Storage;
 use App\Traits\Auditable;
 
 class Prescription extends Model
@@ -33,6 +33,11 @@ class Prescription extends Model
         'expiry_date',
         'status',
         'notes',
+        'attachment_path',
+    ];
+
+    protected $appends = [
+        'attachment_url',
     ];
 
     protected $casts = [
@@ -236,5 +241,26 @@ class Prescription extends Model
     public function scopeByOptometrist($query, int $optometristId)
     {
         return $query->where('optometrist_id', $optometristId);
+    }
+
+    /**
+     * Derived public URL for the stored attachment.
+     */
+    public function getAttachmentUrlAttribute(): ?string
+    {
+        if (!$this->attachment_path) {
+            return null;
+        }
+
+        try {
+            return Storage::disk('public')->url($this->attachment_path);
+        } catch (\Throwable $e) {
+            \Log::error('Failed to resolve prescription attachment url', [
+                'prescription_id' => $this->id,
+                'path' => $this->attachment_path,
+                'error' => $e->getMessage(),
+            ]);
+            return null;
+        }
     }
 }
