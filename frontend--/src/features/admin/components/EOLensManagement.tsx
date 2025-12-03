@@ -54,7 +54,7 @@ const EOLensManagement: React.FC = () => {
   const [categories, setCategories] = useState<ProductCategory[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
-  const [stockFilter, setStockFilter] = useState<string>('all');
+  const [stockFilter, setStockFilter] = useState<'all' | 'in_stock' | 'low_stock' | 'out_of_stock'>('all');
   const [statistics, setStatistics] = useState<any>(null);
   const [pagination, setPagination] = useState({
     current_page: 1,
@@ -92,9 +92,14 @@ const EOLensManagement: React.FC = () => {
   const fetchLenses = async () => {
     try {
       setLoading(true);
+      const branchIdFilter =
+        selectedBranchId && selectedBranchId !== 'all'
+          ? Number(selectedBranchId)
+          : undefined;
+
       const filters: EOLensFilters = {
-        branch_id: selectedBranchId || undefined,
-        stock_status: stockFilter !== 'all' ? stockFilter as any : undefined,
+        branch_id: branchIdFilter,
+        stock_status: stockFilter !== 'all' ? stockFilter : undefined,
         search: searchTerm || undefined,
         per_page: 15,
       };
@@ -292,7 +297,7 @@ const EOLensManagement: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="category_id">Category</Label>
+                  <Label htmlFor="category_id">Product Category</Label>
                   <Select value={formData.category_id} onValueChange={(value) => setFormData({ ...formData, category_id: value })}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select category" />
@@ -604,7 +609,14 @@ const EOLensManagement: React.FC = () => {
                 className="pl-8"
               />
             </div>
-            <Select value={stockFilter} onValueChange={setStockFilter}>
+            <Select
+              value={stockFilter}
+              onValueChange={(value) =>
+                setStockFilter(
+                  value as 'all' | 'in_stock' | 'low_stock' | 'out_of_stock'
+                )
+              }
+            >
               <SelectTrigger className="w-[180px]">
                 <SelectValue placeholder="Filter by stock" />
               </SelectTrigger>

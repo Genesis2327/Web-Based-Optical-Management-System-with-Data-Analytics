@@ -181,8 +181,30 @@ export const ProductForm: React.FC<ProductFormProps> = ({
 
   // Handle form submission
   const onFormSubmit = async (data: ProductFormValues) => {
+    const {
+      name,
+      description,
+      price,
+      category_id,
+      stock_quantity,
+      is_active,
+      brand,
+      model,
+      sku,
+      branch_id,
+    } = data;
+
     const formData: ProductFormData = {
-      ...data,
+      name,
+      description,
+      price,
+      category_id,
+      stock_quantity,
+      is_active,
+      brand,
+      model,
+      sku,
+      branch_id,
       images: imageFiles.length > 0 ? imageFiles : undefined,
     };
 
@@ -245,7 +267,7 @@ export const ProductForm: React.FC<ProductFormProps> = ({
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {/* Category */}
               <div className="space-y-2">
-                <Label htmlFor="category_id">Category</Label>
+                <Label htmlFor="category_id">Product Category</Label>
                 <Select
                   value={watch('category_id')?.toString()}
                   onValueChange={(value) => setValue('category_id', parseInt(value))}

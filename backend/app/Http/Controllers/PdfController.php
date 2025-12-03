@@ -51,7 +51,7 @@ class PdfController extends Controller
             }
 
             // Load stored receipt data if available
-            $receipt = \App\Models\Receipt::with('items')->where('appointment_id', $appointment->id)->first();
+            $receipt = \App\Models\Receipt::with(['items', 'discountPackage'])->where('appointment_id', $appointment->id)->first();
 
             // Use receipt number from receipt if available, otherwise generate appointment-based
             $invoiceNumber = $receipt ? ($receipt->receipt_number ?? $receipt->invoice_number ?? str_pad($receipt->id, 4, '0', STR_PAD_LEFT)) : str_pad($appointment->id, 4, '0', STR_PAD_LEFT);
@@ -59,6 +59,12 @@ class PdfController extends Controller
             if ($receipt) {
                 // Calculate VAT amount if not directly available
                 $vatAmount = $receipt->vat_amount ?? ($receipt->add_vat ?? ($receipt->less_vat ?? 0));
+                
+                // Get discount type label
+                $discountType = $receipt->discount_type ?? null;
+                if (!$discountType && $receipt->discountPackage) {
+                    $discountType = $receipt->discountPackage->name;
+                }
                 
                 $data = [
                     'invoice_no' => $invoiceNumber,
@@ -83,6 +89,7 @@ class PdfController extends Controller
                     'net_of_vat' => (float) ($receipt->net_of_vat ?? ($receipt->vatable_sales ?? 0)),
                     'vat_exempt_sales' => (float) ($receipt->vat_exempt_sales ?? 0),
                     'discount' => (float) ($receipt->discount ?? 0),
+                    'discount_type' => $discountType,
                     'withholding_tax' => (float) ($receipt->withholding_tax ?? 0),
                     'total_due' => (float) ($receipt->total_due ?? 0),
                 ];
@@ -112,6 +119,7 @@ class PdfController extends Controller
                     'net_of_vat' => $vatableAmount,
                     'vat_exempt_sales' => 0.00,
                     'discount' => 0.00,
+                    'discount_type' => null,
                     'withholding_tax' => 0.00,
                     'total_due' => $baseAmount,
                 ];

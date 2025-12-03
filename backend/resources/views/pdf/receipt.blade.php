@@ -432,7 +432,11 @@
     <div class="remarks-section">
         <div class="section-title">Discount Remarks:</div>
         <div class="remarks-content">
-            Senior Citizen/PWD/NAAC/MOV/Solo Parent Discount Applied
+            @if(isset($discount_type) && $discount_type)
+                {{ $discount_type }} Discount Applied
+            @else
+                Discount Applied
+            @endif
         </div>
     </div>
     @endif

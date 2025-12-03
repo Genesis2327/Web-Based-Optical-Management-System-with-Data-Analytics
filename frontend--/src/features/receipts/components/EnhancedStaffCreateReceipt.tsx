@@ -51,6 +51,8 @@ interface Prescription {
   coating?: string;
   recommendations?: string;
   additional_notes?: string;
+  issue_date?: string;
+  expiry_date?: string;
   created_at: string;
 }
 
@@ -643,6 +645,13 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
 
   const onSubmit = async () => {
     try {
+      // Map discount type to human-readable label
+      const discountTypeLabel = discountType === 'pwd' 
+        ? 'PWD (Person with Disability)' 
+        : discountType === 'senior_citizen' 
+          ? 'Senior Citizen' 
+          : null;
+
       const payload = {
         appointment_id: appointmentId,
         sales_type: salesType,
@@ -651,6 +660,7 @@ export const EnhancedStaffCreateReceipt: React.FC<Props> = ({
         tin: tin || undefined,
         address: address || undefined,
         items,
+        discount_type: discountTypeLabel,
         totals: {
           vatable_sales: Number(computed.vatableSales.toFixed(2)),
           vat_amount: Number(computed.vatAmount.toFixed(2)),

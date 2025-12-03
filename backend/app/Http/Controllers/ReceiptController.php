@@ -46,6 +46,8 @@ class ReceiptController extends Controller
             'items.*.unit_price' => 'required|numeric|min:0',
             'items.*.amount' => 'required|numeric|min:0',
             'discount_rate' => 'nullable|numeric|min:0|max:1',
+            'discount_type' => 'nullable|string|max:100',
+            'discount_package_id' => 'nullable|exists:discount_packages,id',
             'totals.vatable_sales' => 'nullable|numeric|min:0',
             'totals.vat_amount' => 'nullable|numeric|min:0',
             'totals.zero_rated_sales' => 'nullable|numeric|min:0',
@@ -104,6 +106,8 @@ class ReceiptController extends Controller
                     'less_vat' => $vatAmount,
                     'add_vat' => $vatAmount,
                     'discount' => $discountAmount,
+                    'discount_type' => $validated['discount_type'] ?? null,
+                    'discount_package_id' => $validated['discount_package_id'] ?? null,
                     'withholding_tax' => $withholdingTax,
                     'total_due' => $totalDue,
                 ]
@@ -606,6 +610,8 @@ class ReceiptController extends Controller
             'items.*.unit_price' => 'required|numeric|min:0',
             'tax_rate' => 'numeric|min:0|max:1', // VAT rate (default 0.12 for 12%)
             'discount_rate' => 'nullable|numeric|min:0|max:1', // Discount rate
+            'discount_type' => 'nullable|string|max:100', // Discount type label
+            'discount_package_id' => 'nullable|exists:discount_packages,id',
             'withholding_tax_rate' => 'nullable|numeric|min:0|max:1', // Withholding tax rate
         ]);
 
@@ -614,7 +620,7 @@ class ReceiptController extends Controller
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
-        return DB::transaction(function () use ($validated, $appointment, $user) {
+        return DB::transaction(function () use ($validated, $appointment, $user, $request) {
             // Calculate amounts based on standardized formulas
             $taxRate = $validated['tax_rate'] ?? 0.12;
             $discountRate = $validated['discount_rate'] ?? 0.0;
@@ -659,6 +665,8 @@ class ReceiptController extends Controller
                 'less_vat' => $vatAmount,
                 'add_vat' => $vatAmount,
                 'discount' => $discountAmount,
+                'discount_type' => $validated['discount_type'] ?? null,
+                'discount_package_id' => $validated['discount_package_id'] ?? null,
                 'withholding_tax' => $withholdingTax,
                 'total_due' => $totalDue,
             ]);

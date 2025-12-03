@@ -632,7 +632,7 @@ const StaffProductManagement: React.FC = () => {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="gender">Gender</Label>
+                <Label htmlFor="gender">Category</Label>
                 <Select
                   value={formData.gender || ''}
                   onValueChange={(value) => {
@@ -641,7 +641,7 @@ const StaffProductManagement: React.FC = () => {
                   }}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select gender" />
+                    <SelectValue placeholder="Select category" />
                   </SelectTrigger>
                   <SelectContent>
                     {/* Use sentinel value instead of empty string to avoid Radix error */}

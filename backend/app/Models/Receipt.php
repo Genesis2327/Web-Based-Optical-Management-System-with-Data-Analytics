@@ -32,6 +32,8 @@ class Receipt extends Model
         'less_vat',
         'add_vat',
         'discount',
+        'discount_type',
+        'discount_package_id',
         'withholding_tax',
         'total_due',
         'payment_method',
@@ -149,6 +151,14 @@ class Receipt extends Model
     public function appointment(): BelongsTo
     {
         return $this->belongsTo(Appointment::class);
+    }
+
+    /**
+     * Get the discount package for this receipt
+     */
+    public function discountPackage(): BelongsTo
+    {
+        return $this->belongsTo(DiscountPackage::class);
     }
 
     /**

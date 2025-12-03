@@ -1261,22 +1261,22 @@ const ProductGallery: React.FC = () => {
         </div>
       )}
 
-      {/* Product Filters - Gender, Brand, Color, Shape, Size, Frame Material */}
+      {/* Product Filters - Category, Brand, Color, Shape, Size, Frame Material */}
       <div className="max-w-7xl mx-auto mb-4 sm:mb-6 lg:mb-8">
         <div className="bg-white/70 backdrop-blur-sm rounded-xl sm:rounded-2xl shadow-lg border border-white/20 p-4 sm:p-5 lg:p-6">
           <h3 className="text-sm sm:text-base font-semibold text-gray-800 mb-3 sm:mb-4">Product Filters</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-6 gap-3 sm:gap-4">
-            {/* Gender Filter */}
+            {/* Category Filter */}
             <div>
               <Label htmlFor="gender-filter" className="text-xs sm:text-sm font-medium text-gray-700 mb-1.5 block">
-                Gender
+                Category
               </Label>
               <Select value={selectedGender} onValueChange={setSelectedGender}>
                 <SelectTrigger id="gender-filter" className="w-full">
-                  <SelectValue placeholder="All Gender" />
+                  <SelectValue placeholder="All Categories" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Gender</SelectItem>
+                  <SelectItem value="all">All Categories</SelectItem>
                   <SelectItem value="men">Men&apos;s</SelectItem>
                   <SelectItem value="women">Women&apos;s</SelectItem>
                   <SelectItem value="kids">Kids</SelectItem>

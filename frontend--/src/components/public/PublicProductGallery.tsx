@@ -1441,18 +1441,18 @@ const PublicProductGallery: React.FC = () => {
                 </h3>
                 <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 ${activeFilterCount <= 4 ? 'xl:grid-cols-4' : 'xl:grid-cols-3 2xl:grid-cols-6'}`}>
                   
-                  {/* Gender Filter - Frames & Sunglasses */}
+                  {/* Category Filter - Frames & Sunglasses */}
                   {showGenderFilter && (
                     <div>
                       <Label htmlFor="gender-filter" className="text-xs sm:text-sm font-medium text-gray-700 mb-1.5 block">
-                        Gender
+                        Category
                       </Label>
                       <Select value={selectedGender} onValueChange={setSelectedGender}>
                         <SelectTrigger id="gender-filter" className="w-full">
-                          <SelectValue placeholder="All Gender" />
+                          <SelectValue placeholder="All Categories" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="all">All Gender</SelectItem>
+                          <SelectItem value="all">All Categories</SelectItem>
                           <SelectItem value="men">Men&apos;s</SelectItem>
                           <SelectItem value="women">Women&apos;s</SelectItem>
                           <SelectItem value="kids">Kids</SelectItem>

@@ -37,6 +37,7 @@ use App\Http\Controllers\ScheduleChangeRequestController;
 use App\Http\Controllers\StockReturnController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\PermissionController;
+use App\Http\Controllers\PolicyController;
 use App\Http\Controllers\UserGroupController;
 use App\Http\Controllers\UserController;
 
@@ -217,6 +218,8 @@ Route::get('/branches/active', [BranchController::class, 'getActiveBranches']); 
 Route::get('/branches/{branch}', [BranchController::class, 'show']); // Public - for customers (returns basic info without auth)
 Route::get('/optometrists', [OptometristController::class, 'index']); // Public - for scheduling
 Route::get('/appointments/availability', [App\Http\Controllers\AppointmentAvailabilityController::class, 'getAvailability']); // Public - for scheduling
+Route::get('/policies/privacy-policy', [PolicyController::class, 'getPrivacyPolicy']);
+Route::get('/policies/terms-conditions', [PolicyController::class, 'getTermsConditions']);
 
 // Optometrist rotation routes (public for customer viewing)
 Route::get('/optometrist-rotations', [OptometristRotationController::class, 'index']);
@@ -401,6 +404,11 @@ Route::get('/branches-test', function() {
 Route::get('/product-categories', [App\Http\Controllers\ProductCategoryController::class, 'index']);
 
 Route::middleware('auth:sanctum')->group(function () {
+    // Policy acceptance routes
+    Route::get('/policies/check-acceptance', [PolicyController::class, 'checkPolicyAcceptance']);
+    Route::post('/policies/privacy-policy/accept', [PolicyController::class, 'acceptPrivacyPolicy']);
+    Route::post('/policies/terms-conditions/accept', [PolicyController::class, 'acceptTerms']);
+
     // Admin analytics route
     Route::get('/admin/analytics', [App\Http\Controllers\AnalyticsController::class, 'getAdminAnalytics']);
     Route::get('/admin/products/analytics', [App\Http\Controllers\AnalyticsController::class, 'getProductAnalytics']);
@@ -409,6 +417,15 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware('admin')->group(function () {
         Route::get('/admin/central-inventory', [App\Http\Controllers\EnhancedInventoryController::class, 'getCentralInventory']);
         Route::get('/admin/central-inventory/analytics', [App\Http\Controllers\EnhancedInventoryController::class, 'getCentralInventoryAnalytics']);
+    });
+
+    // Policy management routes (Admin only)
+    Route::middleware('admin')->group(function () {
+        Route::get('/admin/policies', [PolicyController::class, 'index']);
+        Route::post('/admin/policies', [PolicyController::class, 'store']);
+        Route::get('/admin/policies/{policy}', [PolicyController::class, 'show']);
+        Route::put('/admin/policies/{policy}', [PolicyController::class, 'update']);
+        Route::post('/admin/policies/{policy}/activate', [PolicyController::class, 'activate']);
     });
     
     // Manufacturer routes

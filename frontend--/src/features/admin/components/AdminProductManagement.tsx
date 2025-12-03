@@ -23,6 +23,7 @@ interface Product {
   description: string;
   price: number;
   stock_quantity: number;
+  brand?: string | null;
   image_paths: string[];
   primary_image?: string;
   is_active: boolean;
@@ -1023,6 +1024,56 @@ const AdminProductManagement: React.FC = () => {
            COMPREHENSIVE RESPONSIVE MEDIA QUERIES
            ========================================== */
         
+        /* Product Grid - Uses CSS Grid with auto-fill for optimal responsiveness */
+        .product-grid-responsive {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+          gap: 1.5rem;
+          width: 100%;
+        }
+        
+        /* Ensure cards don't get too wide on very large screens */
+        @media (min-width: 1920px) {
+          .product-grid-responsive {
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+          }
+        }
+        
+        /* Mobile: single column */
+        @media (max-width: 639px) {
+          .product-grid-responsive {
+            grid-template-columns: 1fr;
+            gap: 1rem;
+          }
+        }
+        
+        /* Tablet: allow smaller cards */
+        @media (min-width: 640px) and (max-width: 1023px) {
+          .product-grid-responsive {
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 1.25rem;
+          }
+        }
+        
+        /* Product Card Styles */
+        .product-grid-responsive > div {
+          min-width: 0; /* Prevent grid blowout */
+          max-width: 100%;
+        }
+        
+        /* Card button container - ensure buttons wrap properly */
+        .product-card-actions {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.5rem;
+        }
+        
+        .product-card-actions > button {
+          flex: 1 1 auto;
+          min-width: 80px;
+          white-space: nowrap;
+        }
+        
         @media (max-width: 319px) {
           .admin-product-management-container {
             padding: 0.5rem;
@@ -1160,26 +1211,28 @@ const AdminProductManagement: React.FC = () => {
             
             {/* Product Filters */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-7 gap-3">
-              <Select value={categoryFilter} onValueChange={(value: any) => setCategoryFilter(value)}>
+              <div className="sm:col-span-2 lg:col-span-1">
+                <Select value={categoryFilter} onValueChange={(value: any) => setCategoryFilter(value)}>
+                  <SelectTrigger className="w-full whitespace-normal text-left leading-tight">
+                    <SelectValue placeholder="All Product Categories" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Product Categories</SelectItem>
+                    {categories.map(cat => (
+                      <SelectItem key={cat.id} value={cat.id.toString()}>
+                        {cat.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <Select value={genderFilter} onValueChange={(value: any) => setGenderFilter(value)}>
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="All Categories" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Categories</SelectItem>
-                  {categories.map(cat => (
-                    <SelectItem key={cat.id} value={cat.id.toString()}>
-                      {cat.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              
-              <Select value={genderFilter} onValueChange={(value: any) => setGenderFilter(value)}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="All Gender" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Gender</SelectItem>
                   <SelectItem value="men">Men&apos;s</SelectItem>
                   <SelectItem value="women">Women&apos;s</SelectItem>
                   <SelectItem value="kids">Kids</SelectItem>
@@ -1289,7 +1342,7 @@ const AdminProductManagement: React.FC = () => {
       </Card>
 
       {/* Products Grid/List */}
-      <div className={viewMode === 'grid' ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6' : 'space-y-4'}>
+      <div className={viewMode === 'grid' ? 'product-grid-responsive' : 'space-y-4'}>
               {(() => {
           console.log('Rendering products:', products.length, 'items');
           const product42 = products.find(p => p.id === 42);
@@ -1396,8 +1449,8 @@ const AdminProductManagement: React.FC = () => {
             .map(product => (
               viewMode === 'grid' ? (
                 // Grid View Card
-                <Card key={`product-grid-${product.id}-${refreshTrigger}-${product.price}-${product.name}`} className="group hover:shadow-lg transition-all duration-200 h-full flex flex-col border border-gray-200 hover:border-gray-300">
-                  <CardContent className="p-0 flex flex-col h-full">
+                <Card key={`product-grid-${product.id}-${refreshTrigger}-${product.price}-${product.name}`} className="group hover:shadow-lg transition-all duration-200 h-full flex flex-col border border-gray-200 hover:border-gray-300 overflow-hidden min-w-0">
+                  <CardContent className="p-0 flex flex-col h-full min-w-0">
                     {/* Product Image */}
                     <div className="aspect-[4/3] bg-gray-50 rounded-t-lg overflow-hidden relative">
                       {product.primary_image || (product.image_paths && product.image_paths[0]) ? (
@@ -1449,24 +1502,24 @@ const AdminProductManagement: React.FC = () => {
                     </div>
 
                     {/* Product Info */}
-                    <div className="p-4 flex flex-col flex-grow">
+                    <div className="p-4 flex flex-col flex-grow min-w-0 overflow-hidden">
                       {/* Product Name */}
-                      <h3 className="font-semibold text-lg text-gray-900 line-clamp-2 mb-2 leading-tight">
+                      <h3 className="font-semibold text-base sm:text-lg text-gray-900 line-clamp-2 mb-2 leading-tight break-words">
                         {product.name}
                         {product.id === 42 && <span className="text-xs text-blue-500 ml-2">(ID: {product.id})</span>}
                       </h3>
                       
                       {/* Description */}
                       {product.description && (
-                        <p className="text-gray-600 text-sm mb-3 line-clamp-2 leading-relaxed">
+                        <p className="text-gray-600 text-xs sm:text-sm mb-3 line-clamp-2 leading-relaxed break-words">
                           {product.description}
                         </p>
                       )}
                       
-                      {/* Gender and Lens Type Badges */}
-                      <div className="flex flex-wrap gap-2 mb-3">
+                      {/* Category and Lens Type Badges */}
+                      <div className="flex flex-wrap gap-1.5 sm:gap-2 mb-3">
                         {(product as any).gender && (
-                          <Badge variant="outline" className="text-xs">
+                          <Badge variant="outline" className="text-[10px] sm:text-xs px-1.5 sm:px-2">
                             {(product as any).gender === 'men' ? "Men's" : 
                              (product as any).gender === 'women' ? "Women's" : 
                              (product as any).gender === 'kids' ? "Kids" : 
@@ -1475,28 +1528,28 @@ const AdminProductManagement: React.FC = () => {
                           </Badge>
                         )}
                         {(product as any).lens_type && (
-                          <Badge variant="outline" className="text-xs">
+                          <Badge variant="outline" className="text-[10px] sm:text-xs px-1.5 sm:px-2">
                             {(product as any).lens_type.split('_').map((word: string) => 
                               word.charAt(0).toUpperCase() + word.slice(1)
                             ).join(' ')}
                           </Badge>
                         )}
                         {(product as any).category && (
-                          <Badge variant="secondary" className="text-xs">
+                          <Badge variant="secondary" className="text-[10px] sm:text-xs px-1.5 sm:px-2">
                             {(product as any).category.name}
                           </Badge>
                         )}
                       </div>
                       
                       {/* Price and Stock */}
-                      <div className="flex justify-between items-center mb-4">
-                        <div className="flex flex-col">
-                          <span className="text-xl font-bold text-blue-600">
+                      <div className="flex justify-between items-center mb-4 gap-2 flex-wrap">
+                        <div className="flex flex-col min-w-0">
+                          <span className="text-lg sm:text-xl font-bold text-blue-600 truncate">
                             ₱{Number(product.price || 0).toFixed(2)}
                           </span>
                         </div>
-                        <div className="flex items-center gap-1 text-sm text-gray-600 bg-gray-50 px-2 py-1 rounded-md">
-                          <Package className="w-4 h-4" />
+                        <div className="flex items-center gap-1 text-xs sm:text-sm text-gray-600 bg-gray-50 px-2 py-1 rounded-md flex-shrink-0">
+                          <Package className="w-3 h-3 sm:w-4 sm:h-4" />
                           <span className="font-medium">
                             {(product as any).total_stock || product.stock_quantity || 0}
                           </span>
@@ -1506,7 +1559,7 @@ const AdminProductManagement: React.FC = () => {
                       {/* Action Buttons */}
                       <div className="mt-auto space-y-2">
                         {/* Primary Actions */}
-                        <div className="flex gap-2">
+                        <div className="grid grid-cols-2 gap-2">
                           <Button
                             onClick={(e) => {
                               e.preventDefault();
@@ -1515,12 +1568,12 @@ const AdminProductManagement: React.FC = () => {
                             }}
                             variant="outline"
                             size="sm"
-                            className="flex-1 text-blue-600 hover:text-blue-700 hover:bg-blue-50 border-blue-200 hover:border-blue-300 transition-colors"
+                            className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 border-blue-200 hover:border-blue-300 transition-colors text-xs sm:text-sm px-2 sm:px-3"
                             title={`Edit ${product.name}`}
                             type="button"
                           >
-                            <Pencil className="w-4 h-4 mr-1" />
-                            Edit
+                            <Pencil className="w-3 h-3 sm:w-4 sm:h-4 mr-1 flex-shrink-0" />
+                            <span className="truncate">Edit</span>
                           </Button>
                           <Button
                             onClick={(e) => {
@@ -1529,39 +1582,39 @@ const AdminProductManagement: React.FC = () => {
                             }}
                             variant="outline"
                             size="sm"
-                            className={`flex-1 ${
+                            className={`text-xs sm:text-sm px-2 sm:px-3 ${
                               product.is_active 
                                 ? 'text-orange-600 hover:text-orange-700 hover:bg-orange-50 border-orange-200 hover:border-orange-300' 
                                 : 'text-green-600 hover:text-green-700 hover:bg-green-50 border-green-200 hover:border-green-300'
                             }`}
                             title={product.is_active ? 'Deactivate Product' : 'Activate Product'}
                           >
-                            {product.is_active ? <EyeOff className="w-4 h-4 mr-1" /> : <Eye className="w-4 h-4 mr-1" />}
-                            {product.is_active ? 'Deactivate' : 'Activate'}
+                            {product.is_active ? <EyeOff className="w-3 h-3 sm:w-4 sm:h-4 mr-1 flex-shrink-0" /> : <Eye className="w-3 h-3 sm:w-4 sm:h-4 mr-1 flex-shrink-0" />}
+                            <span className="truncate">{product.is_active ? 'Deactivate' : 'Activate'}</span>
                           </Button>
                         </div>
 
                         {/* Secondary Actions */}
-                        <div className="flex gap-2">
+                        <div className="grid grid-cols-2 gap-2">
                           <Button
                             onClick={(e) => handleManageStock(e, product)}
                             variant="outline"
                             size="sm"
-                            className="flex-1 text-green-600 hover:text-green-700 hover:bg-green-50 border-green-200 hover:border-green-300"
+                            className="text-green-600 hover:text-green-700 hover:bg-green-50 border-green-200 hover:border-green-300 text-xs sm:text-sm px-2 sm:px-3"
                             title="Manage Stock"
                           >
-                            <Building2 className="w-4 h-4 mr-1" />
-                            Stock
+                            <Building2 className="w-3 h-3 sm:w-4 sm:h-4 mr-1 flex-shrink-0" />
+                            <span className="truncate">Stock</span>
                           </Button>
                           <Button
                             onClick={(e) => handleDelete(e, product.id)}
                             variant="outline"
                             size="sm"
-                            className="flex-1 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200 hover:border-red-300"
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200 hover:border-red-300 text-xs sm:text-sm px-2 sm:px-3"
                             title="Delete Product"
                           >
-                            <Trash2 className="w-4 h-4 mr-1" />
-                            Delete
+                            <Trash2 className="w-3 h-3 sm:w-4 sm:h-4 mr-1 flex-shrink-0" />
+                            <span className="truncate">Delete</span>
                           </Button>
                         </div>
                       </div>
@@ -1636,7 +1689,7 @@ const AdminProductManagement: React.FC = () => {
                                 {product.description}
                               </p>
                             )}
-                            {/* Gender and Lens Type Badges */}
+                            {/* Category and Lens Type Badges */}
                             <div className="flex flex-wrap gap-2 mb-2">
                               {(product as any).gender && (
                                 <Badge variant="outline" className="text-xs">
@@ -1798,7 +1851,7 @@ const AdminProductManagement: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Category</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Product Category</label>
                   <Select 
                     value={formData.category_id || ''} 
                     onValueChange={(value) => {
@@ -1827,7 +1880,7 @@ const AdminProductManagement: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Gender</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Category</label>
                   <Select 
                     value={formData.gender || ''} 
                     onValueChange={(value) => {
@@ -1836,7 +1889,7 @@ const AdminProductManagement: React.FC = () => {
                     }}
                   >
                     <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Select gender" />
+                      <SelectValue placeholder="Select category" />
                     </SelectTrigger>
                     <SelectContent>
                       {/* Use sentinel value instead of empty string to avoid Radix error */}
