@@ -9,3 +9,8 @@
 /TODO_REGISTRATION_FIX.md
 /TODO_REMOVE_SALES_FROM_STAFF.md
 /TODO_ROLE_ROUTING_FIX.md
+
+# Environment files (never commit real secrets)
+.env
+.env.*
+!.env.example

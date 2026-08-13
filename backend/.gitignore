@@ -6,3 +6,9 @@ npm-debug.log
 # Keep websocket files but ignore node_modules
 websocket/node_modules/
 websocket/package-lock.json
+
+# Environment files (never commit real secrets)
+.env
+.env.backup
+.env.*
+!.env.example
