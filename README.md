@@ -161,37 +161,6 @@ The system was designed to reduce manual processes, improve data accuracy, strea
 </tr>
 </table>
 
----
-
-# 🖥️ System Preview
-
-> 📸 Add screenshots of your actual system below.
-
-### 📊 Analytics Dashboard
-
-<p align="center">
-  <img src="docs/screenshots/dashboard.png" width="90%" alt="Analytics Dashboard">
-</p>
-
-### 👤 Patient Management
-
-<p align="center">
-  <img src="docs/screenshots/patients.png" width="90%" alt="Patient Management">
-</p>
-
-### 📦 Inventory Management
-
-<p align="center">
-  <img src="docs/screenshots/inventory.png" width="90%" alt="Inventory Management">
-</p>
-
-### 🛒 Point of Sale
-
-<p align="center">
-  <img src="docs/screenshots/pos.png" width="90%" alt="Point of Sale">
-</p>
-
----
 
 # 🏗️ System Architecture
 
